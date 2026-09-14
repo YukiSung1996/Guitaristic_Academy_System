@@ -86,7 +86,7 @@
             const selectedValue = document.getElementById('studentSelect')?.value || '';
             const search = (document.getElementById('singleStudentSearch')?.value || '').trim().toLowerCase();
             const tutor = document.getElementById('singleStudentTutorFilter')?.value || 'ALL';
-            const items = [
+            const allItems = [
                 ...groupCourses.map((course, index) => ({
                     value: `GROUP_${index}`,
                     label: course.name,
@@ -103,10 +103,11 @@
                     search: `${student.id} ${student.name} ${student.phone || ''} ${student.email || ''} ${student.program}`.toLowerCase(),
                     group: false
                 }))
-            ].filter(item => (tutor === 'ALL' || item.tutor === tutor) && (!search || item.search.includes(search)));
+            ];
+            const items = allItems.filter(item => (tutor === 'ALL' || item.tutor === tutor) && (!search || item.search.includes(search)));
             picker.innerHTML = items.map(item => `<label class="single-student-option ${item.group ? 'group-option' : ''}"><input type="checkbox" value="${item.value}" ${item.value === selectedValue ? 'checked' : ''} onchange="selectSingleStudent(this)"><span><strong>${item.label}</strong><small>${item.detail}</small></span></label>`).join('') || '<span class="text-xs text-slate-500">沒有符合的學生或班際課程。</span>';
             const selection = document.getElementById('singleStudentSelection');
-            if (selection) selection.textContent = selectedValue ? `已選：${items.find(item => item.value === selectedValue)?.label || '目前項目'}` : '尚未選擇學生或班際課程。';
+            if (selection) selection.textContent = selectedValue ? `已選：${allItems.find(item => item.value === selectedValue)?.label || '目前項目'}` : '尚未選擇學生或班際課程。';
         }
 
         function selectSingleStudent(input) {
