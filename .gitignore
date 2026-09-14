@@ -1,0 +1,8 @@
+# Local editor and OS files
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local runtime exports
+*.ics
+*.json

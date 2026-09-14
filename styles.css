@@ -1,0 +1,23 @@
+﻿/* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .tab-btn.active {
+            color: #0284c7;
+            border-bottom-color: #0284c7;
+            background-color: #f0f9ff;
+        }
+        .cal-pill-eric { background-color: #fef9c3; color: #854d0e; border-left: 3px solid #eab308; }
+        .cal-pill-tony { background-color: #e0f2fe; color: #0369a1; border-left: 3px solid #0284c7; }
+        .cal-pill-leave { background-color: #fee2e2; color: #991b1b; border-left: 3px solid #ef4444; text-decoration: line-through; }
+        .cal-pill-makeup { background-color: #dcfce7; color: #166534; border-left: 3px solid #22c55e; }
+        .cal-pill-clash { background-color: #ffedd5; color: #9a3412; border-left: 3px solid #f97316; }
+        .single-student-option { display: flex; align-items: flex-start; gap: .5rem; padding: .55rem .65rem; border: 1px solid #d1fae5; border-radius: .65rem; background: #fff; cursor: pointer; transition: border-color .15s, background-color .15s; }
+        .single-student-option:hover { border-color: #34d399; background: #f0fdf4; }
+        .single-student-option input { margin-top: .15rem; accent-color: #059669; }
+        .single-student-option span { min-width: 0; display: flex; flex-direction: column; }
+        .single-student-option strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; color: #1e293b; }
+        .single-student-option small { color: #64748b; font-size: .7rem; margin-top: .15rem; }
+        .single-student-option.group-option { border-color: #bfdbfe; background: #eff6ff; }

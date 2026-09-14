@@ -1,0 +1,566 @@
+﻿<!DOCTYPE html>
+<html lang="zh-HK" class="h-full bg-slate-50">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Music Academy - 排堂與學生管理系統 v2.1 Pro</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        brand: { 50: '#f0fdf4', 100: '#dcfce7', 500: '#22c55e', 600: '#16a34a', 700: '#15803d' },
+                        primary: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1' }
+                    }
+                }
+            }
+        }
+    </script>
+        <link rel="stylesheet" href="styles.css">
+</head>
+<body class="h-full text-slate-800 flex flex-col font-sans antialiased">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-slate-900 text-white shadow-lg sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-300 flex items-center justify-center text-slate-900 text-xl font-black shadow-md">
+                        <i class="fa-solid font-bold fa-guitar"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-lg leading-tight tracking-tight">Demo Music Academy</h1>
+                        <p class="text-xs text-amber-400 font-medium">排堂與學生管理系統 v2.1 Pro</p>
+                    </div>
+                </div>
+
+                <!-- Quick Database Management Controls -->
+                <div class="flex items-center space-x-2">
+                    <button id="advancedDarkMode" class="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition">深色模式</button>
+                    <button onclick="exportJSONDatabase()" class="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-export text-emerald-400"></i>
+                        <span class="hidden sm:inline">備份資料 (JSON)</span>
+                    </button>
+                    <button onclick="document.getElementById('importJsonInput').click()" class="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-import text-sky-400"></i>
+                        <span class="hidden sm:inline">還原資料</span>
+                    </button>
+                    <input type="file" id="importJsonInput" accept=".json" class="hidden" onchange="importJSONDatabase(event)">
+                    <button onclick="resetToDefaultData()" class="px-3 py-1.5 text-xs font-semibold bg-rose-900/40 hover:bg-rose-900/60 text-rose-300 rounded-lg border border-rose-800/50 transition flex items-center gap-1.5" title="恢復預設學生名單">
+                        <i class="fa-solid fa-rotate-left"></i>
+                        <span class="hidden md:inline">重置</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- KPI Summary Dashboard -->
+    <div class="bg-white border-b border-slate-200 shadow-sm py-4">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80 flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center font-bold text-lg">
+                        <i class="fa-solid fa-users"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-500 font-medium">總登記學生</div>
+                        <div id="statTotalStudents" class="text-lg font-bold text-slate-800">0</div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80 flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-lg">
+                        <i class="fa-solid fa-calendar-check"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-500 font-medium">預覽月度總堂數</div>
+                        <div id="statTotalLessons" class="text-lg font-bold text-slate-800">0</div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80 flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center font-bold text-lg">
+                        <i class="fa-solid fa-arrow-rotate-right"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-500 font-medium">辦理補堂/請假</div>
+                        <div id="statMakeupCount" class="text-lg font-bold text-amber-600">0</div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80 flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center font-bold text-lg">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-500 font-medium">時間衝突/撞堂警報</div>
+                        <div id="statClashCount" class="text-lg font-bold text-rose-600">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content Navigation Tabs -->
+    <div class="bg-white border-b border-slate-200 sticky top-16 z-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex space-x-4 overflow-x-auto text-sm font-semibold text-slate-600">
+                <button onclick="switchTab('masterTab')" id="tab_masterTab" class="tab-btn active py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-calendar-days text-sky-500"></i>
+                    <span>全校時間表與總排堂預覽</span>
+                </button>
+                <button onclick="switchTab('studentTab')" id="tab_studentTab" class="tab-btn py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-id-card text-emerald-500"></i>
+                    <span>單一學生 / 班際排堂設定</span>
+                </button>
+                <button onclick="switchTab('databaseTab')" id="tab_databaseTab" class="tab-btn py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-database text-purple-500"></i>
+                    <span>學生名單庫 (CRUD 整合)</span>
+                </button>
+                <button onclick="switchTab('advancedPayrollTab')" id="tab_advancedPayrollTab" class="tab-btn py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-file-invoice-dollar text-amber-500"></i>
+                    <span>高級薪酬管理</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        <!-- TAB 1: MASTER SCHEDULE & CLASH DETECTION -->
+        <section id="masterTab" class="tab-content space-y-6">
+            
+            <!-- Filters & Batch Selection Card -->
+            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                            <i class="fa-solid fa-sliders text-sky-500"></i> 全校月度總時間表、即時調堂與衝突檢測
+                        </h2>
+                        <p class="text-xs text-slate-500 mt-0.5">選擇月份與導師以自動生成整合課堂，系統會自動標示同一導師的「撞堂」時段。</p>
+                    </div>
+
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button onclick="openMasterGoogleCalendar()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
+                            <i class="fa-solid fa-calendar-plus"></i> 加入 Google Calendar
+                        </button>
+                        <button onclick="downloadMasterICS()" title="在本地导出 .ics 文件，可用于 Google Calendar 批量导入" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
+                            <i class="fa-solid fa-file-arrow-down"></i> 導出 .ics（批量導入）
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Filter Inputs Row -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">目標月份：</label>
+                        <input type="month" id="batchMonth" value="2026-08" onchange="onBatchMonthChange()" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">篩選導師：</label>
+                        <select id="filterTutor" onchange="renderBatchCheckboxes()" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white">
+                            <option value="ALL">所有導師 (All Tutors)</option>
+                            <option value="Instructor A">Instructor A</option>
+                            <option value="Instructor B">Instructor B</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">搜尋關鍵字 (姓名/ID/電話/電郵)：</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-400"></i>
+                            <input type="text" id="batchSearch" placeholder="搜尋姓名、電話、電郵..." oninput="renderBatchCheckboxes()" class="w-full pl-8 pr-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button onclick="selectAllStudents(true)" class="flex-1 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition">全選</button>
+                        <button onclick="selectAllStudents(false)" class="flex-1 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition">全不選</button>
+                        <button onclick="generateMasterSchedule()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition shadow-md flex items-center justify-center gap-1">
+                            <i class="fa-solid fa-bolt"></i> 生成
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Student Checklist Selector Box -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">選取要包含在時間表內的學生：</label>
+                    <div id="batchStudentGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 max-h-48 overflow-y-auto p-3 bg-slate-50 rounded-xl border border-slate-200">
+                        <!-- Checkboxes dynamically rendered -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Schedule Display Container -->
+            <div id="masterScheduleWrapper" class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
+                
+                <!-- Schedule Controls Header -->
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div class="flex items-center gap-3">
+                        <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                            <i class="fa-solid fa-list-check text-sky-500"></i> 課堂時間總表
+                        </h3>
+
+                        <!-- View Switcher -->
+                        <div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 text-xs font-semibold">
+                            <button id="btnListView" onclick="switchView('list')" class="px-3 py-1 rounded-md active bg-white text-sky-600 shadow-sm transition">📋 清單</button>
+                            <button id="btnCalView" onclick="switchView('calendar')" class="px-3 py-1 rounded-md text-slate-600 transition">📅 月曆</button>
+                            <button id="btnWeekView" onclick="switchView('week')" class="px-3 py-1 rounded-md text-slate-600 transition">📆 週曆</button>
+                        </div>
+                    </div>
+
+                    <!-- Week Filter Dropdown (Visible for List & Week views) -->
+                    <div id="weekSelectContainer" class="flex items-center gap-2 text-xs">
+                        <span class="text-slate-500 font-medium">選擇週次：</span>
+                        <select id="weekSelect" onchange="onWeekSelectChange()" class="px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
+                            <option value="ALL">所有週次 (全月)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Clash Warning Banner -->
+                <div id="clashWarningBanner" class="hidden p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3 text-amber-800 text-xs font-medium">
+                    <i class="fa-solid fa-triangle-exclamation text-amber-500 text-base"></i>
+                    <div>
+                        <span class="font-bold">檢測到導師排堂時間重疊 (Clash Detected)！</span>
+                        <p class="text-amber-700 mt-0.5">請檢查標有 <span class="bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">⚠️ 撞堂重疊</span> 的課堂並為學生調整補堂時間。</p>
+                    </div>
+                </div>
+
+                <!-- Views -->
+                <div id="masterScheduleList" class="space-y-3 max-h-[600px] overflow-y-auto pr-1"></div>
+                <div id="masterCalendarView" class="hidden overflow-x-auto"></div>
+                <div id="masterWeekView" class="hidden overflow-x-auto"></div>
+            </div>
+        </section>
+
+        <!-- TAB 2: SINGLE STUDENT / GROUP SCHEDULING -->
+        <section id="studentTab" class="tab-content hidden space-y-6">
+            
+            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-5">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                            <i class="fa-solid fa-user-pen text-emerald-500"></i> 單一學生 / 班際課程詳細排堂設定
+                        </h2>
+                        <p class="text-xs text-slate-500">快速選擇學生、計算開班日日期、調整個別上課時間或設定歷史生效月份。</p>
+                    </div>
+                </div>
+
+                <!-- Student Checkbox Quick Selection -->
+                <div class="bg-emerald-50/60 p-4 rounded-xl border border-emerald-100 space-y-2">
+                    <label class="block text-xs font-bold text-emerald-900">快速載入學生 / 班際課程資料：</label>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <input id="singleStudentSearch" type="search" placeholder="搜尋學生 ID、姓名、電話或電郵..." oninput="renderSingleStudentPicker()" class="w-full px-3 py-2 text-sm border border-emerald-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white">
+                        <select id="singleStudentTutorFilter" onchange="renderSingleStudentPicker()" class="w-full px-3 py-2 text-sm border border-emerald-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white">
+                            <option value="ALL">全部導師</option>
+                        </select>
+                    </div>
+                    <div id="singleStudentPicker" class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto p-3 bg-white/70 rounded-xl border border-emerald-200"></div>
+                    <select id="studentSelect" onchange="loadStudentData()" class="hidden" aria-hidden="true" tabindex="-1">
+                        <option value="">-- 請選擇學生或班際課程 --</option>
+                    </select>
+                    <p id="singleStudentSelection" class="text-xs text-emerald-700">尚未選擇學生或班際課程。</p>
+                </div>
+
+                <!-- Dynamic Notice / Effective Status Banner -->
+                <div id="studentStatusNotice" class="hidden p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs space-y-1"></div>
+
+                <!-- Form Inputs Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">學生 / 班別 ID：</label>
+                        <input type="text" id="studentId" placeholder="例如: 0071" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">學生 / 班別名稱：</label>
+                        <input type="text" id="studentName" placeholder="例如: Student 001" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">電話號碼 Phone：</label>
+                        <input type="tel" id="studentPhone" placeholder="例如: 00000000" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">電郵地址 Email：</label>
+                        <input type="email" id="studentEmail" placeholder="例如: student@example.com" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">負責導師：</label>
+                        <select id="tutor" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white">
+                            <option value="Instructor A">Instructor A</option>
+                            <option value="Instructor B">Instructor B</option>
+                            <option value="Demo Music Academy">Demo Music Academy</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">級別與授課形式：</label>
+                        <input type="text" id="levelFormat" placeholder="例如: Pop Guitar - Intermediate 中級 (一對一)" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">起始目標月份：</label>
+                        <input type="month" id="targetMonth" value="2026-08" onchange="onTargetMonthChange()" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">開班起始日 (計算基準)：</label>
+                        <input type="date" id="startDateOverride" value="2026-08-01" onchange="autoCalculateDays(false)" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">常規星期幾：</label>
+                        <select id="dayOfWeek" onchange="autoCalculateDays(false)" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white">
+                            <option value="1">逢星期一 (Mon)</option>
+                            <option value="2">逢星期二 (Tue)</option>
+                            <option value="3">逢星期三 (Wed)</option>
+                            <option value="4">逢星期四 (Thu)</option>
+                            <option value="5">逢星期五 (Fri)</option>
+                            <option value="6">逢星期六 (Sat)</option>
+                            <option value="0">逢星期日 (Sun)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">上課時間 (HH:MM)：</label>
+                        <input type="time" id="startTime" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">課堂時長 (分鐘)：</label>
+                        <input type="number" id="duration" value="45" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+
+                    <div class="md:col-span-2 lg:col-span-3">
+                        <label class="block text-xs font-bold text-slate-600 mb-1">計算後 / 指定課堂日期 (以逗號分隔)：</label>
+                        <input type="text" id="customDays" placeholder="例如: 2026-08-03, 2026-08-10 或 4,11,18,25" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono text-xs">
+                        <p class="text-[11px] text-slate-400 mt-1">💡 系統會根據「開班起始日」自動計算整月日期，亦可手動輸入特定跨月日期。</p>
+                    </div>
+                </div>
+
+                <!-- Effective Change Rule Box -->
+                <div id="timeChangeContainer" class="bg-sky-50/70 border border-sky-200 p-4 rounded-xl space-y-2">
+                    <h4 class="font-bold text-sky-900 text-xs flex items-center gap-1.5">
+                        <i class="fa-solid fa-clock-rotate-left"></i> 時間變更並保留歷史紀錄
+                    </h4>
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-semibold text-slate-700">新時間生效月份：</span>
+                            <input type="month" id="effectiveMonth" value="2026-08" class="px-2.5 py-1.5 text-xs border border-sky-300 rounded-lg bg-white">
+                        </div>
+                        <p class="text-[11px] text-sky-700 flex-1">在此月份前維持舊時間；由此月份起（包含該月）將自動套用新選取的星期與時間。</p>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                    <button id="deleteBtn" onclick="deleteCurrentStudent()" class="hidden px-4 py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs font-bold rounded-xl transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-trash-can"></i> 刪除此學生
+                    </button>
+
+                    <div class="flex items-center gap-2 ml-auto">
+                        <button id="saveTimeBtn" onclick="updateStudentTimeConfig()" class="hidden px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-floppy-disk"></i> 保存新時間設定
+                        </button>
+                        <button onclick="generateSchedule()" class="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-calendar-plus"></i> 生成個人/班際課堂清單
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Single Result Card -->
+            <div id="resultCard" class="hidden bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-square-check text-emerald-500"></i> 單人排堂結果與匯出
+                    </h3>
+                    <button onclick="openSingleGoogleCalendar()" class="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-calendar-plus"></i> 加入 Google Calendar
+                    </button>
+                    <button onclick="downloadSingleICS()" title="在本地导出 .ics 文件，可用于 Google Calendar 批量导入" class="px-3.5 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-arrow-down"></i> 導出 .ics（批量導入）
+                    </button>
+                </div>
+                <div id="scheduleList" class="space-y-3"></div>
+            </div>
+        </section>
+
+        <!-- TAB 3: STUDENT DATABASE MANAGEMENT (INTEGRATED CRUD) -->
+        <section id="databaseTab" class="tab-content hidden space-y-6">
+            
+            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                            <i class="fa-solid fa-users-gear text-purple-600"></i> 全校學生資料庫管理 (Integrated Student CRUD)
+                        </h2>
+                        <p class="text-xs text-slate-500">即時新增、編輯、搜尋電話與電郵，並直接辦理排堂。</p>
+                    </div>
+
+                    <button onclick="openStudentModal()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
+                        <i class="fa-solid fa-user-plus"></i> + 新增學生
+                    </button>
+                </div>
+
+                <!-- Database Search Input -->
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400 text-xs"></i>
+                    <input type="text" id="dbSearch" placeholder="搜尋學生 ID、名字、電話、電郵、導師或課程..." oninput="renderStudentTable()" class="w-full pl-9 pr-4 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                </div>
+
+                <!-- Table Container -->
+                <div class="overflow-x-auto rounded-xl border border-slate-200">
+                    <table class="w-full text-left text-xs text-slate-700">
+                        <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider">
+                            <tr>
+                                <th class="p-3">學生 ID</th>
+                                <th class="p-3">姓名</th>
+                                <th class="p-3">聯絡電話 Phone</th>
+                                <th class="p-3">電郵 Email</th>
+                                <th class="p-3">課程 Program & Level</th>
+                                <th class="p-3">形式</th>
+                                <th class="p-3">導師</th>
+                                <th class="p-3">常規上課時間</th>
+                                <th class="p-3 text-right">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="studentTableBody" class="divide-y divide-slate-100">
+                            <!-- Table rows rendered via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section id="advancedPayrollTab" class="tab-content hidden space-y-6">
+            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div><h2 class="text-base font-bold text-slate-800">高級薪酬管理</h2><p class="text-xs text-slate-500">費率表、拆帳、調整項目、日曆紀錄與歷史封存。</p></div>
+                    <div class="flex flex-wrap items-center gap-2 text-xs"><label>月份 <input id="advancedPayrollMonth" type="month" class="p-2 border rounded-lg"></label><label>導師拆帳 <input id="advancedShare" type="number" min="0" max="100" class="w-20 p-2 border rounded-lg">%</label></div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button id="advancedImportStudents" class="px-3 py-2 bg-sky-600 text-white rounded-lg text-xs font-bold">匯入學生及課堂</button>
+                    <button id="advancedAddAdjustment" class="px-3 py-2 bg-amber-500 text-white rounded-lg text-xs font-bold">新增調整項目</button>
+                    <button id="advancedSaveArchive" class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold">封存本月糧單</button>
+                    <button id="advancedExport" class="px-3 py-2 bg-slate-700 text-white rounded-lg text-xs font-bold">導出薪酬 JSON</button>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div class="space-y-2"><label class="text-xs font-bold">手動日曆文字</label><textarea id="advancedManualLogs" rows="4" class="w-full p-2 border rounded-lg text-xs" placeholder="8/12 Joseph 1 堂&#10;8/19 Ella 1 堂"></textarea><div class="flex gap-2"><button id="advancedParseLogs" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-xs">解析手動紀錄</button><button id="advancedLoadIcs" class="px-3 py-2 bg-slate-600 text-white rounded-lg text-xs">讀取公開 ICS</button></div><p id="advancedSyncStatus" class="text-xs text-slate-500"></p></div>
+                    <div class="grid grid-cols-3 gap-2 text-center"><div class="p-3 bg-slate-50 rounded-lg"><span class="block text-xs text-slate-500">堂數</span><strong id="advancedLessons">0</strong></div><div class="p-3 bg-slate-50 rounded-lg"><span class="block text-xs text-slate-500">課程總額</span><strong id="advancedGross">HK$ 0.00</strong></div><div class="p-3 bg-amber-50 rounded-lg"><span class="block text-xs text-slate-500">導師應得</span><strong id="advancedPayout">HK$ 0.00</strong></div><div class="p-3 bg-slate-50 rounded-lg col-span-3"><span class="block text-xs text-slate-500">調整合計</span><strong id="advancedAdjustmentTotal">HK$ 0.00</strong></div></div>
+                </div>
+                <div class="table-wrap"><table><thead><tr><th>ID</th><th>學生</th><th>導師</th><th>堂數</th><th>每堂費率</th><th>課程總額</th><th>操作</th></tr></thead><tbody id="advancedPayrollBody"></tbody></table></div>
+                <h3 class="subheading">額外津貼 / 扣款</h3><div class="table-wrap"><table><thead><tr><th>項目</th><th>類型</th><th>金額</th><th>操作</th></tr></thead><tbody id="advancedAdjustmentsBody"></tbody></table></div>
+                <h3 class="subheading">歷史封存</h3><div class="table-wrap"><table><thead><tr><th>封存時間</th><th>月份</th><th>操作</th></tr></thead><tbody id="advancedArchivesBody"></tbody></table></div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Add / Edit Student Modal Dialog -->
+    <div id="studentModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in duration-150">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 id="modalTitle" class="font-bold text-slate-800 text-base flex items-center gap-2">
+                    <i class="fa-solid fa-user-plus text-emerald-500"></i> 新增學生資料
+                </h3>
+                <button onclick="closeStudentModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Modal Form Fields -->
+            <input type="hidden" id="editStudentIndex" value="-1">
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">學生 ID (如: 0212)*</label>
+                    <input type="text" id="modalId" placeholder="0212" class="w-full p-2 border border-slate-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">學生名字*</label>
+                    <input type="text" id="modalName" placeholder="Chan Tai Man" class="w-full p-2 border border-slate-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">聯絡電話 Phone*</label>
+                    <input type="tel" id="modalPhone" placeholder="00000000" class="w-full p-2 border border-slate-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">電郵地址 Email</label>
+                    <input type="email" id="modalEmail" placeholder="student@example.com" class="w-full p-2 border border-slate-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">授課形式</label>
+                    <select id="modalType" class="w-full p-2 border border-slate-300 rounded-lg bg-white">
+                        <option value="一對一">一對個別授課 Individual</option>
+                        <option value="2人小組">2人小組授課</option>
+                        <option value="3人小組">3人小組授課</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">課程類別 (Program)</label>
+                    <input type="text" id="modalProgram" placeholder="Pop Guitar" class="w-full p-2 border border-slate-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">級別 (Level)</label>
+                    <input type="text" id="modalLevel" placeholder="Grade 3 / 初級" class="w-full p-2 border border-slate-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">負責導師</label>
+                    <select id="modalTutor" class="w-full p-2 border border-slate-300 rounded-lg bg-white">
+                        <option value="Instructor A">Instructor A</option>
+                        <option value="Instructor B">Instructor B</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">常規星期</label>
+                    <select id="modalWeekday" class="w-full p-2 border border-slate-300 rounded-lg bg-white">
+                        <option value="1">星期一</option>
+                        <option value="2">星期二</option>
+                        <option value="3">星期三</option>
+                        <option value="4">星期四</option>
+                        <option value="5">星期五</option>
+                        <option value="6">星期六</option>
+                        <option value="0">星期日</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">上課時間 (HH:MM)</label>
+                    <input type="time" id="modalTime" value="16:00" class="w-full p-2 border border-slate-300 rounded-lg">
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="block font-bold text-slate-600 mb-1">課堂時長 (分鐘)</label>
+                    <input type="number" id="modalDuration" value="45" class="w-full p-2 border border-slate-300 rounded-lg">
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button onclick="closeStudentModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
+                <button onclick="saveStudentFromModal()" class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition">儲存資料</button>
+            </div>
+        </div>
+    </div>
+    <script src="data.js"></script>
+    <script src="art-rate-data.js"></script>
+    <script src="state.js"></script>
+    <script src="app.js"></script>
+    <script src="payroll-advanced.js"></script>
+</body>
+</html>
+
