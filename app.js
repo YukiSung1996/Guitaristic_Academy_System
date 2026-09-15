@@ -1,28 +1,62 @@
 ﻿window.onload = function() {
-            const stored = localStorage.getItem('demo_music_academy_students_v1');
-            if (stored) {
-                try {
-                    studentDatabase = JSON.parse(stored);
-                } catch(e) {
-                    studentDatabase = [...defaultStudents];
-                }
-            } else {
-                studentDatabase = [...defaultStudents];
-                saveToLocalStorage();
+            // v2：所有資料經 lib/storage.js 讀寫（新 key；舊 key 兼容讀取自動遷移；損壞 JSON 不白屏）
+            gacStore = GACStorage.createStore(window.localStorage);
+            studentDatabase = gacStore.loadStudents(defaultStudents);
+            lessonsByMonth = gacStore.loadLessons();
+            sendLog = gacStore.loadSendlog();
+            appSettings = gacStore.loadSettings();
+            if (gacStore.errors.length) {
+                alert('⚠️ 部分本機資料載入失敗（已回退預設值）：\n' + gacStore.errors.join('\n'));
             }
 
-            const todayStr = new Date().toISOString().slice(0, 7) + "-01";
-            document.getElementById('startDateOverride').value = todayStr;
+            const monthStr = localDateStr(new Date()).slice(0, 7);
+            document.getElementById('startDateOverride').value = monthStr + '-01';
+            document.getElementById('batchMonth').value = monthStr;
+            document.getElementById('targetMonth').value = monthStr;
+            document.getElementById('effectiveMonth').value = monthStr;
 
             populateSelectOptions();
             renderBatchCheckboxes();
             renderStudentTable();
-            updateDashboardKPIs();
+            rebuildMonthContext();
+            renderAll();
         };
 
         function saveToLocalStorage() {
-            localStorage.setItem('demo_music_academy_students_v1', JSON.stringify(studentDatabase));
+            gacStore.saveStudents(studentDatabase);
             updateDashboardKPIs();
+        }
+
+        function persistLessons() {
+            gacStore.saveLessons(lessonsByMonth);
+        }
+
+        function localDateStr(d) {
+            return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        }
+
+        function currentMonthKey() {
+            return document.getElementById('batchMonth').value;
+        }
+
+        function currentMonthLessons() {
+            return lessonsByMonth[currentMonthKey()] || [];
+        }
+
+        function sortedMonthLessons() {
+            return [...currentMonthLessons()].sort((a, b) =>
+                (a.date + ' ' + a.time + ' ' + a.studentId).localeCompare(b.date + ' ' + b.time + ' ' + b.studentId));
+        }
+
+        // Date 物件只在渲染時重建，儲存層一律是字串（date/time）
+        function lessonStart(lesson) {
+            const [y, m, d] = lesson.date.split('-').map(Number);
+            const [h, min] = lesson.time.split(':').map(Number);
+            return new Date(y, m - 1, d, h, min, 0);
+        }
+
+        function lessonEnd(lesson) {
+            return new Date(lessonStart(lesson).getTime() + (Number(lesson.duration) || 45) * 60000);
         }
 
         // Navigation Tab Switching
@@ -120,20 +154,17 @@
 
         function updateDashboardKPIs() {
             document.getElementById('statTotalStudents').textContent = studentDatabase.length;
-            document.getElementById('statTotalLessons').textContent = masterScheduleEvents.length;
+            const lessons = currentMonthLessons();
+            document.getElementById('statTotalLessons').textContent = lessons.length;
 
-            const makeupCount = masterScheduleEvents.filter(e => e.status === 'MAKEUP' || e.status === 'LEAVE').length;
+            const makeupCount = lessons.filter(l => l.status === 'LEAVE' || l.isMakeup).length;
             document.getElementById('statMakeupCount').textContent = makeupCount;
 
-            const clashCount = masterScheduleEvents.filter(e => e.isClash).length;
+            const clashCount = GACSchedule.detectClashes(lessons).size;
             document.getElementById('statClashCount').textContent = clashCount;
 
             const banner = document.getElementById('clashWarningBanner');
-            if (clashCount > 0) {
-                banner.classList.remove('hidden');
-            } else {
-                banner.classList.add('hidden');
-            }
+            banner.classList.toggle('hidden', clashCount === 0);
         }
 
         function getFullDatesFromStart(startDateStr, weekday, totalLessons) {
@@ -357,92 +388,55 @@
             return days;
         }
 
+        // v2：生成 = merge 而非 wipe。已存在的課保留其狀態與補堂鏈接，只新增缺失的；
+        // 刪除範圍僅限「本次勾選的學生 ∪ 已從資料庫移除的學生」中仍是 SCHEDULED 的課。
         function generateMasterSchedule() {
-            const batchMonthVal = document.getElementById('batchMonth').value;
-            if (!batchMonthVal) return;
+            const monthKey = currentMonthKey();
+            if (!monthKey) return;
 
-            const [year, month] = batchMonthVal.split('-').map(Number);
             const checkboxes = document.querySelectorAll('.batch-student-chk:checked');
-            
             if (checkboxes.length === 0) {
                 alert('請至少勾選一名常規學生！');
                 return;
             }
 
-            masterScheduleEvents = [];
+            const selectedStudents = [...checkboxes].map(chk => studentDatabase[parseInt(chk.value)]).filter(Boolean);
+            const generated = [];
+            selectedStudents.forEach(s => generated.push(...GACSchedule.generateMonthLessons(s, monthKey)));
 
-            checkboxes.forEach(chk => {
-                const student = studentDatabase[parseInt(chk.value)];
-                const sched = getStudentScheduleForMonth(student, batchMonthVal);
-                const days = getMonthDaysForWeekday(year, month, sched.weekday);
-                const formattedMonthYear = `${String(month).padStart(2, '0')}/${year}`;
-                const totalRegular = days.length;
-
-                days.forEach((day, idx) => {
-                    const lessonNum = idx + 1;
-                    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                    const [lHours, lMinutes] = sched.time.split(':').map(Number);
-                    const startDateTime = new Date(year, month - 1, day, lHours, lMinutes, 0);
-                    const endDateTime = new Date(startDateTime.getTime() + student.duration * 60000);
-
-                    const title = `${student.id} ${student.name}([${lessonNum}/${totalRegular}] ${formattedMonthYear})`;
-
-                    masterScheduleEvents.push({
-                        id: `${student.id}_${idx}_${dateStr}`,
-                        studentId: student.id,
-                        studentName: student.name,
-                        phone: student.phone || '',
-                        email: student.email || '',
-                        lessonNum: lessonNum,
-                        totalRegular: totalRegular,
-                        monthYearStr: formattedMonthYear,
-                        tutor: student.tutor,
-                        levelFormat: `${student.program} - ${student.level} (${student.type})`,
-                        dateStr: dateStr,
-                        timeStr: sched.time,
-                        duration: student.duration,
-                        start: startDateTime,
-                        end: endDateTime,
-                        status: 'NORMAL',
-                        leaveType: '',
-                        isClash: false,
-                        title: title
-                    });
-                });
+            const res = GACSchedule.mergeMonthLessons(currentMonthLessons(), generated, {
+                selectedStudentIds: selectedStudents.map(s => s.id),
+                allStudentIds: studentDatabase.map(s => s.id)
             });
 
-            // Run Clash Detector
-            detectScheduleClashes();
+            if (res.lessons.length) lessonsByMonth[monthKey] = res.lessons;
+            else delete lessonsByMonth[monthKey];
+            persistLessons();
 
+            rebuildMonthContext();
+            renderAll();
+
+            let msg = `✅ ${monthKey} 課表已生成（merge 模式，不會清空既有狀態）：\n• 新增 ${res.added.length} 堂\n• 保留 ${res.lessons.length - res.added.length} 堂`;
+            if (res.removed.length) {
+                msg += `\n• 刪除 ${res.removed.length} 堂（僅限仍是「已排課」、且學生已移除/改時間的課）`;
+            }
+            if (res.conflicts.length) {
+                msg += `\n\n⚠️ 以下 ${res.conflicts.length} 堂已有狀態，生成邏輯不會改動，請人工處理：\n` +
+                    res.conflicts.map(c => `  • ${c.lesson.date} ${c.lesson.time} ${c.lesson.studentName}（${c.lesson.status}）`).join('\n');
+            }
+            alert(msg);
+        }
+
+        function rebuildMonthContext() {
+            const monthKey = currentMonthKey();
+            if (!monthKey) return;
+            const [year, month] = monthKey.split('-').map(Number);
             buildMonthWeeksData(year, month);
-            sortAndRenderMasterSchedule();
+        }
+
+        function renderAll() {
             updateDashboardKPIs();
-        }
-
-        // Clash Detection Logic: Checks if tutor has overlapping timeslots
-        function detectScheduleClashes() {
-            for (let i = 0; i < masterScheduleEvents.length; i++) {
-                masterScheduleEvents[i].isClash = false;
-            }
-
-            for (let i = 0; i < masterScheduleEvents.length; i++) {
-                for (let j = i + 1; j < masterScheduleEvents.length; j++) {
-                    const e1 = masterScheduleEvents[i];
-                    const e2 = masterScheduleEvents[j];
-
-                    if (e1.tutor === e2.tutor && e1.dateStr === e2.dateStr && e1.status !== 'LEAVE' && e2.status !== 'LEAVE') {
-                        // Check time overlap: start1 < end2 AND start2 < end1
-                        if (e1.start < e2.end && e2.start < e1.end) {
-                            e1.isClash = true;
-                            e2.isClash = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        function sortAndRenderMasterSchedule() {
-            masterScheduleEvents.sort((a, b) => a.start - b.start);
+            renderPendingPool();
             renderMasterScheduleList();
             renderMasterCalendarView();
             renderMasterWeekView();
@@ -522,98 +516,175 @@
 
         function renderMasterScheduleList() {
             const listContainer = document.getElementById('masterScheduleList');
-            listContainer.innerHTML = '';
+            const monthKey = currentMonthKey();
+            const allLessons = sortedMonthLessons();
+            const clashIds = GACSchedule.detectClashes(allLessons);
 
             const weekVal = document.getElementById('weekSelect').value;
-            let filteredEvents = [...masterScheduleEvents];
-
+            let filtered = allLessons;
             if (weekVal !== 'ALL' && monthWeeksData && monthWeeksData[parseInt(weekVal)]) {
                 const selectedWeekDays = monthWeeksData[parseInt(weekVal)].filter(d => d !== null);
                 const startDateStr = selectedWeekDays[0].dateString;
                 const endDateStr = selectedWeekDays[selectedWeekDays.length - 1].dateString;
-                filteredEvents = filteredEvents.filter(ev => ev.dateStr >= startDateStr && ev.dateStr <= endDateStr);
+                filtered = filtered.filter(l => l.date >= startDateStr && l.date <= endDateStr);
             }
 
-            if (filteredEvents.length === 0) {
-                listContainer.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs">⚠️ 所選範圍內無排定課堂。</div>`;
+            if (filtered.length === 0) {
+                listContainer.innerHTML = allLessons.length === 0
+                    ? `<div class="text-center py-8 text-slate-400 text-xs">📭 ${monthKey} 尚未生成課表。勾選學生後按「生成」；重複生成採 merge 模式，不會覆蓋已有狀態。</div>`
+                    : `<div class="text-center py-8 text-slate-400 text-xs">⚠️ 所選範圍內無排定課堂。</div>`;
                 return;
             }
 
-            filteredEvents.forEach((ev) => {
-                const originalIndex = masterScheduleEvents.findIndex(e => e.id === ev.id);
-                const formatISO = (d) => d.getFullYear() +
-                    String(d.getMonth() + 1).padStart(2, '0') +
-                    String(d.getDate()).padStart(2, '0') + 'T' +
-                    String(d.getHours()).padStart(2, '0') +
-                    String(d.getMinutes()).padStart(2, '0') + '00';
+            listContainer.innerHTML = filtered.map(l => renderLessonRow(l, clashIds.has(l.lessonId))).join('');
+        }
 
-                let details = `導師：${ev.tutor}\n級別：${ev.levelFormat}`;
-                if (ev.phone) details += `\n電話：${ev.phone}`;
-                if (ev.email) details += `\n電郵：${ev.email}`;
-                if (ev.status === 'MAKEUP') details += `\n備註：Make up class`;
-                if (ev.status === 'LEAVE') details += `\n狀態：請假取消 [${getLeaveText(ev.leaveType)}]`;
+        // 從補堂課的 originLessonId（"S001-20260908-2130"）還原出原課日期時間文字
+        function originDateText(lesson) {
+            const c = String(lesson.originLessonId).slice(String(lesson.studentId).length + 1);
+            return `${c.slice(0, 4)}-${c.slice(4, 6)}-${c.slice(6, 8)} ${c.slice(9, 11)}:${c.slice(11, 13)}`;
+        }
 
-                const locationStr = getLocationText(ev.status, ev.leaveType);
-                const gcalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(ev.title)}&dates=${formatISO(ev.start)}/${formatISO(ev.end)}&details=${encodeURIComponent(details)}&location=${encodeURIComponent(locationStr)}`;
+        function makeupInfoText(lesson) {
+            const f = GACLessonState.findLesson(lessonsByMonth, lesson.makeupLessonId);
+            return f ? `${f.lesson.date} ${f.lesson.time}` : lesson.makeupLessonId;
+        }
 
-                let bgClass = "bg-sky-50/50 border-l-4 border-sky-500";
-                if (ev.status === 'LEAVE') bgClass = "bg-rose-50/50 border-l-4 border-rose-500";
-                if (ev.status === 'MAKEUP') bgClass = "bg-emerald-50/50 border-l-4 border-emerald-500";
-                if (ev.isClash) bgClass = "bg-amber-50 border-l-4 border-amber-500 ring-1 ring-amber-300";
+        function renderLessonRow(lesson, isClash) {
+            const id = lesson.lessonId;
+            const start = lessonStart(lesson);
+            const end = lessonEnd(lesson);
+            const title = GACSchedule.lessonTitle(lesson);
+            const locationStr = getLocationText(lesson);
 
-                const itemHtml = `
-                    <div class="${bgClass} p-3 rounded-r-xl border-y border-r border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-                        <div class="space-y-1 flex-1">
-                            <div class="flex items-center gap-1.5 flex-wrap">
-                                ${ev.isClash ? `<span class="bg-amber-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">⚠️ 撞堂重疊</span>` : ''}
-                                ${ev.status === 'LEAVE' ? `<span class="bg-rose-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">已請假 (${ev.leaveType})</span>` : ''}
-                                ${ev.status === 'MAKEUP' ? `<span class="bg-emerald-600 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">MU 補堂</span>` : ''}
-                                <span class="bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-semibold text-[10px]">${ev.tutor}</span>
-                                <strong class="text-slate-800">${ev.start.getFullYear()}年${ev.start.getMonth()+1}月${ev.start.getDate()}日 (${getWeekdayName(ev.start.getDay())})</strong>
-                                <span class="text-sky-700 font-bold">${ev.timeStr}</span>
-                                <span class="font-bold text-slate-900">${ev.studentName}</span> (${ev.studentId})
-                                ${ev.phone ? `<span class="text-slate-500 text-[11px]"><i class="fa-solid fa-phone text-[10px] text-slate-400"></i> ${ev.phone}</span>` : ''}
-                            </div>
-                            <div class="text-slate-500 text-[11px]">📅 ${ev.title} ${locationStr ? `| 📍 地點: ${locationStr}` : ''} ${ev.email ? `| ✉️ ${ev.email}` : ''}</div>
+            const formatISO = (d) => d.getFullYear() +
+                String(d.getMonth() + 1).padStart(2, '0') +
+                String(d.getDate()).padStart(2, '0') + 'T' +
+                String(d.getHours()).padStart(2, '0') +
+                String(d.getMinutes()).padStart(2, '0') + '00';
 
-                            <!-- Reschedule Box -->
-                            <div id="masterRescheduleBox_${originalIndex}" class="hidden pt-2 border-t border-slate-200 mt-2 space-y-2">
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <span>假別:</span>
-                                    <select id="masterLeaveType_${originalIndex}" class="p-1 border rounded bg-white">
-                                        <option value="L">L - 事假 (Leave)</option>
-                                        <option value="SL">SL - 病假 (Sick Leave)</option>
-                                        <option value="TL">TL - 導師請假 (Tutor Leave)</option>
-                                    </select>
-                                    <span>補堂日期:</span>
-                                    <input type="date" id="masterNewDate_${originalIndex}" value="${ev.dateStr}" class="p-1 border rounded bg-white">
-                                    <span>時間:</span>
-                                    <input type="time" id="masterNewTime_${originalIndex}" value="${ev.timeStr}" class="p-1 border rounded bg-white">
-                                    <button onclick="saveMasterReschedule(${originalIndex})" class="px-2 py-1 bg-emerald-600 text-white rounded font-bold">確認補堂</button>
-                                    <button onclick="toggleMasterRescheduleBox(${originalIndex})" class="px-2 py-1 bg-slate-200 text-slate-700 rounded">取消</button>
-                                </div>
-                            </div>
+            let details = `導師：${lesson.tutor}\n級別：${lesson.program} - ${lesson.level} (${lesson.classType})`;
+            if (lesson.phone) details += `\n電話：${lesson.phone}`;
+            if (lesson.email) details += `\n電郵：${lesson.email}`;
+            if (lesson.isMakeup) details += `\n備註：Make up class`;
+            if (lesson.status === 'LEAVE') details += `\n狀態：請假取消 [${getLeaveText(lesson.leaveType)}]`;
+            const gcalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${formatISO(start)}/${formatISO(end)}&details=${encodeURIComponent(details)}&location=${encodeURIComponent(locationStr)}`;
+
+            let bgClass = "bg-sky-50/50 border-l-4 border-sky-500";
+            if (lesson.status === 'ATTENDED') bgClass = "bg-emerald-50/40 border-l-4 border-emerald-500";
+            if (lesson.isMakeup) bgClass = "bg-emerald-50/50 border-l-4 border-emerald-600";
+            if (lesson.status === 'NOSHOW') bgClass = "bg-purple-50/50 border-l-4 border-purple-500";
+            if (lesson.status === 'LEAVE') bgClass = "bg-rose-50/50 border-l-4 border-rose-500";
+            if (isClash) bgClass = "bg-amber-50 border-l-4 border-amber-500 ring-1 ring-amber-300";
+
+            const badges = [];
+            if (isClash) badges.push(`<span class="bg-amber-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">⚠️ 撞堂重疊</span>`);
+            if (lesson.isMakeup) badges.push(`<span class="bg-emerald-600 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">MU 補堂</span>`);
+            if (lesson.status === 'ATTENDED') badges.push(`<span class="bg-emerald-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">✓ 已上課</span>`);
+            if (lesson.status === 'NOSHOW') badges.push(`<span class="bg-purple-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">NS 缺席</span>`);
+            if (lesson.status === 'LEAVE') {
+                badges.push(`<span class="bg-rose-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">已請假 (${lesson.leaveType})</span>`);
+                badges.push(lesson.makeupLessonId
+                    ? `<span class="bg-emerald-100 text-emerald-800 font-semibold px-1.5 py-0.5 rounded text-[10px]">已排補堂 → ${makeupInfoText(lesson)}</span>`
+                    : `<span class="bg-amber-100 text-amber-800 font-semibold px-1.5 py-0.5 rounded text-[10px]">⏳ 待補堂</span>`);
+            }
+
+            // 兩步拆分：請假只選假別；補堂另按（可稍後從待補堂池再排）
+            let boxes = '';
+            if (lesson.status === 'SCHEDULED') {
+                boxes += `
+                    <div id="leaveBox_${id}" class="hidden pt-2 border-t border-slate-200 mt-2">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span>假別:</span>
+                            <select id="leaveType_${id}" class="p-1 border rounded bg-white">
+                                <option value="L">L - 事假 (Leave)</option>
+                                <option value="SL">SL - 病假 (Sick Leave)</option>
+                                <option value="TL">TL - 導師請假 (Tutor Leave)</option>
+                            </select>
+                            <button onclick="confirmLeave('${id}')" class="px-2 py-1 bg-rose-600 text-white rounded font-bold">確認請假</button>
+                            <button onclick="toggleLessonBox('leave','${id}')" class="px-2 py-1 bg-slate-200 text-slate-700 rounded">取消</button>
+                            <span class="text-[10px] text-slate-400">補堂時間可稍後再定（請假後進入待補堂池）</span>
                         </div>
-
-                        <div class="flex items-center gap-1.5 self-end md:self-center">
-                            ${ev.status === 'LEAVE' ? `<button onclick="copyLeaveMsgMaster(${originalIndex})" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> 複製請假</button><button onclick="openWhatsAppMessage(${originalIndex}, 'leave')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填請假訊息"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>` : ''}
-                            ${ev.status === 'MAKEUP' ? `<button onclick="copyMakeupMsgMaster(${originalIndex})" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> 複製補堂</button><button onclick="openWhatsAppMessage(${originalIndex}, 'makeup')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填補堂訊息"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>` : ''}
-                            ${ev.status === 'NORMAL' ? `<button onclick="toggleMasterRescheduleBox(${originalIndex})" class="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-pen"></i> 請假/調堂</button>` : ''}
-                            <a href="${gcalUrl}" target="_blank" class="px-2.5 py-1.5 ${ev.status === 'LEAVE' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white rounded-lg font-semibold flex items-center gap-1">
-                                <i class="fa-solid fa-calendar-plus"></i> ${ev.status === 'LEAVE' ? '請假紀錄' : '+ Calendar'}
-                            </a>
+                    </div>`;
+            }
+            if (lesson.status === 'LEAVE' && !lesson.makeupLessonId) {
+                boxes += `
+                    <div id="makeupBox_${id}" class="hidden pt-2 border-t border-slate-200 mt-2">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span>補堂日期:</span>
+                            <input type="date" id="makeupDate_${id}" value="${lesson.date}" class="p-1 border rounded bg-white">
+                            <span>時間:</span>
+                            <input type="time" id="makeupTime_${id}" value="${lesson.time}" class="p-1 border rounded bg-white">
+                            <button onclick="submitMakeup('${id}','makeupDate_${id}','makeupTime_${id}')" class="px-2 py-1 bg-emerald-600 text-white rounded font-bold">確認補堂</button>
+                            <button onclick="toggleLessonBox('makeup','${id}')" class="px-2 py-1 bg-slate-200 text-slate-700 rounded">取消</button>
                         </div>
+                    </div>`;
+            }
+
+            const btns = [];
+            if (lesson.status === 'SCHEDULED') {
+                btns.push(`<button onclick="markLessonStatus('${id}','ATTENDED')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold flex items-center gap-1" title="確認學生已上課"><i class="fa-solid fa-check"></i> 出席</button>`);
+                btns.push(`<button onclick="markLessonStatus('${id}','NOSHOW')" class="px-2.5 py-1.5 bg-purple-100 hover:bg-purple-200 text-purple-800 rounded-lg font-semibold flex items-center gap-1" title="學生缺席 No Show"><i class="fa-solid fa-user-slash"></i> NS</button>`);
+                btns.push(`<button onclick="toggleLessonBox('leave','${id}')" class="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-pen"></i> 請假</button>`);
+                if (lesson.isMakeup) btns.push(`<button onclick="cancelMakeupUI('${id}')" class="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg font-semibold flex items-center gap-1" title="取消此補堂，原請假課回到待補堂池"><i class="fa-solid fa-xmark"></i> 取消補堂</button>`);
+            } else {
+                if (lesson.status === 'LEAVE' && !lesson.makeupLessonId) {
+                    btns.push(`<button onclick="toggleLessonBox('makeup','${id}')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-calendar-plus"></i> 安排補堂</button>`);
+                }
+                btns.push(`<button onclick="markLessonStatus('${id}','SCHEDULED')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-semibold flex items-center gap-1" title="撤銷狀態，還原為已排課"><i class="fa-solid fa-rotate-left"></i> 還原</button>`);
+            }
+            if (lesson.status === 'LEAVE') {
+                btns.push(`<button onclick="copyLeaveMsgMaster('${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> 複製請假</button>`);
+                btns.push(`<button onclick="openWhatsAppMessage('${id}', 'leave')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填請假訊息"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`);
+            }
+            if (lesson.isMakeup && lesson.status !== 'LEAVE') {
+                btns.push(`<button onclick="copyMakeupMsgMaster('${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> 複製補堂</button>`);
+                btns.push(`<button onclick="openWhatsAppMessage('${id}', 'makeup')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填補堂訊息"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`);
+            }
+            btns.push(`<a href="${gcalUrl}" target="_blank" class="px-2.5 py-1.5 ${lesson.status === 'LEAVE' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white rounded-lg font-semibold flex items-center gap-1">
+                <i class="fa-solid fa-calendar-plus"></i> ${lesson.status === 'LEAVE' ? '請假紀錄' : '+ Calendar'}
+            </a>`);
+
+            return `
+                <div class="${bgClass} p-3 rounded-r-xl border-y border-r border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                    <div class="space-y-1 flex-1">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            ${badges.join('')}
+                            <span class="bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-semibold text-[10px]">${lesson.tutor}</span>
+                            <strong class="text-slate-800">${start.getFullYear()}年${start.getMonth() + 1}月${start.getDate()}日 (${getWeekdayName(start.getDay())})</strong>
+                            <span class="text-sky-700 font-bold">${lesson.time}</span>
+                            <span class="font-bold text-slate-900">${lesson.studentName}</span> (${lesson.studentId})
+                            ${lesson.phone ? `<span class="text-slate-500 text-[11px]"><i class="fa-solid fa-phone text-[10px] text-slate-400"></i> ${lesson.phone}</span>` : ''}
+                        </div>
+                        <div class="text-slate-500 text-[11px]">📅 ${title} ${locationStr ? `| 📍 地點: ${locationStr}` : ''} ${lesson.isMakeup ? `| ↩ 補 ${originDateText(lesson)} 的請假課` : ''} ${lesson.email ? `| ✉️ ${lesson.email}` : ''}</div>
+                        ${boxes}
                     </div>
-                `;
-                listContainer.innerHTML += itemHtml;
-            });
+
+                    <div class="flex items-center gap-1.5 flex-wrap self-end md:self-center md:justify-end md:max-w-[46%]">
+                        ${btns.join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        // 月曆/週曆共用的色塊樣式
+        function lessonPillClass(lesson, isClash) {
+            let pill = lesson.tutor === 'Instructor A' ? 'cal-pill-eric' : 'cal-pill-tony';
+            if (lesson.isMakeup) pill = 'cal-pill-makeup';
+            if (lesson.status === 'ATTENDED') pill = 'cal-pill-attended';
+            if (lesson.status === 'NOSHOW') pill = 'cal-pill-noshow';
+            if (lesson.status === 'LEAVE') pill = 'cal-pill-leave';
+            if (isClash) pill = 'cal-pill-clash';
+            return pill;
         }
 
         function renderMasterCalendarView() {
             const calContainer = document.getElementById('masterCalendarView');
-            const batchMonthVal = document.getElementById('batchMonth').value;
+            const batchMonthVal = currentMonthKey();
             if (!batchMonthVal) return;
 
+            const monthLessons = sortedMonthLessons();
+            const clashIds = GACSchedule.detectClashes(monthLessons);
             const [year, month] = batchMonthVal.split('-').map(Number);
             const firstDayIndex = new Date(year, month - 1, 1).getDay();
             const totalDaysInMonth = new Date(year, month, 0).getDate();
@@ -633,22 +704,18 @@
 
             for (let day = 1; day <= totalDaysInMonth; day++) {
                 const dateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                const dayEvents = masterScheduleEvents.filter(e => e.dateStr === dateString);
+                const dayLessons = monthLessons.filter(l => l.date === dateString);
 
                 gridHtml += `
                     <div class="bg-white p-1.5 min-h-[100px] flex flex-col space-y-1">
                         <div class="text-[11px] font-bold text-slate-500">${day}</div>
                 `;
 
-                dayEvents.forEach(ev => {
-                    let pillStyle = ev.tutor === 'Instructor A' ? 'cal-pill-eric' : 'cal-pill-tony';
-                    if (ev.status === 'LEAVE') pillStyle = 'cal-pill-leave';
-                    if (ev.status === 'MAKEUP') pillStyle = 'cal-pill-makeup';
-                    if (ev.isClash) pillStyle = 'cal-pill-clash';
-
+                dayLessons.forEach(lesson => {
+                    const pillStyle = lessonPillClass(lesson, clashIds.has(lesson.lessonId));
                     gridHtml += `
-                        <div class="${pillStyle} text-[10px] p-1 rounded leading-tight truncate" title="${ev.timeStr} ${ev.studentName} (${ev.tutor}) | Phone: ${ev.phone}">
-                            <strong>${ev.timeStr}</strong> ${ev.studentName}
+                        <div class="${pillStyle} text-[10px] p-1 rounded leading-tight truncate" title="${lesson.time} ${lesson.studentName} (${lesson.tutor}) | Phone: ${lesson.phone}">
+                            <strong>${lesson.time}</strong> ${lesson.isMakeup ? 'MU ' : ''}${lesson.studentName}
                         </div>
                     `;
                 });
@@ -671,6 +738,8 @@
 
             if (!monthWeeksData || !monthWeeksData[weekIdx]) return;
 
+            const monthLessons = sortedMonthLessons();
+            const clashIds = GACSchedule.detectClashes(monthLessons);
             const selectedWeekDays = monthWeeksData[weekIdx];
 
             let gridHtml = `
@@ -688,22 +757,18 @@
                 if (!dayObj) {
                     gridHtml += `<div class="bg-slate-50 min-h-[180px]"></div>`;
                 } else {
-                    const dayEvents = masterScheduleEvents.filter(e => e.dateStr === dayObj.dateString);
+                    const dayLessons = monthLessons.filter(l => l.date === dayObj.dateString);
                     gridHtml += `
                         <div class="bg-white p-2 min-h-[180px] flex flex-col space-y-1">
                             <div class="text-xs font-bold text-slate-600 border-b pb-1 mb-1">${dayObj.dateString.slice(5)}</div>
                     `;
 
-                    dayEvents.forEach(ev => {
-                        let pillStyle = ev.tutor === 'Instructor A' ? 'cal-pill-eric' : 'cal-pill-tony';
-                        if (ev.status === 'LEAVE') pillStyle = 'cal-pill-leave';
-                        if (ev.status === 'MAKEUP') pillStyle = 'cal-pill-makeup';
-                        if (ev.isClash) pillStyle = 'cal-pill-clash';
-
+                    dayLessons.forEach(lesson => {
+                        const pillStyle = lessonPillClass(lesson, clashIds.has(lesson.lessonId));
                         gridHtml += `
-                            <div class="${pillStyle} text-[10px] p-1.5 rounded leading-snug" title="${ev.timeStr} ${ev.studentName} (${ev.phone})">
-                                <div class="font-bold">${ev.timeStr} ${ev.studentName}</div>
-                                <div class="text-[9px] opacity-75">${ev.tutor} ${ev.phone ? `| 📞 ${ev.phone}` : ''}</div>
+                            <div class="${pillStyle} text-[10px] p-1.5 rounded leading-snug" title="${lesson.time} ${lesson.studentName} (${lesson.phone})">
+                                <div class="font-bold">${lesson.time} ${lesson.isMakeup ? 'MU ' : ''}${lesson.studentName}</div>
+                                <div class="text-[9px] opacity-75">${lesson.tutor} ${lesson.phone ? `| 📞 ${lesson.phone}` : ''}</div>
                             </div>
                         `;
                     });
@@ -716,60 +781,130 @@
             weekContainer.innerHTML = gridHtml;
         }
 
-        function toggleMasterRescheduleBox(index) {
-            const box = document.getElementById(`masterRescheduleBox_${index}`);
-            box.classList.toggle('hidden');
+        function toggleLessonBox(kind, lessonId) {
+            const box = document.getElementById(`${kind}Box_${lessonId}`);
+            if (box) box.classList.toggle('hidden');
         }
 
-        function saveMasterReschedule(index) {
-            const leaveType = document.getElementById(`masterLeaveType_${index}`).value;
-            const newDate = document.getElementById(`masterNewDate_${index}`).value;
-            const newTime = document.getElementById(`masterNewTime_${index}`).value;
+        // 狀態機操作（lib/lessonState.js）：所有非法轉換由狀態機攔截並提示
+        function markLessonStatus(lessonId, to) {
+            if (to === 'SCHEDULED' && !confirm('確定要撤銷此課堂的狀態、還原為「已排課」嗎？')) return;
+            const res = GACLessonState.markStatus(lessonsByMonth, lessonId, to);
+            if (!res.ok) { alert('⚠️ ' + res.error); return; }
+            persistLessons();
+            renderAll();
+        }
 
-            if (!newDate || !newTime) {
+        // 兩步之一：標記請假（只選假別，立即生效，進入待補堂池）
+        function confirmLeave(lessonId) {
+            const sel = document.getElementById('leaveType_' + lessonId);
+            const res = GACLessonState.markStatus(lessonsByMonth, lessonId, 'LEAVE', { leaveType: sel ? sel.value : 'L' });
+            if (!res.ok) { alert('⚠️ ' + res.error); return; }
+            persistLessons();
+            renderAll();
+        }
+
+        // 兩步之二：安排補堂（可當場做，也可任何時候從待補堂池做）
+        function submitMakeup(lessonId, dateElId, timeElId) {
+            const date = document.getElementById(dateElId)?.value;
+            const time = document.getElementById(timeElId)?.value;
+            if (!date || !time) {
                 alert('請選擇補堂日期與時間！');
                 return;
             }
+            let res = GACLessonState.scheduleMakeup(lessonsByMonth, lessonId, { date, time });
+            if (!res.ok && res.code === 'DUPLICATE_MAKEUP') {
+                // 防重複：已有補堂 → 顯示現有補堂資訊，讓用戶選擇保留或取消重排
+                const ex = res.existingMakeup;
+                const info = ex ? `${ex.date} ${ex.time}` : '（資料缺失）';
+                if (!confirm(`此請假已排過補堂：${info}\n\n確定要「取消原補堂並重排」到 ${date} ${time} 嗎？\n（按「取消」則保留原補堂，放棄本次操作）`)) return;
+                res = GACLessonState.scheduleMakeup(lessonsByMonth, lessonId, { date, time }, { replaceExisting: true });
+            }
+            if (!res.ok) { alert('⚠️ ' + res.error); return; }
+            persistLessons();
+            renderAll();
+            if (res.makeup.date.slice(0, 7) !== currentMonthKey()) {
+                alert(`✅ 補堂已排定：${res.makeup.date} ${res.makeup.time}\n（不在目前檢視月份，切換到 ${res.makeup.date.slice(0, 7)} 可見）`);
+            }
+        }
 
-            const targetEv = masterScheduleEvents[index];
-            targetEv.status = 'LEAVE';
-            targetEv.leaveType = leaveType;
+        function cancelMakeupUI(makeupLessonId) {
+            if (!confirm('確定要取消此補堂？其對應的請假課將回到待補堂池。')) return;
+            const res = GACLessonState.cancelMakeup(lessonsByMonth, makeupLessonId);
+            if (!res.ok) { alert('⚠️ ' + res.error); return; }
+            persistLessons();
+            renderAll();
+        }
 
-            const [y, m, d] = newDate.split('-').map(Number);
-            const [h, min] = newTime.split(':').map(Number);
-            const startDateTime = new Date(y, m - 1, d, h, min, 0);
-            const endDateTime = new Date(startDateTime.getTime() + targetEv.duration * 60000);
+        // 整週/整月批量確認出席（只確認今天含以前、仍是 SCHEDULED 的課）
+        function batchConfirmWeek() {
+            const monthKey = currentMonthKey();
+            if (!monthKey) return;
+            const weekVal = document.getElementById('weekSelect').value;
+            let from = monthKey + '-01', to = monthKey + '-31', label = '全月';
+            if (weekVal !== 'ALL' && monthWeeksData && monthWeeksData[parseInt(weekVal)]) {
+                const days = monthWeeksData[parseInt(weekVal)].filter(d => d !== null);
+                from = days[0].dateString;
+                to = days[days.length - 1].dateString;
+                label = `第 ${parseInt(weekVal) + 1} 週`;
+            }
+            const today = localDateStr(new Date());
+            if (!confirm(`將${label}（${from} ~ ${to}）內、今天（含）以前仍是「已排課」的課堂全部標記為「已上課」？`)) return;
+            const res = GACLessonState.confirmScheduledInRange(lessonsByMonth, from, to, { maxDate: today });
+            persistLessons();
+            renderAll();
+            alert(res.count > 0
+                ? `✅ 已批量確認 ${res.count} 堂為「已上課」。`
+                : 'ℹ️ 範圍內沒有可確認的課堂（只會確認今天或以前、狀態仍為「已排課」的課）。');
+        }
 
-            masterScheduleEvents.push({
-                id: `${targetEv.studentId}_MU_${Date.now()}`,
-                studentId: targetEv.studentId,
-                studentName: targetEv.studentName,
-                phone: targetEv.phone,
-                email: targetEv.email,
-                lessonNum: targetEv.lessonNum,
-                totalRegular: targetEv.totalRegular,
-                monthYearStr: targetEv.monthYearStr,
-                tutor: targetEv.tutor,
-                levelFormat: targetEv.levelFormat,
-                dateStr: newDate,
-                timeStr: newTime,
-                duration: targetEv.duration,
-                start: startDateTime,
-                end: endDateTime,
-                status: 'MAKEUP',
-                leaveType: '',
-                makeupForEvent: targetEv,
-                title: targetEv.title
-            });
+        // 待補堂池：跨月列出所有「已請假未排補堂」的課，按等待天數降序
+        function renderPendingPool() {
+            const banner = document.getElementById('pendingPoolBanner');
+            if (!banner) return;
+            const pool = GACLessonState.pendingMakeups(lessonsByMonth, localDateStr(new Date()));
+            document.getElementById('pendingPoolCount').textContent = pool.length;
+            banner.classList.toggle('hidden', pool.length === 0);
+            const list = document.getElementById('pendingPoolList');
+            list.innerHTML = pool.map(({ lesson, waitingDays }) => {
+                const id = lesson.lessonId;
+                const waitHtml = waitingDays >= 0
+                    ? `<span class="${waitingDays >= 14 ? 'text-rose-600 font-bold' : 'text-amber-700 font-semibold'}">已等待 ${waitingDays} 天</span>`
+                    : `<span class="text-slate-500">課日未到（${lesson.date}）</span>`;
+                return `
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 bg-white/80 border border-amber-200 rounded-lg p-2.5 text-xs">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="font-bold text-slate-800">${lesson.studentName}</span>
+                            <span class="text-slate-500">(${lesson.studentId})</span>
+                            <span class="text-slate-600">原課 ${lesson.date} ${lesson.time}</span>
+                            <span class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded text-[10px] font-bold">${lesson.leaveType}</span>
+                            ${lesson.isMakeup ? '<span class="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded text-[10px] font-bold" title="此課本身是補堂課（鏈式請假）">MU 鏈</span>' : ''}
+                            ${waitHtml}
+                        </div>
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            <input type="date" id="poolDate_${id}" class="p-1 border rounded bg-white">
+                            <input type="time" id="poolTime_${id}" value="${lesson.time}" class="p-1 border rounded bg-white">
+                            <button onclick="submitMakeup('${id}','poolDate_${id}','poolTime_${id}')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold">排補堂</button>
+                            ${lesson.phone ? `<button onclick="openWhatsAppMessage('${id}', 'leave')" class="px-2.5 py-1 bg-green-100 hover:bg-green-200 text-green-800 rounded font-semibold" title="WhatsApp 跟進"><i class="fa-brands fa-whatsapp"></i></button>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
 
-            detectScheduleClashes();
-            sortAndRenderMasterSchedule();
-            updateDashboardKPIs();
+        function togglePendingPool() {
+            const list = document.getElementById('pendingPoolList');
+            const chevron = document.getElementById('pendingPoolChevron');
+            list.classList.toggle('hidden');
+            if (chevron) chevron.classList.toggle('fa-chevron-down');
+            if (chevron) chevron.classList.toggle('fa-chevron-up');
         }
 
         function onBatchMonthChange() {
+            // v2：切換月份只切換「檢視」，從 localStorage 讀該月資料，絕不自動重新生成（v1 會自動重生成導致狀態丟失）
             renderBatchCheckboxes();
-            if (masterScheduleEvents.length > 0) generateMasterSchedule();
+            rebuildMonthContext();
+            renderAll();
         }
 
         function renderStudentTable() {
@@ -1062,19 +1197,39 @@
             }
             events.forEach((event, index) => {
                 const title = event.title || `${event.studentId} ${event.studentName}`;
-                const details = `導師：${event.tutor || ''}${event.phone ? `\n電話：${event.phone}` : ''}${event.email ? `\n電郵：${event.email}` : ''}${event.status === 'LEAVE' ? '\n狀態：請假' : event.status === 'MAKEUP' ? '\n狀態：補堂' : ''}`;
+                const details = `導師：${event.tutor || ''}${event.phone ? `\n電話：${event.phone}` : ''}${event.email ? `\n電郵：${event.email}` : ''}${event.status === 'LEAVE' ? '\n狀態：請假' : event.isMakeup ? '\n狀態：補堂' : ''}`;
                 const url = buildGoogleCalendarUrl(title, event.start, event.end, details);
                 window.open(url, '_blank', 'noopener');
             });
             if (events.length > 1) alert(`已開啟 ${events.length} 個 Google Calendar 建立頁面，請逐一確認儲存。`);
         }
 
+        // lesson → 匯出用事件（Date 在此重建；UID 用 lessonId 保證導入查重）
+        function lessonToExportEvent(lesson) {
+            return {
+                title: GACSchedule.lessonTitle(lesson),
+                studentId: lesson.studentId,
+                studentName: lesson.studentName,
+                tutor: lesson.tutor,
+                phone: lesson.phone,
+                email: lesson.email,
+                start: lessonStart(lesson),
+                end: lessonEnd(lesson),
+                status: lesson.status,
+                leaveType: lesson.leaveType,
+                isMakeup: lesson.isMakeup,
+                uid: `${lesson.lessonId}@guitaristic`,
+                location: getLocationText(lesson)
+            };
+        }
+
         function openMasterGoogleCalendar() {
-            if (masterScheduleEvents.length === 0) {
+            const lessons = sortedMonthLessons();
+            if (lessons.length === 0) {
                 alert('目前沒有已生成的課堂可加入 Google Calendar！');
                 return;
             }
-            openGoogleCalendarEvents(masterScheduleEvents);
+            openGoogleCalendarEvents(lessons.map(lessonToExportEvent));
         }
 
         function openSingleGoogleCalendar() {
@@ -1106,11 +1261,12 @@
         }
 
         function downloadMasterICS() {
-            if (masterScheduleEvents.length === 0) {
+            const lessons = sortedMonthLessons();
+            if (lessons.length === 0) {
                 alert('目前沒有已生成的課堂可匯出！');
                 return;
             }
-            buildICSFile(masterScheduleEvents, `Guitaristic_Academy_${document.getElementById('batchMonth').value || 'schedule'}.ics`);
+            buildICSFile(lessons.map(lessonToExportEvent), `Guitaristic_Academy_${currentMonthKey() || 'schedule'}.ics`);
         }
 
         function downloadSingleICS() {
@@ -1127,7 +1283,9 @@
                 const [year, month, day] = lesson.date.split('-').map(Number);
                 const [hours, minutes] = lesson.time.split(':').map(Number);
                 const start = new Date(year, month - 1, day, hours, minutes, 0);
-                return {title: `${studentId} ${studentName}`, phone, email, start, end: new Date(start.getTime() + duration * 60000), status: lesson.status};
+                // 單人排堂沒有 lessonId，用同樣的確定性規則組 UID，避免重複導入產生重複事件
+                const uid = `${(studentId || 'single')}-${lesson.date.replace(/-/g, '')}-${lesson.time.replace(':', '')}@guitaristic`;
+                return {title: `${studentId} ${studentName}`, phone, email, start, end: new Date(start.getTime() + duration * 60000), status: lesson.status, uid};
             });
             const filename = `${studentId || 'student'}_${studentName || 'schedule'}_schedule.ics`.replace(/[\\/:*?"<>|]/g, '_');
             buildICSFile(events, filename);
@@ -1153,15 +1311,19 @@
                 if (ev.phone) desc += `\\nPhone: ${ev.phone}`;
                 if (ev.email) desc += `\\nEmail: ${ev.email}`;
 
+                // UID 必須存在且確定性：Google 依 UID 查重，重複導入同一檔案不會產生重複事件（P0-2）
+                const uid = ev.uid || `${String(ev.title || 'event').replace(/[^A-Za-z0-9]/g, '')}-${formatICSDate(ev.start)}@guitaristic`;
+
                 icsContent.push(
                     "BEGIN:VEVENT",
+                    `UID:${uid}`,
                     `SUMMARY:${ev.title}`,
                     `DTSTART:${formatICSDate(ev.start)}`,
                     `DTEND:${formatICSDate(ev.end)}`,
-                    `DESCRIPTION:${desc}`,
-                    "STATUS:CONFIRMED",
-                    "END:VEVENT"
+                    `DESCRIPTION:${desc}`
                 );
+                if (ev.location) icsContent.push(`LOCATION:${ev.location}`);
+                icsContent.push("STATUS:CONFIRMED", "END:VEVENT");
             });
 
             icsContent.push("END:VCALENDAR");
@@ -1217,16 +1379,24 @@
             }
         }
 
-        function copyLeaveMsgMaster(index) {
-            const ev = masterScheduleEvents[index];
-            const msg = `已確認 ${ev.start.getFullYear()}年${ev.start.getMonth()+1}月${ev.start.getDate()}日 (${getWeekdayName(ev.start.getDay())}) 的課堂請假。`;
-            copyToClipboard(msg);
+        function leaveMsgFor(lesson) {
+            const d = lessonStart(lesson);
+            return `已確認 ${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 (${getWeekdayName(d.getDay())}) 的課堂請假。`;
         }
 
-        function copyMakeupMsgMaster(index) {
-            const ev = masterScheduleEvents[index];
-            const msg = `已確認 ${ev.start.getFullYear()}年${ev.start.getMonth()+1}月${ev.start.getDate()}日 (${getWeekdayName(ev.start.getDay())}) ${ev.timeStr} 進行補課。`;
-            copyToClipboard(msg);
+        function makeupMsgFor(lesson) {
+            const d = lessonStart(lesson);
+            return `已確認 ${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 (${getWeekdayName(d.getDay())}) ${lesson.time} 進行補課。`;
+        }
+
+        function copyLeaveMsgMaster(lessonId) {
+            const found = GACLessonState.findLesson(lessonsByMonth, lessonId);
+            if (found) copyToClipboard(leaveMsgFor(found.lesson));
+        }
+
+        function copyMakeupMsgMaster(lessonId) {
+            const found = GACLessonState.findLesson(lessonsByMonth, lessonId);
+            if (found) copyToClipboard(makeupMsgFor(found.lesson));
         }
 
         function getWhatsAppPhone(phone) {
@@ -1237,17 +1407,17 @@
             return `852${digits.replace(/^0/, '')}`;
         }
 
-        function openWhatsAppMessage(index, messageType) {
-            const ev = masterScheduleEvents[index];
-            const phone = getWhatsAppPhone(ev.phone);
+        function openWhatsAppMessage(lessonId, messageType) {
+            const found = GACLessonState.findLesson(lessonsByMonth, lessonId);
+            if (!found) return;
+            const lesson = found.lesson;
+            const phone = getWhatsAppPhone(lesson.phone);
             if (!phone) {
                 alert('此學生沒有可用的 WhatsApp 電話號碼。');
                 return;
             }
 
-            const message = messageType === 'leave'
-                ? `已確認 ${ev.start.getFullYear()}年${ev.start.getMonth()+1}月${ev.start.getDate()}日 (${getWeekdayName(ev.start.getDay())}) 的課堂請假。`
-                : `已確認 ${ev.start.getFullYear()}年${ev.start.getMonth()+1}月${ev.start.getDate()}日 (${getWeekdayName(ev.start.getDay())}) ${ev.timeStr} 進行補課。`;
+            const message = messageType === 'leave' ? leaveMsgFor(lesson) : makeupMsgFor(lesson);
             const whatsappUrl = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`;
             window.open(whatsappUrl, '_blank', 'noopener');
         }
@@ -1258,10 +1428,12 @@
             });
         }
 
-        function getLocationText(status, leaveType) {
-            if (status === 'MAKEUP') return 'MU';
-            if (status === 'LEAVE') return leaveType;
-            return ''; 
+        // 日曆 LOCATION 狀態碼（art-rate-data.js CALENDAR_STATUS_CODES 契約：L/SL/TL/MU/NS）
+        function getLocationText(lesson) {
+            if (lesson.status === 'LEAVE') return lesson.leaveType || 'L';
+            if (lesson.status === 'NOSHOW') return 'NS';
+            if (lesson.isMakeup) return 'MU';
+            return '';
         }
 
         function getLeaveText(type) {

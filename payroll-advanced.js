@@ -55,9 +55,42 @@ function advancedCalculate() {
   set('advancedGross', advancedMoney(gross)); set('advancedPayout', advancedMoney(payout)); set('advancedLessons', advancedPayrollState.rows.reduce((sum, row) => sum + row.lessons, 0)); set('advancedAdjustmentTotal', advancedMoney(adjustments));
 }
 
+function advancedTodayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// v2：工資只算實際上了的課（ATTENDED；NOSHOW 由設定 payNoShow 控制，預設計入 // TODO 跟老闆確認），
+// 按實際上課日期歸屬月份，數據源是 gac_lessons_v2（不再依賴內存課表）。
 function advancedImportStudents() {
-  advancedPayrollState.rows = studentDatabase.map(student => ({id: student.id, name: student.name, tutor: student.tutor, rate: advancedRate(student), lessons: masterScheduleEvents.filter(event => event.studentId === student.id && ['NORMAL', 'MAKEUP'].includes(event.status)).length}));
+  const monthKey = document.getElementById('advancedPayrollMonth')?.value || '';
+  if (!monthKey) { alert('請先選擇薪酬月份！'); return; }
+  const payNoShow = !appSettings || appSettings.payNoShow !== false;
+  const counts = GACPayroll.countPayableByStudent(lessonsByMonth, monthKey, {payNoShow});
+  advancedPayrollState.rows = studentDatabase.map(student => ({id: student.id, name: student.name, tutor: student.tutor, rate: advancedRate(student), lessons: counts[student.id] || 0}));
+  advancedRenderExpiredWarning(monthKey);
   advancedRenderRows(); advancedCalculate();
+}
+
+// 計算前置檢查：列出「日期已過但仍是已排課」的課（即忘了確認出席的），可跳轉去批量確認。
+// 未確認完也允許繼續計算（堂數 input 手改仍是 escape hatch）。
+function advancedRenderExpiredWarning(monthKey) {
+  const box = document.getElementById('advancedExpiredWarning');
+  if (!box) return;
+  const expired = GACPayroll.expiredScheduled(lessonsByMonth, monthKey, advancedTodayStr());
+  if (!expired.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  box.classList.remove('hidden');
+  box.innerHTML = `<div class="font-bold">⚠️ ${monthKey} 有 ${expired.length} 堂課「日期已過但仍是已排課」，未確認出席的課不會計入工資：</div>` +
+    `<div>${expired.map(l => `${l.date} ${l.time} ${l.studentName}`).join('、')}</div>` +
+    `<button onclick="advancedGoConfirm('${monthKey}')" class="mt-1 px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded font-bold">前往總表批量確認出席</button>`;
+}
+
+function advancedGoConfirm(monthKey) {
+  const batchMonth = document.getElementById('batchMonth');
+  if (batchMonth) batchMonth.value = monthKey;
+  switchTab('masterTab');
+  rebuildMonthContext();
+  renderAll();
 }
 
 function advancedAddAdjustment() {
@@ -92,8 +125,16 @@ function advancedParseManualLogs() {
 
 async function advancedLoadPublicIcs() {
   const notice = document.getElementById('advancedSyncStatus');
+  // v2：不再內建任何真實網址，改由設定（gac_settings_v2.publicIcsUrl）提供；未設定時提示輸入並保存
+  let url = ((appSettings && appSettings.publicIcsUrl) || '').trim();
+  if (!url) {
+    url = (prompt('請輸入公開 ICS 網址（將保存到設定，之後不需再輸入）：') || '').trim();
+    if (!url) { if (notice) notice.textContent = '未設定公開 ICS 網址，已取消。'; return; }
+    appSettings.publicIcsUrl = url;
+    if (gacStore) gacStore.saveSettings(appSettings);
+  }
   try {
-    const response = await fetch('https://calendar.google.com/calendar/ical/yuyanruan179%40gmail.com/public/basic.ics', {cache: 'no-store'});
+    const response = await fetch(url, {cache: 'no-store'});
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const text = await response.text(); advancedPayrollState.events = [...text.matchAll(/DTSTART[^:]*:(\d{8})/g)].map(match => ({date: match[1], lessons: 1}));
     if (notice) notice.textContent = `公開 ICS 讀取成功：${advancedPayrollState.events.length} 個事件。`;

@@ -83,7 +83,7 @@
                         <i class="fa-solid fa-calendar-check"></i>
                     </div>
                     <div>
-                        <div class="text-xs text-slate-500 font-medium">預覽月度總堂數</div>
+                        <div class="text-xs text-slate-500 font-medium">本月總堂數（含補堂）</div>
                         <div id="statTotalLessons" class="text-lg font-bold text-slate-800">0</div>
                     </div>
                 </div>
@@ -203,6 +203,18 @@
                 </div>
             </div>
 
+            <!-- 待補堂池（跨月：所有已請假但未安排補堂的課） -->
+            <div id="pendingPoolBanner" class="hidden bg-amber-50 border border-amber-300 rounded-2xl p-4 space-y-2">
+                <button onclick="togglePendingPool()" class="w-full flex items-center justify-between text-left">
+                    <span class="text-sm font-bold text-amber-900 flex items-center gap-2">
+                        <i class="fa-solid fa-hourglass-half text-amber-500"></i>
+                        待補堂池：<span id="pendingPoolCount" class="text-rose-600 text-base">0</span> 筆請假尚未安排補堂（跨月統計，按等待天數排序）
+                    </span>
+                    <i id="pendingPoolChevron" class="fa-solid fa-chevron-down text-amber-500"></i>
+                </button>
+                <div id="pendingPoolList" class="hidden space-y-2"></div>
+            </div>
+
             <!-- Schedule Display Container -->
             <div id="masterScheduleWrapper" class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
                 
@@ -227,6 +239,9 @@
                         <select id="weekSelect" onchange="onWeekSelectChange()" class="px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
                             <option value="ALL">所有週次 (全月)</option>
                         </select>
+                        <button onclick="batchConfirmWeek()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold transition flex items-center gap-1" title="把所選週次（或全月）內、今天（含）以前仍是「已排課」的課堂批量標記為已上課">
+                            <i class="fa-solid fa-check-double"></i> 批量確認出席
+                        </button>
                     </div>
                 </div>
 
@@ -455,8 +470,10 @@
                     <div><h2 class="text-base font-bold text-slate-800">高級薪酬管理</h2><p class="text-xs text-slate-500">費率表、拆帳、調整項目、日曆紀錄與歷史封存。</p></div>
                     <div class="flex flex-wrap items-center gap-2 text-xs"><label>月份 <input id="advancedPayrollMonth" type="month" class="p-2 border rounded-lg"></label><label>導師拆帳 <input id="advancedShare" type="number" min="0" max="100" class="w-20 p-2 border rounded-lg">%</label></div>
                 </div>
+                <!-- 計算前置警告：日期已過但未確認出席的課 -->
+                <div id="advancedExpiredWarning" class="hidden p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 space-y-1"></div>
                 <div class="flex flex-wrap gap-2">
-                    <button id="advancedImportStudents" class="px-3 py-2 bg-sky-600 text-white rounded-lg text-xs font-bold">匯入學生及課堂</button>
+                    <button id="advancedImportStudents" class="px-3 py-2 bg-sky-600 text-white rounded-lg text-xs font-bold" title="按薪酬月份從課表統計「已上課」堂數（NOSHOW 依設定）">匯入學生及課堂</button>
                     <button id="advancedAddAdjustment" class="px-3 py-2 bg-amber-500 text-white rounded-lg text-xs font-bold">新增調整項目</button>
                     <button id="advancedSaveArchive" class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold">封存本月糧單</button>
                     <button id="advancedExport" class="px-3 py-2 bg-slate-700 text-white rounded-lg text-xs font-bold">導出薪酬 JSON</button>
@@ -558,6 +575,12 @@
     </div>
     <script src="data.js"></script>
     <script src="art-rate-data.js"></script>
+    <!-- v2 純函數庫（無 DOM 依賴，另有 node --test 單元測試，見 run-tests.cmd） -->
+    <script src="lib/schedule.js"></script>
+    <script src="lib/lessonState.js"></script>
+    <script src="lib/payroll.js"></script>
+    <script src="lib/sendlog.js"></script>
+    <script src="lib/storage.js"></script>
     <script src="state.js"></script>
     <script src="app.js"></script>
     <script src="payroll-advanced.js"></script>

@@ -1,6 +1,9 @@
-﻿// System State
+// System State
         let studentDatabase = [];
-        let generatedLessons = []; 
-        let masterScheduleEvents = [];
+        let generatedLessons = [];      // 單一學生頁籤的臨時預覽（不持久化）
+        let lessonsByMonth = {};        // gac_lessons_v2：{ "2026-09": [lesson, ...] }，v2 課表唯一事實來源
+        let sendLog = {};               // gac_sendlog_v2：發送中心紀錄
+        let appSettings = {};           // gac_settings_v2：設定
+        let gacStore = null;            // lib/storage.js 的 store 實例（window.onload 時建立）
         let currentViewMode = 'list';
         let monthWeeksData = [];
