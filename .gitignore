@@ -3,6 +3,9 @@
 .DS_Store
 Thumbs.db
 
+# Local tooling (portable Node used only for running unit tests)
+.tools/
+
 # Local runtime exports
 *.ics
 *.json
