@@ -14,7 +14,9 @@
             document.getElementById('batchMonth').value = monthStr;
             document.getElementById('targetMonth').value = monthStr;
             document.getElementById('effectiveMonth').value = monthStr;
+            document.getElementById('sendMonth').value = monthStr;
 
+            loadSettingsForm();
             populateSelectOptions();
             renderBatchCheckboxes();
             renderStudentTable();
@@ -29,6 +31,26 @@
 
         function persistLessons() {
             gacStore.saveLessons(lessonsByMonth);
+            syncSendlog();
+        }
+
+        function persistSendlog() {
+            gacStore.saveSendlog(sendLog);
+        }
+
+        // 課堂變更後同步發送紀錄（persistLessons 每次自動呼叫，任何路徑的取消/還原都被涵蓋）：
+        // 1) 孤兒清理：課已刪除（如補堂被取消）的 TODO 條目移除；SENT 保留作歷史
+        // 2) 失效清理：請假已被還原 → 其 TODO 請假確認不應再發（SENT 同樣保留）
+        function syncSendlog() {
+            GACSendlog.pruneOrphans(sendLog, id => !!GACLessonState.findLesson(lessonsByMonth, id));
+            Object.keys(sendLog).forEach(k => {
+                const e = sendLog[k];
+                if (e && e.type === 'LEAVE_CONFIRM' && e.status === 'TODO') {
+                    const f = GACLessonState.findLesson(lessonsByMonth, e.lessonId);
+                    if (f && f.lesson.status !== 'LEAVE') delete sendLog[k];
+                }
+            });
+            persistSendlog();
         }
 
         function localDateStr(d) {
@@ -69,6 +91,10 @@
 
             if (tabId === 'databaseTab') {
                 renderStudentTable();
+            } else if (tabId === 'sendTab') {
+                renderSendCenter();
+            } else if (tabId === 'settingsTab') {
+                loadSettingsForm();
             }
         }
 
@@ -411,12 +437,25 @@
 
             if (res.lessons.length) lessonsByMonth[monthKey] = res.lessons;
             else delete lessonsByMonth[monthKey];
+
+            // 學費條目：每位入選學生 upsert 當月 TUITION（金額＝當月常規堂數×費率）。
+            // SENT 的條目絕不改動；金額被手改過（amountEdited）也不覆蓋——由 lib/sendlog.js 保證。
+            const tuitionNow = new Date().toISOString();
+            selectedStudents.forEach(s => {
+                const mine = (lessonsByMonth[monthKey] || []).filter(l => l.studentId === s.id && !l.isMakeup);
+                if (!mine.length) return;
+                GACSendlog.upsertTuition(sendLog, {
+                    studentId: s.id, studentName: s.name, phone: s.phone, monthKey: monthKey,
+                    amount: mine.length * advancedRate(s), count: mine.length,
+                    dates: mine.map(l => l.date).sort(), now: tuitionNow
+                });
+            });
             persistLessons();
 
             rebuildMonthContext();
             renderAll();
 
-            let msg = `✅ ${monthKey} 課表已生成（merge 模式，不會清空既有狀態）：\n• 新增 ${res.added.length} 堂\n• 保留 ${res.lessons.length - res.added.length} 堂`;
+            let msg = `✅ ${monthKey} 課表已生成（merge 模式，不會清空既有狀態）：\n• 新增 ${res.added.length} 堂\n• 保留 ${res.lessons.length - res.added.length} 堂\n• 學費待發條目已更新（見「發送中心」頁籤）`;
             if (res.removed.length) {
                 msg += `\n• 刪除 ${res.removed.length} 堂（僅限仍是「已排課」、且學生已移除/改時間的課）`;
             }
@@ -441,6 +480,7 @@
             renderMasterScheduleList();
             renderMasterCalendarView();
             renderMasterWeekView();
+            renderSendCenter();
         }
 
         function switchView(mode) {
@@ -849,8 +889,10 @@
             const done = [];
             targets.forEach(t => {
                 const res = GACLessonState.markStatus(lessonsByMonth, t.lessonId, 'LEAVE', { leaveType });
-                if (res.ok) done.push(t.lessonId);
-                else alert(`⚠️ ${t.studentName}：${res.error}`);
+                if (res.ok) {
+                    GACSendlog.ensureLessonEntry(sendLog, 'LEAVE_CONFIRM', t, new Date().toISOString());
+                    done.push(t.lessonId);
+                } else alert(`⚠️ ${t.studentName}：${res.error}`);
             });
             if (!done.length) return;
             persistLessons();
@@ -892,6 +934,7 @@
             }
             if (!res.ok) { alert('⚠️ ' + res.error); return; }
             const scheduledIds = [res.makeup.lessonId];
+            GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', res.makeup, new Date().toISOString());
             if (!manualMode) {
                 // 小組順手同排：同組成員同在待補堂池 → 提議一併排到同一時段
                 const pendingSibs = GACLessonState.groupSiblings(lessonsByMonth, lessonId)
@@ -901,8 +944,10 @@
                     if (confirm(`同組學生 ${names} 亦在待補堂池。\n要一併排到 ${date} ${time} 嗎？\n（按「取消」則只排 ${origin.studentName}）`)) {
                         pendingSibs.forEach(s => {
                             const r2 = GACLessonState.scheduleMakeup(lessonsByMonth, s.lessonId, { date, time });
-                            if (r2.ok) scheduledIds.push(r2.makeup.lessonId);
-                            else alert(`⚠️ ${s.studentName}：${r2.error}`);
+                            if (r2.ok) {
+                                GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', r2.makeup, new Date().toISOString());
+                                scheduledIds.push(r2.makeup.lessonId);
+                            } else alert(`⚠️ ${s.studentName}：${r2.error}`);
                         });
                     }
                 }
@@ -1086,8 +1131,11 @@
             const moved = [];
             targets.forEach(t => {
                 const r = GACLessonState.scheduleMakeup(lessonsByMonth, t.lessonId, { date, time }, { replaceExisting: true });
-                if (r.ok) moved.push(r.makeup.lessonId);
-                else alert(`⚠️ ${t.studentName}：${r.error}`);
+                if (r.ok) {
+                    // 舊補堂的 TODO 確認條目會被 syncSendlog 孤兒清理，這裡為新補堂建新條目
+                    GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', r.makeup, new Date().toISOString());
+                    moved.push(r.makeup.lessonId);
+                } else alert(`⚠️ ${t.studentName}：${r.error}`);
             });
             if (!moved.length) return;
             closeMoveModal();
@@ -1623,35 +1671,59 @@
             document.body.removeChild(link);
         }
 
-        // JSON Backup/Restore
+        // JSON 備份/還原（v2 全量：students + lessons + sendlog + settings；匯入帶 schema 版本檢查）
         function exportJSONDatabase() {
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(studentDatabase, null, 2));
+            const payload = GACStorage.buildExportPayload({
+                students: studentDatabase, lessons: lessonsByMonth, sendlog: sendLog, settings: appSettings
+            });
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
             const downloadAnchor = document.createElement('a');
             downloadAnchor.setAttribute("href", dataStr);
-            downloadAnchor.setAttribute("download", `Demo_Music_Academy_Students_Backup_${new Date().toISOString().slice(0,10)}.json`);
+            downloadAnchor.setAttribute("download", `Guitaristic_Full_Backup_${new Date().toISOString().slice(0,10)}.json`);
             document.body.appendChild(downloadAnchor);
             downloadAnchor.click();
             downloadAnchor.remove();
         }
 
+        // 套用已解析的匯入內容（全量或舊版僅學生）。回傳是否實際套用。
+        function applyImportedPayload(res) {
+            if (res.legacy) {
+                if (!confirm('偵測到舊版備份（僅含學生名單）。\n將取代現有學生名單；課表／發送紀錄／設定不受影響。繼續？')) return false;
+                studentDatabase = res.students;
+                gacStore.saveStudents(studentDatabase);
+            } else {
+                if (!confirm('全量還原將「覆蓋」現有的：學生名單、課表（含狀態與補堂鏈）、發送紀錄、設定。\n建議先按「全量備份」保存現狀。確定還原？')) return false;
+                studentDatabase = res.students;
+                lessonsByMonth = res.lessons;
+                sendLog = res.sendlog;
+                appSettings = Object.assign({}, GACStorage.DEFAULT_SETTINGS, res.settings);
+                gacStore.saveStudents(studentDatabase);
+                gacStore.saveLessons(lessonsByMonth);
+                gacStore.saveSendlog(sendLog);
+                gacStore.saveSettings(appSettings);
+            }
+            populateSelectOptions();
+            renderBatchCheckboxes();
+            renderStudentTable();
+            rebuildMonthContext();
+            loadSettingsForm();
+            renderAll();
+            return true;
+        }
+
         function importJSONDatabase(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
             const fileReader = new FileReader();
             fileReader.onload = function(e) {
-                try {
-                    const importedData = JSON.parse(e.target.result);
-                    if (Array.isArray(importedData)) {
-                        studentDatabase = importedData;
-                        saveToLocalStorage();
-                        populateSelectOptions();
-                        renderBatchCheckboxes();
-                        renderStudentTable();
-                        alert('✅ 已成功匯入資料庫！');
-                    }
-                } catch(err) {
-                    alert('⚠️ 無效的 JSON 檔案格式！');
+                const res = GACStorage.parseImportPayload(e.target.result);
+                if (!res.ok) { alert('⚠️ ' + res.error); return; }
+                if (applyImportedPayload(res)) {
+                    alert(res.legacy ? '✅ 已匯入學生名單（舊版格式）。' : '✅ 全量還原完成（學生／課表／發送紀錄／設定）。');
                 }
             };
-            fileReader.readAsText(event.target.files[0]);
+            fileReader.readAsText(file);
+            event.target.value = ''; // 清空 input，允許重複選同一檔案
         }
 
         function resetToDefaultData() {
@@ -1673,6 +1745,169 @@
         function makeupMsgFor(lesson) {
             const d = lessonStart(lesson);
             return `已確認 ${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 (${getWeekdayName(d.getDay())}) ${lesson.time} 進行補課。`;
+        }
+
+        // 學費訊息模板（文案常量，方便修改）
+        const TUITION_MSG_TEMPLATE = '【{month} 學費】{name} 同學本月共 {n} 堂課（{dates}），學費共 {amount}。請於月內繳付，謝謝！';
+
+        function tuitionMsgFor(entry) {
+            const parts = String(entry.month || '').split('-').map(Number);
+            const monthLabel = parts.length === 2 ? `${parts[0]}年${parts[1]}月` : entry.month;
+            const dates = (entry.dates || []).map(d => {
+                const p = String(d).split('-');
+                return `${Number(p[1])}/${Number(p[2])}`;
+            }).join('、');
+            return TUITION_MSG_TEMPLATE
+                .replace('{month}', monthLabel)
+                .replace('{name}', entry.studentName || entry.studentId)
+                .replace('{n}', entry.count)
+                .replace('{dates}', dates)
+                .replace('{amount}', 'HK$ ' + Number(entry.amount || 0).toLocaleString('en-US'));
+        }
+
+        // 發送中心條目 → 訊息文字（學費按模板；請假/補堂重用課堂訊息）
+        function sendlogMsgFor(entry) {
+            if (entry.type === 'TUITION') return tuitionMsgFor(entry);
+            const f = GACLessonState.findLesson(lessonsByMonth, entry.lessonId);
+            if (!f) return '（原課堂已不存在，此條目僅留作歷史紀錄）';
+            return entry.type === 'LEAVE_CONFIRM' ? leaveMsgFor(f.lesson) : makeupMsgFor(f.lesson);
+        }
+
+        // ===== 發送中心：雙欄（待發送/已發送），按月獨立。開 WhatsApp 不會自動移欄，必須手動標記已發 =====
+        const SEND_TYPE_META = {
+            TUITION: { label: '學費', cls: 'bg-emerald-100 text-emerald-700' },
+            LEAVE_CONFIRM: { label: '請假確認', cls: 'bg-amber-100 text-amber-700' },
+            MAKEUP_CONFIRM: { label: '補堂確認', cls: 'bg-sky-100 text-sky-700' }
+        };
+
+        function sendCenterMonth() {
+            const el = document.getElementById('sendMonth');
+            return (el && el.value) || currentMonthKey();
+        }
+
+        // 電話以學生資料庫現值優先（條目中的 phone 是建立時的快照，可能已更新）
+        function sendEntryPhone(entry) {
+            const stu = studentDatabase.find(s => s.id === entry.studentId);
+            return (stu && stu.phone) || entry.phone || '';
+        }
+
+        function sendEntryCard(e, sent) {
+            const meta = SEND_TYPE_META[e.type] || { label: e.type, cls: 'bg-slate-100 text-slate-600' };
+            const phone = sendEntryPhone(e);
+            const msg = sendlogMsgFor(e);
+            const amountRow = e.type === 'TUITION'
+                ? `<div class="flex items-center gap-2">
+                       <span class="text-slate-500 font-medium">金額 HK$</span>
+                       <input type="number" min="0" value="${e.amount}" ${sent ? 'disabled' : ''}
+                           onchange="sendSetAmount('${e.key}', this.value)"
+                           class="w-24 px-2 py-1 border border-slate-300 rounded-lg ${sent ? 'bg-slate-100 text-slate-400' : ''}">
+                       <span class="text-slate-400">（${e.count} 堂）</span>
+                       ${e.amountEdited ? '<span class="text-amber-600 font-semibold" title="金額已手改，重新生成課表不會覆蓋"><i class="fa-solid fa-pen"></i> 已手改</span>' : ''}
+                   </div>`
+                : '';
+            const waBtn = phone
+                ? `<button onclick="sendWhatsApp('${e.key}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold" title="打開 WhatsApp 預填訊息（不會自動移到已發送，發完請點「標記已發」）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`
+                : `<button disabled class="px-2.5 py-1.5 bg-slate-100 text-slate-400 rounded-lg font-semibold cursor-not-allowed" title="此學生沒有電話號碼，僅可複製或手動已發"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`;
+            const actions = sent
+                ? `<button onclick="sendMarkUnsent('${e.key}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold" title="移回待發送（發錯了想重發）"><i class="fa-solid fa-rotate-left"></i> 移回待發</button>`
+                : `<button onclick="sendCopy('${e.key}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold"><i class="fa-solid fa-copy"></i> 複製</button>
+                   ${waBtn}
+                   <button onclick="sendMarkSent('${e.key}', 'wa_link')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold" title="已用 WhatsApp 發出 → 移到已發送"><i class="fa-solid fa-check"></i> 標記已發</button>
+                   <button onclick="sendMarkSent('${e.key}', 'manual')" class="px-2.5 py-1.5 bg-slate-600 hover:bg-slate-700 text-white rounded-lg font-semibold" title="不經 WhatsApp（如面談／電話已通知）→ 直接移到已發送">手動已發</button>`;
+            const sentInfo = sent
+                ? `<span class="text-[10px] text-slate-400">已發於 ${String(e.sentAt || '').replace('T', ' ').slice(0, 16)} · ${e.method === 'manual' ? '手動' : 'WhatsApp'}</span>`
+                : '';
+            return `
+                <div class="border border-slate-200 rounded-xl p-3 space-y-2 text-xs ${sent ? 'bg-slate-50/60' : 'bg-white'}">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="px-1.5 py-0.5 rounded ${meta.cls} font-bold text-[10px]">${meta.label}</span>
+                        <span class="font-bold text-slate-800">${e.studentName || e.studentId}</span>
+                        <span class="text-slate-500">(${e.studentId})</span>
+                        ${phone ? `<span class="text-slate-500"><i class="fa-solid fa-phone text-[10px]"></i> ${phone}</span>` : '<span class="text-slate-400 italic">無電話</span>'}
+                        ${sentInfo}
+                    </div>
+                    ${amountRow}
+                    <div class="bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-700 whitespace-pre-wrap">${msg}</div>
+                    <div class="flex items-center gap-1.5 flex-wrap">${actions}</div>
+                </div>`;
+        }
+
+        function renderSendCenter() {
+            const todoList = document.getElementById('sendTodoList');
+            const sentList = document.getElementById('sendSentList');
+            if (!todoList || !sentList) return;
+            const cols = GACSendlog.listByMonth(sendLog, sendCenterMonth());
+            todoList.innerHTML = cols.todo.map(e => sendEntryCard(e, false)).join('')
+                || '<div class="text-slate-400 text-xs italic p-3">此月份沒有待發送項目。生成課表／標記請假／安排補堂會自動產生對應條目。</div>';
+            sentList.innerHTML = cols.sent.map(e => sendEntryCard(e, true)).join('')
+                || '<div class="text-slate-400 text-xs italic p-3">此月份還沒有已發送紀錄。</div>';
+            const todoCountEl = document.getElementById('sendTodoCount');
+            const sentCountEl = document.getElementById('sendSentCount');
+            if (todoCountEl) todoCountEl.textContent = cols.todo.length;
+            if (sentCountEl) sentCountEl.textContent = cols.sent.length;
+            // 頁籤紅點徽章：所有月份 TODO 總數
+            const badge = document.getElementById('sendTabBadge');
+            if (badge) {
+                const total = Object.keys(sendLog).filter(k => sendLog[k] && sendLog[k].status === 'TODO').length;
+                badge.textContent = total;
+                badge.classList.toggle('hidden', total === 0);
+            }
+        }
+
+        function sendSetAmount(key, value) {
+            GACSendlog.setAmount(sendLog, key, value);
+            persistSendlog();
+            renderSendCenter();
+        }
+
+        function sendMarkSent(key, method) {
+            GACSendlog.markSent(sendLog, key, method, new Date().toISOString());
+            persistSendlog();
+            renderSendCenter();
+        }
+
+        function sendMarkUnsent(key) {
+            GACSendlog.markUnsent(sendLog, key);
+            persistSendlog();
+            renderSendCenter();
+        }
+
+        function sendCopy(key) {
+            const e = sendLog[key];
+            if (e) copyToClipboard(sendlogMsgFor(e));
+        }
+
+        function sendWhatsApp(key) {
+            const e = sendLog[key];
+            if (!e) return;
+            const phone = getWhatsAppPhone(sendEntryPhone(e));
+            if (!phone) { alert('此學生沒有可用的 WhatsApp 電話號碼。'); return; }
+            const url = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(sendlogMsgFor(e))}`;
+            window.open(url, '_blank', 'noopener');
+            // 刻意不自動標記已發（用戶要求手動確認）：發完請點「標記已發」
+        }
+
+        // ===== 設定頁（gac_settings_v2）=====
+        function loadSettingsForm() {
+            const chk = document.getElementById('setPayNoShow');
+            if (!chk) return;
+            chk.checked = appSettings.payNoShow !== false;
+            document.getElementById('setPublicIcsUrl').value = appSettings.publicIcsUrl || '';
+            document.getElementById('setGcalClientId').value = appSettings.gcalClientId || '';
+            document.getElementById('setGcalCalendarId').value = appSettings.gcalCalendarId || 'primary';
+        }
+
+        function saveSettingsForm() {
+            appSettings.payNoShow = document.getElementById('setPayNoShow').checked;
+            appSettings.publicIcsUrl = document.getElementById('setPublicIcsUrl').value.trim();
+            appSettings.gcalClientId = document.getElementById('setGcalClientId').value.trim();
+            appSettings.gcalCalendarId = document.getElementById('setGcalCalendarId').value.trim() || 'primary';
+            gacStore.saveSettings(appSettings);
+            const hint = document.getElementById('settingsSavedHint');
+            if (hint) {
+                hint.classList.remove('hidden');
+                setTimeout(() => hint.classList.add('hidden'), 2000);
+            }
         }
 
         function copyLeaveMsgMaster(lessonId) {

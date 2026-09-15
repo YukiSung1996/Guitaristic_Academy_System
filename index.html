@@ -46,11 +46,11 @@
                 <!-- Quick Database Management Controls -->
                 <div class="flex items-center space-x-2">
                     <button id="advancedDarkMode" class="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition">深色模式</button>
-                    <button onclick="exportJSONDatabase()" class="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition flex items-center gap-1.5">
+                    <button onclick="exportJSONDatabase()" title="全量備份：學生名單＋課表（含狀態與補堂鏈）＋發送紀錄＋設定" class="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition flex items-center gap-1.5">
                         <i class="fa-solid fa-file-export text-emerald-400"></i>
-                        <span class="hidden sm:inline">備份資料 (JSON)</span>
+                        <span class="hidden sm:inline">全量備份 (JSON)</span>
                     </button>
-                    <button onclick="document.getElementById('importJsonInput').click()" class="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition flex items-center gap-1.5">
+                    <button onclick="document.getElementById('importJsonInput').click()" title="還原全量備份（舊版「僅學生名單」備份檔亦可匯入）" class="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition flex items-center gap-1.5">
                         <i class="fa-solid fa-file-import text-sky-400"></i>
                         <span class="hidden sm:inline">還原資料</span>
                     </button>
@@ -130,6 +130,15 @@
                 <button onclick="switchTab('advancedPayrollTab')" id="tab_advancedPayrollTab" class="tab-btn py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
                     <i class="fa-solid fa-file-invoice-dollar text-amber-500"></i>
                     <span>高級薪酬管理</span>
+                </button>
+                <button onclick="switchTab('sendTab')" id="tab_sendTab" class="tab-btn py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-paper-plane text-teal-500"></i>
+                    <span>發送中心</span>
+                    <span id="sendTabBadge" class="hidden min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">0</span>
+                </button>
+                <button onclick="switchTab('settingsTab')" id="tab_settingsTab" class="tab-btn py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-gear text-slate-500"></i>
+                    <span>設定</span>
                 </button>
             </div>
         </div>
@@ -491,6 +500,92 @@
                 <div class="table-wrap"><table><thead><tr><th>ID</th><th>學生</th><th>導師</th><th>堂數</th><th>每堂費率</th><th>課程總額</th><th>操作</th></tr></thead><tbody id="advancedPayrollBody"></tbody></table></div>
                 <h3 class="subheading">額外津貼 / 扣款</h3><div class="table-wrap"><table><thead><tr><th>項目</th><th>類型</th><th>金額</th><th>操作</th></tr></thead><tbody id="advancedAdjustmentsBody"></tbody></table></div>
                 <h3 class="subheading">歷史封存</h3><div class="table-wrap"><table><thead><tr><th>封存時間</th><th>月份</th><th>操作</th></tr></thead><tbody id="advancedArchivesBody"></tbody></table></div>
+            </div>
+        </section>
+
+        <!-- TAB 5: SEND CENTER 發送中心（雙欄 To-Send / Sent，按月獨立） -->
+        <section id="sendTab" class="tab-content hidden space-y-6">
+            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                            <i class="fa-solid fa-paper-plane text-teal-500"></i> 發送中心
+                        </h2>
+                        <p class="text-xs text-slate-500 mt-0.5">學費、請假確認、補堂確認訊息集中處理。開 WhatsApp <b>不會</b>自動移欄，發送後請手動點「標記已發」。</p>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs">
+                        <label class="font-bold text-slate-600">月份：</label>
+                        <input type="month" id="sendMonth" onchange="renderSendCenter()" class="px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none">
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div class="space-y-2">
+                        <h3 class="text-sm font-bold text-slate-700 flex items-center gap-2">
+                            <i class="fa-solid fa-hourglass-half text-amber-500"></i> 待發送（<span id="sendTodoCount" class="text-rose-600">0</span> 筆）
+                        </h3>
+                        <div id="sendTodoList" class="space-y-2"></div>
+                    </div>
+                    <div class="space-y-2">
+                        <h3 class="text-sm font-bold text-slate-700 flex items-center gap-2">
+                            <i class="fa-solid fa-circle-check text-emerald-500"></i> 已發送（<span id="sendSentCount" class="text-emerald-600">0</span> 筆）
+                        </h3>
+                        <div id="sendSentList" class="space-y-2"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 6: SETTINGS 設定 -->
+        <section id="settingsTab" class="tab-content hidden space-y-6">
+            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4 max-w-2xl">
+                <div class="border-b border-slate-100 pb-3">
+                    <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                        <i class="fa-solid fa-gear text-slate-500"></i> 系統設定
+                    </h2>
+                    <p class="text-xs text-slate-500 mt-0.5">儲存於本機（gac_settings_v2），並包含在全量備份內。</p>
+                </div>
+                <label class="flex items-start gap-3 text-sm cursor-pointer">
+                    <input type="checkbox" id="setPayNoShow" class="mt-0.5 w-4 h-4 accent-sky-600">
+                    <span>
+                        <span class="font-bold text-slate-700">缺席（NOSHOW）計入導師薪酬</span>
+                        <!-- TODO(跟老闆確認)：NOSHOW 計薪預設值，目前預設計入 -->
+                        <span class="block text-xs text-slate-500 mt-0.5">學生無故缺席但導師已到場，該堂照計工資（高級薪酬「匯入學生及課堂」時生效）。</span>
+                    </span>
+                </label>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">公開 ICS 網址（高級薪酬「讀取公開 ICS」使用）</label>
+                    <input type="url" id="setPublicIcsUrl" placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Google OAuth Client ID（Phase 2 使用）</label>
+                        <input type="text" id="setGcalClientId" placeholder="xxxx.apps.googleusercontent.com" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">目標日曆 ID（Phase 2 使用）</label>
+                        <input type="text" id="setGcalCalendarId" placeholder="primary" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+                </div>
+                <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
+                    <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
+                        <i class="fa-solid fa-floppy-disk"></i> 儲存設定
+                    </button>
+                    <span id="settingsSavedHint" class="hidden text-xs text-emerald-600 font-semibold"><i class="fa-solid fa-check"></i> 已儲存</span>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-3 max-w-2xl">
+                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-box-archive text-emerald-500"></i> 資料備份
+                </h3>
+                <p class="text-xs text-slate-500">全量備份包含：學生名單、課表（含狀態與補堂鏈）、發送紀錄、設定。還原時會覆蓋現有資料；舊版「僅學生名單」備份檔亦可匯入（只影響學生名單）。</p>
+                <div class="flex items-center gap-2">
+                    <button onclick="exportJSONDatabase()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-export"></i> 全量備份 (JSON)
+                    </button>
+                    <button onclick="document.getElementById('importJsonInput').click()" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-import"></i> 還原備份
+                    </button>
+                </div>
             </div>
         </section>
 
