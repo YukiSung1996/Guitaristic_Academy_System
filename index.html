@@ -161,7 +161,13 @@
                     </div>
 
                     <div class="flex items-center gap-2 flex-wrap">
-                        <button onclick="openMasterGoogleCalendar()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
+                        <button onclick="importGcalMonth()" id="gcalImportBtn" title="OAuth 授權後經 API 導入本月課堂：先按 gacLessonId 查重，已存在一律跳過、絕不覆蓋（需在設定頁填 Client ID，並經 http://localhost 開啟）" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
+                            <i class="fa-solid fa-cloud-arrow-up"></i> 導入 GCal (API)
+                        </button>
+                        <button onclick="openGcalReconcile()" id="gcalReconcileBtn" title="讀取 Google Calendar（本月前後各 7 天）與本地課表比對：時間變更／已刪除／狀態碼／手動新增，逐條勾選後套用" class="px-4 py-2 bg-indigo-100 hover:bg-indigo-200 disabled:opacity-50 text-indigo-800 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
+                            <i class="fa-solid fa-rotate"></i> 同步對帳
+                        </button>
+                        <button onclick="openMasterGoogleCalendar()" title="降級方案：逐堂開啟 Google Calendar 建立頁（無需授權）" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
                             <i class="fa-solid fa-calendar-plus"></i> 加入 Google Calendar
                         </button>
                         <button onclick="downloadMasterICS()" title="在本地導出 .ics 文件，可用於 Google Calendar 批量導入" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
@@ -708,6 +714,21 @@
             </div>
         </div>
     </div>
+
+    <!-- Google Calendar 同步對帳彈窗（差異逐條勾選，預設全不勾） -->
+    <div id="gcalDiffModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-5 space-y-3 max-h-[85vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                <h3 class="text-sm font-bold text-slate-800"><i class="fa-solid fa-rotate text-indigo-500 mr-1"></i>Google Calendar 同步對帳</h3>
+                <button onclick="closeGcalDiffModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="gcalDiffBody" class="space-y-2 text-xs"></div>
+            <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button onclick="closeGcalDiffModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
+                <button onclick="applyGcalDiff()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition">套用勾選項目</button>
+            </div>
+        </div>
+    </div>
     <script src="data.js"></script>
     <script src="art-rate-data.js"></script>
     <!-- v2 純函數庫（無 DOM 依賴，另有 node --test 單元測試，見 run-tests.cmd） -->
@@ -716,8 +737,10 @@
     <script src="lib/payroll.js"></script>
     <script src="lib/sendlog.js"></script>
     <script src="lib/storage.js"></script>
+    <script src="lib/gcal.js"></script>
     <script src="state.js"></script>
     <script src="app.js"></script>
+    <script src="gcal-ui.js"></script>
     <script src="payroll-advanced.js"></script>
 </body>
 </html>

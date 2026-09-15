@@ -26,8 +26,23 @@
 - 設定頁：NOSHOW 是否計薪、公開 ICS 網址、Google Calendar OAuth 參數（Phase 2 使用）
 - 薪酬按實際上課（ATTENDED）統計，補堂按實際上課日期歸屬月份；NOSHOW 計薪依設定
 - 月曆／週曆視圖、單堂 Google Calendar 預填連結和整月 ICS 導出（VEVENT 含 `UID:<lessonId>@guitaristic`）
+- Google Calendar API 同步（Phase 2，見下節）：查重導入絕不覆蓋、對帳 diff 逐條勾選套用
 - WhatsApp Web 預填訊息連結（只使用演示電話號碼）
 - 全量 JSON 備份／還原（學生＋課表＋發送紀錄＋設定，帶 schema 版本檢查；舊版「僅學生名單」備份檔兼容匯入）
+
+## Google Calendar 同步（Phase 2）
+
+一次性設置：
+
+1. [GCP Console](https://console.cloud.google.com/) 建專案 → 啟用 **Google Calendar API** → Credentials 建立 **OAuth client ID**（類型 Web application）。
+2. Authorized JavaScript origins 加入你開啟本頁的網址。**GIS 不支援 `file://`**，請用本地伺服器（如 VS Code Live Server 的 `http://127.0.0.1:5500`）。
+3. 把 Client ID（及目標日曆 ID，預設 `primary`）填入本系統「設定」頁。
+
+使用（總課表頁頂部）：
+
+- **導入 GCal (API)**：對本月每堂課先按 `extendedProperties.private.gacLessonId` 查重——已存在一律跳過、**絕不 update**；缺失才新增並回填 `gcalEventId`。結束報告新增／跳過／失敗數。事件約定：標題 `S001 Student 001([1/5] 09/2026)`、location 放狀態碼（L/SL/TL/MU/NS）。
+- **同步對帳**：讀取本月前後各 7 天的事件與本地比對，差異分四類（時間變更／已刪除／狀態碼變更／手動新建可歸屬學生的事件——可收編為補堂或獨立加課），**預設全不勾**，逐條勾選後套用；其餘事件一律忽略。不做自動雙向同步。
+- Token 只存記憶體，刷新頁面即失效；未授權／離線時明確報錯，本地功能不受影響。ICS 導出保留作無網降級。
 
 ## 文件
 
@@ -36,7 +51,8 @@
 - `state.js`：頁面內存狀態
 - `app.js`：排堂、狀態機 UI、待補堂池、小組防護、發送中心、備份還原
 - `payroll-advanced.js`：高級薪酬計算
-- `lib/`：無 DOM 依賴的純函數庫（`schedule.js` 生成與 merge、`lessonState.js` 狀態機與補堂鏈、`payroll.js` 計薪、`sendlog.js` 發送紀錄、`storage.js` 持久化與備份）
+- `gcal-ui.js`：Google Calendar 同步的瀏覽器膠水層（GIS OAuth、導入、對帳彈窗）
+- `lib/`：無 DOM 依賴的純函數庫（`schedule.js` 生成與 merge、`lessonState.js` 狀態機與補堂鏈、`payroll.js` 計薪、`sendlog.js` 發送紀錄、`storage.js` 持久化與備份、`gcal.js` 日曆事件構造／查重導入／對帳 diff）
 - `tests/`：Node 內建 test runner 的單元測試
 - `styles.css`：頁面樣式
 
@@ -57,4 +73,4 @@ run-tests.cmd
 ## 驗證結果
 
 - 2026-09-14 瀏覽器驗證通過（v1 基線）：6 名學生初始化、10 堂月課生成、衝突識別、請假扣除、拆帳重算、刷新持久化。
-- 2026-09-16（v2）：40 項單元測試全綠；無頭冒煙 82 項通過（生成→狀態機→小組聯動→改期→手動模式→發送中心→全量備份還原全流程）。
+- 2026-09-16（v2）：54 項單元測試全綠（含 Google Calendar 測試組 D 以 mock 傳輸層覆蓋）；無頭冒煙 91 項通過（生成→狀態機→小組聯動→改期→手動模式→發送中心→全量備份還原→對帳套用全流程）。Google OAuth 實機流程需自備 GCP Client ID，待人工驗證。
