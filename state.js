@@ -7,3 +7,4 @@
         let gacStore = null;            // lib/storage.js 的 store 實例（window.onload 時建立）
         let currentViewMode = 'list';
         let monthWeeksData = [];
+        let manualMode = false;         // 手動模式：跳過狀態機限制、不觸發小組聯動（每次載入預設關閉，防誤觸）

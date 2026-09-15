@@ -242,6 +242,9 @@
                         <button onclick="batchConfirmWeek()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold transition flex items-center gap-1" title="把所選週次（或全月）內、今天（含）以前仍是「已排課」的課堂批量標記為已上課">
                             <i class="fa-solid fa-check-double"></i> 批量確認出席
                         </button>
+                        <button id="manualModeBtn" onclick="toggleManualMode()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-bold transition flex items-center gap-1" title="手動模式：每行出現直接改狀態控件（跳過流程限制、不觸發小組聯動），用於修正誤操作。每次載入預設關閉。">
+                            <i class="fa-solid fa-wrench"></i> 手動模式
+                        </button>
                     </div>
                 </div>
 
@@ -253,6 +256,9 @@
                         <p class="text-amber-700 mt-0.5">請檢查標有 <span class="bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">⚠️ 撞堂重疊</span> 的課堂並為學生調整補堂時間。</p>
                     </div>
                 </div>
+
+                <!-- 小組一致性警告（兜底偵測：TL 導師請假未同步 / 小組補堂時段發散） -->
+                <div id="groupWarnBanner" class="hidden p-3 bg-orange-50 border border-orange-300 rounded-xl text-orange-900 text-xs font-medium space-y-1.5"></div>
 
                 <!-- Views -->
                 <div id="masterScheduleList" class="space-y-3 max-h-[600px] overflow-y-auto pr-1"></div>
@@ -570,6 +576,40 @@
             <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button onclick="closeStudentModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
                 <button onclick="saveStudentFromModal()" class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition">儲存資料</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 補堂改期彈窗：選新日期時間一步調過去 -->
+    <div id="moveModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                <h3 class="text-sm font-bold text-slate-800"><i class="fa-solid fa-arrows-rotate text-sky-500 mr-1"></i>補堂改期</h3>
+                <button onclick="closeMoveModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="moveModalInfo" class="text-xs text-slate-600 leading-relaxed"></div>
+            <div class="flex items-center gap-2 text-xs">
+                <label class="font-bold text-slate-600">改到：</label>
+                <input type="date" id="moveDate" class="p-2 border border-slate-300 rounded-lg bg-white">
+                <input type="time" id="moveTime" class="p-2 border border-slate-300 rounded-lg bg-white">
+            </div>
+            <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button onclick="closeMoveModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
+                <button onclick="submitMoveModal()" class="px-4 py-2 bg-sky-600 text-white text-xs font-bold rounded-xl hover:bg-sky-700 transition">確定改期</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 請假／補堂確認訊息彈窗（小組課會列出全部成員，需逐一發送） -->
+    <div id="msgModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-5 space-y-3 max-h-[85vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                <h3 id="msgModalTitle" class="text-sm font-bold text-slate-800"></h3>
+                <button onclick="closeMsgModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="msgModalBody" class="space-y-3 text-xs"></div>
+            <div class="flex justify-end pt-2 border-t border-slate-100">
+                <button onclick="closeMsgModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">關閉</button>
             </div>
         </div>
     </div>
