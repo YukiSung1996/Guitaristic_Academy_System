@@ -150,3 +150,107 @@ test('批量確認出席：只確認範圍內且不晚於 maxDate 的 SCHEDULED 
     assert.strictEqual(LS.findLesson(buckets, 'S001-20260922-2130').lesson.status, 'SCHEDULED');
     assert.strictEqual(LS.findLesson(buckets, L2).lesson.status, 'LEAVE');
 });
+
+// ---- 小組一致性（groupSiblings / detectGroupInconsistencies）----
+// 小組桶：S003/S004 為 2 人小組（同 classType/program/時間/時長），週三 21:30；另有個別課 S001 週二
+function makeGroupBuckets() {
+    const g3 = student({ id: 'S003', name: 'Student 003', type: '2人小組', weekday: 3, duration: 60 });
+    const g4 = student({ id: 'S004', name: 'Student 004', type: '2人小組', weekday: 3, duration: 60 });
+    const lessons = S.generateMonthLessons(g3, '2026-09')
+        .concat(S.generateMonthLessons(g4, '2026-09'))
+        .concat(S.generateMonthLessons(student(), '2026-09'));
+    lessons.forEach(function (l) { l.classType = l.studentId === 'S001' ? '一對一' : '2人小組'; });
+    return { '2026-09': lessons };
+}
+const G3 = 'S003-20260916-2130'; // 9/16 週三
+const G4 = 'S004-20260916-2130';
+
+test('小組: groupSiblings 找到同組同日成員，排除不同日、非小組、同學生', () => {
+    const buckets = makeGroupBuckets();
+    const sibs = LS.groupSiblings(buckets, G3);
+    assert.strictEqual(sibs.length, 1);
+    assert.strictEqual(sibs[0].lessonId, G4);
+    // 個別課無同組
+    assert.strictEqual(LS.groupSiblings(buckets, 'S001-20260915-2130').length, 0);
+    // 補堂課的 sibling 以補堂時段計：兩人補堂排同一時段 → 互為 sibling
+    LS.markStatus(buckets, G3, 'LEAVE', { leaveType: 'TL' });
+    LS.markStatus(buckets, G4, 'LEAVE', { leaveType: 'TL' });
+    const m3 = LS.scheduleMakeup(buckets, G3, { date: '2026-10-14', time: '19:00' }).makeup;
+    const m4 = LS.scheduleMakeup(buckets, G4, { date: '2026-10-14', time: '19:00' }).makeup;
+    const mkSibs = LS.groupSiblings(buckets, m3.lessonId);
+    assert.strictEqual(mkSibs.length, 1);
+    assert.strictEqual(mkSibs[0].lessonId, m4.lessonId);
+});
+
+test('小組: 全部排定或全組 TL（未排/同時段補堂）→ 無告警', () => {
+    const buckets = makeGroupBuckets();
+    assert.strictEqual(LS.detectGroupInconsistencies(buckets, '2026-09').length, 0, '全 SCHEDULED');
+    LS.markStatus(buckets, G3, 'LEAVE', { leaveType: 'TL' });
+    LS.markStatus(buckets, G4, 'LEAVE', { leaveType: 'TL' });
+    assert.strictEqual(LS.detectGroupInconsistencies(buckets, '2026-09').length, 0, '全組 TL 未排補堂');
+    LS.scheduleMakeup(buckets, G3, { date: '2026-10-14', time: '19:00' });
+    assert.strictEqual(LS.detectGroupInconsistencies(buckets, '2026-09').length, 0, '僅一人已排補堂（另一人仍在池中）');
+    LS.scheduleMakeup(buckets, G4, { date: '2026-10-14', time: '19:00' });
+    assert.strictEqual(LS.detectGroupInconsistencies(buckets, '2026-09').length, 0, '補堂同一時段');
+});
+
+test('小組: TL_PARTIAL —— 一人 TL、另一人未請假 → 告警', () => {
+    const buckets = makeGroupBuckets();
+    LS.markStatus(buckets, G3, 'LEAVE', { leaveType: 'TL' });
+    const issues = LS.detectGroupInconsistencies(buckets, '2026-09');
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].type, 'TL_PARTIAL');
+    assert.strictEqual(issues[0].date, '2026-09-16');
+    assert.strictEqual(issues[0].tlLessons[0].studentId, 'S003');
+    assert.strictEqual(issues[0].others[0].studentId, 'S004');
+});
+
+test('小組: MAKEUP_DIVERGED —— 全組 TL 但補堂時段不同 → 告警；個人假不告警', () => {
+    const buckets = makeGroupBuckets();
+    LS.markStatus(buckets, G3, 'LEAVE', { leaveType: 'TL' });
+    LS.markStatus(buckets, G4, 'LEAVE', { leaveType: 'TL' });
+    LS.scheduleMakeup(buckets, G3, { date: '2026-10-14', time: '19:00' });
+    LS.scheduleMakeup(buckets, G4, { date: '2026-10-21', time: '20:00' });
+    const issues = LS.detectGroupInconsistencies(buckets, '2026-09');
+    assert.strictEqual(issues.length, 1);
+    assert.strictEqual(issues[0].type, 'MAKEUP_DIVERGED');
+    assert.strictEqual(issues[0].entries.length, 2);
+    assert.deepStrictEqual(
+        issues[0].entries.map(e => e.makeup.date).sort(),
+        ['2026-10-14', '2026-10-21']
+    );
+
+    // 對照組：同樣的發散但假別是個人假（SL）→ 屬正常，不告警
+    const b2 = makeGroupBuckets();
+    LS.markStatus(b2, G3, 'LEAVE', { leaveType: 'SL' });
+    LS.markStatus(b2, G4, 'LEAVE', { leaveType: 'SL' });
+    LS.scheduleMakeup(b2, G3, { date: '2026-10-14', time: '19:00' });
+    LS.scheduleMakeup(b2, G4, { date: '2026-10-21', time: '20:00' });
+    assert.strictEqual(LS.detectGroupInconsistencies(b2, '2026-09').length, 0);
+});
+
+// ---- 手動模式 forceStatus ----
+test('手動: forceStatus 跳過轉換矩陣（ATTENDED→LEAVE 直改）；無效狀態被拒', () => {
+    const buckets = makeBuckets();
+    LS.markStatus(buckets, L2, 'ATTENDED');
+    // 正常狀態機不允許 ATTENDED → LEAVE
+    assert.strictEqual(LS.markStatus(buckets, L2, 'LEAVE', { leaveType: 'SL' }).code, 'ILLEGAL_TRANSITION');
+    const res = LS.forceStatus(buckets, L2, 'LEAVE', { leaveType: 'SL' });
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.lesson.status, 'LEAVE');
+    assert.strictEqual(res.lesson.leaveType, 'SL');
+    assert.strictEqual(LS.forceStatus(buckets, L2, 'CANCELLED').code, 'INVALID_STATUS');
+});
+
+test('手動: forceStatus 仍保護補堂鏈——已排補堂的請假不可直改他態；改假別則保留補堂', () => {
+    const buckets = makeBuckets();
+    LS.markStatus(buckets, L2, 'LEAVE', { leaveType: 'L' });
+    const mu = LS.scheduleMakeup(buckets, L2, { date: '2026-10-02', time: '15:00' }).makeup;
+    assert.strictEqual(LS.forceStatus(buckets, L2, 'ATTENDED').code, 'HAS_MAKEUP');
+    assert.strictEqual(LS.forceStatus(buckets, L2, 'SCHEDULED').code, 'HAS_MAKEUP');
+    // 只改假別（LEAVE→LEAVE）合法，補堂鏈不動
+    const res = LS.forceStatus(buckets, L2, 'LEAVE', { leaveType: 'TL' });
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.lesson.leaveType, 'TL');
+    assert.strictEqual(res.lesson.makeupLessonId, mu.lessonId);
+});
