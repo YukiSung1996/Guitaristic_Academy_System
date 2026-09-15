@@ -1,6 +1,6 @@
 @echo off
 rem 跑全部單元測試。使用 .tools\node 內的便攜版 Node（不需系統安裝）。
-rem 若已安裝系統 Node，也可直接執行: node --test tests/
+rem 若已安裝系統 Node，也可直接執行: node --test "tests/*.test.js"
 setlocal
 set NODE=%~dp0.tools\node\node.exe
 if not exist "%NODE%" (
@@ -12,4 +12,4 @@ if not exist "%NODE%" (
     )
     set NODE=node
 )
-"%NODE%" --test tests/
+"%NODE%" --test "tests/*.test.js"
