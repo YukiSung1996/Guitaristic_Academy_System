@@ -254,3 +254,31 @@ test('手動: forceStatus 仍保護補堂鏈——已排補堂的請假不可直
     assert.strictEqual(res.lesson.leaveType, 'TL');
     assert.strictEqual(res.lesson.makeupLessonId, mu.lessonId);
 });
+
+test('對帳: moveLessonDateTime 同月改時間——id 不變、桶不動', () => {
+    const buckets = makeBuckets();
+    const res = LS.moveLessonDateTime(buckets, L2, '2026-09-09', '19:00');
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.lesson.date, '2026-09-09');
+    assert.strictEqual(res.lesson.time, '19:00');
+    assert.strictEqual(res.lesson.lessonId, L2, 'lessonId 是不變主鍵');
+    assert.strictEqual(res.fromMonthKey, res.toMonthKey);
+    assert.strictEqual(buckets['2026-09'].length, 5);
+});
+
+test('對帳: moveLessonDateTime 跨月移桶——鏈接與查找完好，空桶刪除', () => {
+    const buckets = makeBuckets();
+    LS.markStatus(buckets, L2, 'LEAVE', { leaveType: 'L' });
+    const mu = LS.scheduleMakeup(buckets, L2, { date: '2026-10-02', time: '15:00' }).makeup;
+    // 把補堂從 10/2 挪到 11/1（跨月）
+    const res = LS.moveLessonDateTime(buckets, mu.lessonId, '2026-11-01', '10:00');
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.fromMonthKey, '2026-10');
+    assert.strictEqual(res.toMonthKey, '2026-11');
+    assert.strictEqual(buckets['2026-10'], undefined, '搬空的月桶被刪除');
+    const found = LS.findLesson(buckets, mu.lessonId);
+    assert.strictEqual(found.monthKey, '2026-11');
+    assert.strictEqual(found.lesson.date, '2026-11-01');
+    assert.strictEqual(LS.findLesson(buckets, L2).lesson.makeupLessonId, mu.lessonId, '原課仍指向同一補堂 id');
+    assert.strictEqual(LS.moveLessonDateTime(buckets, 'NOPE', '2026-11-01', '10:00').code, 'NOT_FOUND');
+});
