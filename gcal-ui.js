@@ -72,7 +72,7 @@ function gcalTimeZone() {
 }
 
 function setGcalBusy(busy) {
-    ['gcalImportBtn', 'gcalReconcileBtn'].forEach(id => {
+    ['gcalImportBtn', 'gcalReconcileBtn', 'gcalCleanupBtn'].forEach(id => {
         const b = document.getElementById(id);
         if (b) b.disabled = busy;
     });
@@ -84,12 +84,41 @@ function importGcalMonth() {
     const monthKey = currentMonthKey();
     const lessons = lessonsByMonth[monthKey] || [];
     if (!lessons.length) { alert('目前月份沒有課堂可導入。'); return; }
-    if (!confirm(`將檢查 ${monthKey} 的 ${lessons.length} 堂課：\n已存在於 Google Calendar 的跳過（絕不覆蓋），缺失的才新增。\n繼續？`)) return;
+    const opts = { titleFn: GACSchedule.lessonTitle, timeZone: gcalTimeZone() };
     setGcalBusy(true);
     ensureGcalToken()
-        .then(token => GACGcal.importLessons(gcalClient(token), lessons,
-            { titleFn: GACSchedule.lessonTitle, timeZone: gcalTimeZone() }))
+        .then(token => {
+            // 導入前檢測：GCal 上已生成的事件若與本地不一致（本地改過/重新生成過），
+            // 導入絕不 update 也不刪 → 先警告，指引「清理 GCal」刪除後重新導入。
+            const client = gcalClient(token);
+            const w = GACGcal.syncWindow(monthKey);
+            return client.listWindow(w.timeMin, w.timeMax).then(events => ({ client, events }));
+        })
+        .then(({ client, events }) => {
+            const monthEvents = events.filter(ev => {
+                if (!ev || ev.status === 'cancelled' || !GACGcal.eventLessonId(ev)) return false;
+                const local = GACGcal.eventStartToLocal(ev);
+                return !!local && local.date.slice(0, 7) === monthKey;
+            });
+            const pre = GACGcal.importPrecheck(GACLessonState.allLessons(lessonsByMonth), monthEvents, opts);
+            let ask;
+            if (pre.stale.length || pre.orphans.length) {
+                const kinds = [...new Set(pre.stale.flatMap(s => s.reasons))].join('／');
+                ask = `⚠️ 檢測：${monthKey} 在 Google Calendar 已有 ${pre.existing.length} 件本系統導入的事件，其中：\n` +
+                    (pre.stale.length ? `• ${pre.stale.length} 件與本地不一致（${kinds}）——GCal 上是舊版本\n` : '') +
+                    (pre.orphans.length ? `• ${pre.orphans.length} 件已無對應課堂——本地改動／重新生成後的殘留\n` : '') +
+                    '\n導入只會為缺失的課新增，絕不更新、絕不刪除既有事件。\n' +
+                    '要讓 GCal 與本地一致：請先按「清理 GCal (API)」刪除，再重新導入。\n\n仍要繼續導入（僅新增缺失的課）？';
+            } else {
+                ask = `將檢查 ${monthKey} 的 ${lessons.length} 堂課` +
+                    (pre.existing.length ? `（GCal 已有 ${pre.existing.length} 件、與本地一致，將跳過）` : '') +
+                    '：\n已存在於 Google Calendar 的跳過（絕不覆蓋），缺失的才新增。\n繼續？';
+            }
+            if (!confirm(ask)) return null;
+            return GACGcal.importLessons(client, lessons, opts);
+        })
         .then(r => {
+            if (!r) return; // 使用者取消
             persistLessons();
             renderAll();
             let msg = `Google Calendar 導入完成：\n• 新增 ${r.inserted.length} 件\n• 跳過 ${r.skipped.length} 件（已存在，未覆蓋）`;
@@ -99,6 +128,138 @@ function importGcalMonth() {
             alert((r.failed.length ? '⚠️ ' : '✅ ') + msg);
         })
         .catch(e => alert('⚠️ 導入未執行：' + ((e && e.message) || e) + '\n本地資料未受影響。'))
+        .finally(() => setGcalBusy(false));
+}
+
+// ===== 清理：批量刪除本系統導入的事件（僅帶 gacLessonId 標籤者；可按導師/學生篩選）=====
+let gcalCleanupItems = null; // [{eventId, lessonId, studentId, studentName, tutor, date, time, hasLocal}]
+
+function openGcalCleanup() {
+    if (!gcalPreflight()) return;
+    const monthKey = currentMonthKey();
+    setGcalBusy(true);
+    ensureGcalToken()
+        .then(token => {
+            const w = GACGcal.syncWindow(monthKey);
+            return gcalClient(token).listWindow(w.timeMin, w.timeMax);
+        })
+        .then(events => {
+            const knownIds = studentDatabase.map(s => s.id);
+            gcalCleanupItems = [];
+            events.forEach(ev => {
+                if (!ev || ev.status === 'cancelled') return;
+                const lessonId = GACGcal.eventLessonId(ev);
+                if (!lessonId) return; // 無系統標籤＝手動事件，絕不列入
+                const local = GACGcal.eventStartToLocal(ev);
+                if (!local || local.date.slice(0, 7) !== monthKey) return; // 只清本月（按牆鐘日期）
+                const lesson = GACLessonState.findLesson(lessonsByMonth, lessonId);
+                gcalCleanupItems.push({
+                    eventId: ev.id, lessonId: lessonId,
+                    studentId: lesson ? lesson.studentId
+                        : (GACGcal.matchStudentPrefix(ev.summary, knownIds) || '?'),
+                    studentName: lesson ? lesson.studentName : (ev.summary || '(無標題)'),
+                    tutor: lesson ? (lesson.tutor || '') : '',
+                    date: local.date, time: local.time || '',
+                    hasLocal: !!lesson
+                });
+            });
+            gcalCleanupItems.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+            if (!gcalCleanupItems.length) {
+                alert(`${monthKey} 在 Google Calendar 上沒有本系統導入的事件。\n（手動建立的事件不在清理範圍內）`);
+                return;
+            }
+            renderGcalCleanupModal(monthKey);
+        })
+        .catch(e => alert('⚠️ 讀取失敗：' + ((e && e.message) || e) + '\n未刪除任何事件。'))
+        .finally(() => setGcalBusy(false));
+}
+
+function renderGcalCleanupModal(monthKey) {
+    const head = document.getElementById('gcalCleanupHead');
+    if (!head || !gcalCleanupItems) return;
+    const tutors = [...new Set(gcalCleanupItems.map(i => i.tutor).filter(Boolean))].sort();
+    const nameById = {};
+    gcalCleanupItems.forEach(i => { if (!nameById[i.studentId]) nameById[i.studentId] = i.studentName; });
+    const stuIds = Object.keys(nameById).sort();
+    head.innerHTML = `
+        <div class="p-2 bg-rose-50 border border-rose-200 rounded-lg text-rose-800">
+            範圍：${monthKey}。只列出<b>本系統導入</b>（帶系統標籤）的事件，你手動建立的事件不會出現、也不會被刪除。
+            共 ${gcalCleanupItems.length} 件，符合篩選 <b><span id="gclCount">0</span></b> 件。
+            刪除後可在 Google Calendar 垃圾桶還原；本地課表不受影響，隨時可重新導入。
+        </div>
+        <div class="flex gap-2">
+            <select id="gclFilterTutor" onchange="renderGcalCleanupList()" class="flex-1 px-2 py-1.5 border border-slate-300 rounded-lg text-xs bg-white">
+                <option value="*">全部導師</option>
+                ${tutors.map(t => `<option value="${t}">${t}</option>`).join('')}
+            </select>
+            <select id="gclFilterStudent" onchange="renderGcalCleanupList()" class="flex-1 px-2 py-1.5 border border-slate-300 rounded-lg text-xs bg-white">
+                <option value="*">全部學生</option>
+                ${stuIds.map(id => `<option value="${id}">${id} ${nameById[id]}</option>`).join('')}
+            </select>
+        </div>`;
+    renderGcalCleanupList();
+    document.getElementById('gcalCleanupModal').classList.remove('hidden');
+}
+
+function renderGcalCleanupList() {
+    const body = document.getElementById('gcalCleanupBody');
+    if (!body || !gcalCleanupItems) return;
+    const ftEl = document.getElementById('gclFilterTutor');
+    const fsEl = document.getElementById('gclFilterStudent');
+    const ft = ftEl ? ftEl.value : '*';
+    const fs = fsEl ? fsEl.value : '*';
+    const rows = [];
+    gcalCleanupItems.forEach((it, idx) => {
+        if (ft !== '*' && it.tutor !== ft) return;
+        if (fs !== '*' && it.studentId !== fs) return;
+        rows.push(`<label class="flex items-center gap-2 p-2 border border-slate-200 rounded-lg text-xs cursor-pointer hover:bg-rose-50">
+            <input type="checkbox" data-idx="${idx}" checked class="w-4 h-4 accent-rose-600">
+            <span class="flex-1">${it.date} ${it.time}　<b>${it.studentName}</b>（${it.studentId}）　導師：${it.tutor || '—'}${it.hasLocal ? '' : '　<span class="text-amber-600 font-semibold">本地已無此課</span>'}</span>
+        </label>`);
+    });
+    body.innerHTML = rows.length ? rows.join('')
+        : '<div class="p-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-500">此篩選下沒有本系統導入的事件。</div>';
+    const cnt = document.getElementById('gclCount');
+    if (cnt) cnt.textContent = rows.length;
+}
+
+function gcalCleanupSetAll(checked) {
+    document.querySelectorAll('#gcalCleanupBody input[type="checkbox"]')
+        .forEach(cb => { cb.checked = checked; });
+}
+
+function closeGcalCleanupModal() {
+    const m = document.getElementById('gcalCleanupModal');
+    if (m) m.classList.add('hidden');
+    gcalCleanupItems = null;
+}
+
+function applyGcalCleanup() {
+    if (!gcalCleanupItems) return;
+    const chosen = [];
+    document.querySelectorAll('#gcalCleanupBody input[type="checkbox"]').forEach(cb => {
+        if (cb.checked) chosen.push(gcalCleanupItems[Number(cb.dataset.idx)]);
+    });
+    if (!chosen.length) { alert('沒有勾選任何事件。'); return; }
+    if (!confirm(`將從 Google Calendar 刪除 ${chosen.length} 件本系統導入的事件。\n（僅限帶系統標籤者，不會動到你手動建立的事件）\n刪除後可在 Google Calendar 的垃圾桶還原。\n本地課表不受影響，之後可隨時再按「導入」重建。\n\n確定刪除？`)) return;
+    setGcalBusy(true);
+    ensureGcalToken()
+        .then(token => GACGcal.deleteEvents(gcalClient(token), chosen))
+        .then(r => {
+            // 清掉本地回填的 gcalEventId，否則「同步對帳」會把這些課誤判成「GCal 已刪除→提議請假」
+            r.deleted.concat(r.gone).forEach(it => {
+                const lesson = GACLessonState.findLesson(lessonsByMonth, it.lessonId);
+                if (lesson) lesson.gcalEventId = null;
+            });
+            persistLessons();
+            renderAll();
+            closeGcalCleanupModal();
+            let msg = `已刪除 ${r.deleted.length} 件（GCal 垃圾桶可還原）`;
+            if (r.gone.length) msg += `\n• ${r.gone.length} 件本已不存在`;
+            if (r.failed.length) msg += `\n• 失敗 ${r.failed.length} 件，首個錯誤：\n  ${r.failed[0].error}`;
+            alert((r.failed.length ? '⚠️ ' : '✅ ') + msg);
+        })
+        .catch(e => alert('⚠️ 刪除未執行：' + ((e && e.message) || e)))
         .finally(() => setGcalBusy(false));
 }
 

@@ -29,6 +29,12 @@ function mockCalendar(initialEvents) {
                     JSON.parse(JSON.stringify(payload)));
                 events.push(ev);
                 return Promise.resolve(ev);
+            },
+            remove: (eventId) => {
+                const ev = events.find(e => e.id === eventId && e.status !== 'cancelled');
+                if (!ev) return Promise.reject(new Error('Google Calendar API 410：Resource has been deleted'));
+                ev.status = 'cancelled';
+                return Promise.resolve(null);
             }
         }
     };
@@ -122,6 +128,79 @@ test('D7: 傳輸失敗 → 明確報錯、不寫任何本地狀態', async () =>
     assert.strictEqual(r.failed.length, 5);
     assert.strictEqual(r.inserted.length, 0);
     assert.ok(lessons.every(l => l.gcalEventId === null), '失敗不回填 gcalEventId');
+});
+
+test('importPrecheck：一致不報、時間/標題/狀態碼不符報 stale、標籤對不上報 orphan、無標籤/cancelled 忽略', () => {
+    const lessons = S.generateMonthLessons(student(), '2026-09'); // 9/1,8,15,22,29
+    const evFor = (lesson, over) => Object.assign({
+        id: 'ev-' + lesson.lessonId, status: 'confirmed',
+        summary: S.lessonTitle(lesson), location: '',
+        start: { dateTime: lesson.date + 'T' + lesson.time + ':00+08:00' },
+        extendedProperties: { private: { gacLessonId: lesson.lessonId } }
+    }, over || {});
+    const events = [
+        evFor(lessons[0]),                                                        // 完全一致
+        evFor(lessons[1], { start: { dateTime: '2026-09-09T10:00:00+08:00' } }),  // 時間不符
+        evFor(lessons[2], { summary: 'S001 Student 001([9/9] 09/2026)' }),        // 標題不符（重新生成後編號變了）
+        evFor(lessons[3], { location: 'SL' }),                                    // 狀態碼不符（本地 SCHEDULED）
+        { id: 'orphan1', status: 'confirmed', summary: 'S001 舊課',
+          start: { dateTime: '2026-09-10T10:00:00+08:00' },
+          extendedProperties: { private: { gacLessonId: 'S001-OLD-ID' } } },      // 標籤對不上本地
+        { id: 'manual', status: 'confirmed', summary: 'S001 手動',
+          start: { dateTime: '2026-09-11T10:00:00+08:00' } },                     // 無標籤 → 忽略
+        evFor(lessons[4], { status: 'cancelled' })                                // cancelled → 忽略
+    ];
+    const pre = G.importPrecheck(lessons, events, IMPORT_OPTS);
+    assert.strictEqual(pre.existing.length, 5, '4 件對上＋1 件 orphan；無標籤與 cancelled 不算');
+    assert.strictEqual(pre.stale.length, 3);
+    assert.deepStrictEqual(pre.stale.map(s => s.reasons),
+        [['時間'], ['標題'], ['狀態碼']]);
+    assert.strictEqual(pre.orphans.length, 1);
+    assert.strictEqual(pre.orphans[0].id, 'orphan1');
+});
+
+test('deleteEvents：逐件刪除；重刪回報 gone 不算失敗；刪後可重新導入', async () => {
+    const lessons = S.generateMonthLessons(student(), '2026-09');
+    const cal = mockCalendar();
+    await G.importLessons(cal.client, lessons, IMPORT_OPTS);
+    const items = lessons.map(l => ({ eventId: l.gcalEventId, lessonId: l.lessonId }));
+    const r1 = await G.deleteEvents(cal.client, items);
+    assert.strictEqual(r1.ok, true);
+    assert.strictEqual(r1.deleted.length, 5);
+    assert.ok(cal.events.every(ev => ev.status === 'cancelled'));
+    const r2 = await G.deleteEvents(cal.client, items);
+    assert.strictEqual(r2.ok, true, '已不存在（410）不算失敗');
+    assert.strictEqual(r2.deleted.length, 0);
+    assert.strictEqual(r2.gone.length, 5);
+    // 刪除後重新導入 → 全部重建（cancelled 事件不擋查重）
+    lessons.forEach(l => { l.gcalEventId = null; });
+    const r3 = await G.importLessons(cal.client, lessons, IMPORT_OPTS);
+    assert.strictEqual(r3.inserted.length, 5);
+    assert.strictEqual(r3.skipped.length, 0);
+});
+
+test('deleteEvents：傳輸失敗 → failed 帶錯誤訊息，ok=false', async () => {
+    const failing = { remove: () => Promise.reject(new Error('offline')) };
+    const r = await G.deleteEvents(failing, [{ eventId: 'x', lessonId: 'L1' }]);
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.failed.length, 1);
+    assert.match(r.failed[0].error, /offline/);
+    assert.strictEqual(r.deleted.length, 0);
+});
+
+test('restClient：remove 走 DELETE，204 空回應視為成功', async () => {
+    const calls = [];
+    const client = G.createRestClient({
+        token: 'tok',
+        fetchFn: (url, opts) => {
+            calls.push({ url, method: opts.method });
+            return Promise.resolve({ ok: true, status: 204, json: () => Promise.reject(new Error('204 無 body')) });
+        }
+    });
+    const out = await client.remove('ev123');
+    assert.strictEqual(out, null);
+    assert.strictEqual(calls[0].method, 'DELETE');
+    assert.ok(calls[0].url.endsWith('/events/ev123'));
 });
 
 test('restClient：非 2xx 回應帶狀態碼與 Google 錯誤訊息', async () => {
