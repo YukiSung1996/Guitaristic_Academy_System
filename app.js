@@ -1818,8 +1818,10 @@
                 ? `<button onclick="sendMarkUnsent('${e.key}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold" title="移回待發送（發錯了想重發）"><i class="fa-solid fa-rotate-left"></i> 移回待發</button>`
                 : `<button onclick="sendCopy('${e.key}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold"><i class="fa-solid fa-copy"></i> 複製</button>
                    ${waBtn}
-                   <button onclick="sendMarkSent('${e.key}', 'wa_link')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold${waOpened ? ' ring-2 ring-emerald-300' : ''}" title="已用 WhatsApp 發出 → 移到已發送"><i class="fa-solid fa-check"></i> 標記已發</button>
-                   <button onclick="sendMarkSent('${e.key}', 'manual')" class="px-2.5 py-1.5 bg-slate-600 hover:bg-slate-700 text-white rounded-lg font-semibold" title="不經 WhatsApp（如面談／電話已通知）→ 直接移到已發送">手動已發</button>`;
+                   <span class="ml-auto pl-3 flex items-center gap-1.5">
+                       <button onclick="sendMarkSent('${e.key}', 'wa_link')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold${waOpened ? ' ring-2 ring-emerald-300' : ''}" title="已用 WhatsApp 發出 → 移到已發送"><i class="fa-solid fa-check"></i> 標記已發</button>
+                       <button onclick="sendMarkSent('${e.key}', 'manual')" class="px-2.5 py-1.5 bg-slate-600 hover:bg-slate-700 text-white rounded-lg font-semibold" title="不經 WhatsApp（如面談／電話已通知）→ 直接移到已發送">手動已發</button>
+                   </span>`;
             const sentInfo = sent
                 ? `<span class="text-[10px] text-slate-400">已發於 ${String(e.sentAt || '').replace('T', ' ').slice(0, 16)} · ${e.method === 'manual' ? '手動' : 'WhatsApp'}</span>`
                 : (waOpened
