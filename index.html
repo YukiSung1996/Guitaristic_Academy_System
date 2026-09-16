@@ -167,8 +167,8 @@
                         <button onclick="openGcalReconcile()" id="gcalReconcileBtn" title="讀取 Google Calendar（本月前後各 7 天）與本地課表比對：時間變更／已刪除／狀態碼／手動新增，逐條勾選後套用" class="px-4 py-2 bg-indigo-100 hover:bg-indigo-200 disabled:opacity-50 text-indigo-800 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
                             <i class="fa-solid fa-rotate"></i> 同步對帳
                         </button>
-                        <button onclick="openMasterGoogleCalendar()" title="降級方案：逐堂開啟 Google Calendar 建立頁（無需授權）" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
-                            <i class="fa-solid fa-calendar-plus"></i> 加入 Google Calendar
+                        <button onclick="openMasterGoogleCalendar()" title="降級方案（非批量）：為每堂課開啟一個 Google Calendar 建立分頁，每頁須手動儲存；瀏覽器會攔截多餘分頁。批量導入請用「導入 GCal (API)」或 ICS" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
+                            <i class="fa-solid fa-calendar-plus"></i> 逐堂 GCal 建立頁
                         </button>
                         <button onclick="downloadMasterICS()" title="在本地導出 .ics 文件，可用於 Google Calendar 批量導入" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
                             <i class="fa-solid fa-file-arrow-down"></i> 導出 .ics（批量導入）

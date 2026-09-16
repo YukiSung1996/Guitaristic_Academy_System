@@ -1529,18 +1529,33 @@
             window.open(whatsappUrl, '_blank', 'noopener');
         }
 
+        // 降級方案：為每堂課開一個 Google Calendar 建立分頁（每頁須手動按「儲存」）。
+        // 瀏覽器彈窗攔截通常只放行第一個分頁，其餘靜默失敗——故先告知，開啟後偵測被攔截數量明確回報。
+        // 批量導入請用總課表的「導入 GCal (API)」或 ICS 檔。
         function openGoogleCalendarEvents(events) {
             if (!events.length) {
                 alert('目前沒有已生成的課堂可加入 Google Calendar！');
                 return;
             }
-            events.forEach((event, index) => {
+            if (events.length > 1 && !confirm(
+                `此為逐堂降級方案：將為 ${events.length} 堂課各開啟一個 Google Calendar 建立分頁，每個分頁都要手動按「儲存」。\n` +
+                '瀏覽器通常會攔截第一個以外的分頁（需在網址列允許本站的彈出式視窗）。\n\n' +
+                '批量導入建議改用總課表的「導入 GCal (API)」（一鍵查重寫入）或「導出 ICS」。\n仍要逐堂開啟？')) return;
+            let blocked = 0;
+            events.forEach((event) => {
                 const title = event.title || `${event.studentId} ${event.studentName}`;
                 const details = `導師：${event.tutor || ''}${event.phone ? `\n電話：${event.phone}` : ''}${event.email ? `\n電郵：${event.email}` : ''}${event.status === 'LEAVE' ? '\n狀態：請假' : event.isMakeup ? '\n狀態：補堂' : ''}`;
                 const url = buildGoogleCalendarUrl(title, event.start, event.end, details);
-                window.open(url, '_blank', 'noopener');
+                // 不傳 'noopener'：需要回傳值判斷分頁是否被攔截；改以手動斷開 opener 達到同樣隔離
+                const w = window.open(url, '_blank');
+                if (w) { try { w.opener = null; } catch (e) { /* 跨域限制可忽略 */ } }
+                else blocked++;
             });
-            if (events.length > 1) alert(`已開啟 ${events.length} 個 Google Calendar 建立頁面，請逐一確認儲存。`);
+            if (blocked) {
+                alert(`⚠️ 已開啟 ${events.length - blocked} 個建立分頁，另有 ${blocked} 個被瀏覽器攔截。\n請按網址列右側的彈出視窗圖示選擇「一律允許」後重試，\n或改用「導入 GCal (API)」／「導出 ICS」批量導入。`);
+            } else if (events.length > 1) {
+                alert(`已開啟 ${events.length} 個 Google Calendar 建立頁面，請逐一按「儲存」。`);
+            }
         }
 
         // lesson → 匯出用事件（Date 在此重建；UID 用 lessonId 保證導入查重）
