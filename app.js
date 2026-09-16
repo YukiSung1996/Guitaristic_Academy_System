@@ -16,6 +16,11 @@
             document.getElementById('effectiveMonth').value = monthStr;
             document.getElementById('sendMonth').value = monthStr;
 
+            // 切回頁面時詢問 WhatsApp 是否已發（waSentMode='confirm'）；focus 與 visibilitychange
+            // 皆註冊，處理器以清空佇列保證幂等
+            window.addEventListener('focus', handleWaReturnConfirm);
+            document.addEventListener('visibilitychange', handleWaReturnConfirm);
+
             loadSettingsForm();
             populateSelectOptions();
             renderBatchCheckboxes();
@@ -1808,15 +1813,18 @@
             const waBtn = phone
                 ? `<button onclick="sendWhatsApp('${e.key}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold" title="打開 WhatsApp 預填訊息（不會自動移到已發送，發完請點「標記已發」）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`
                 : `<button disabled class="px-2.5 py-1.5 bg-slate-100 text-slate-400 rounded-lg font-semibold cursor-not-allowed" title="此學生沒有電話號碼，僅可複製或手動已發"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`;
+            const waOpened = !sent && e.waOpenedAt;
             const actions = sent
                 ? `<button onclick="sendMarkUnsent('${e.key}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold" title="移回待發送（發錯了想重發）"><i class="fa-solid fa-rotate-left"></i> 移回待發</button>`
                 : `<button onclick="sendCopy('${e.key}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold"><i class="fa-solid fa-copy"></i> 複製</button>
                    ${waBtn}
-                   <button onclick="sendMarkSent('${e.key}', 'wa_link')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold" title="已用 WhatsApp 發出 → 移到已發送"><i class="fa-solid fa-check"></i> 標記已發</button>
+                   <button onclick="sendMarkSent('${e.key}', 'wa_link')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold${waOpened ? ' ring-2 ring-emerald-300' : ''}" title="已用 WhatsApp 發出 → 移到已發送"><i class="fa-solid fa-check"></i> 標記已發</button>
                    <button onclick="sendMarkSent('${e.key}', 'manual')" class="px-2.5 py-1.5 bg-slate-600 hover:bg-slate-700 text-white rounded-lg font-semibold" title="不經 WhatsApp（如面談／電話已通知）→ 直接移到已發送">手動已發</button>`;
             const sentInfo = sent
                 ? `<span class="text-[10px] text-slate-400">已發於 ${String(e.sentAt || '').replace('T', ' ').slice(0, 16)} · ${e.method === 'manual' ? '手動' : 'WhatsApp'}</span>`
-                : '';
+                : (waOpened
+                    ? `<span class="px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-semibold" title="已開啟過 WhatsApp（${String(e.waOpenedAt).replace('T', ' ').slice(0, 16)}）——瀏覽器無法確認是否真的送出，若已送出請按「標記已發」"><i class="fa-brands fa-whatsapp"></i> 已開啟，未標記</span>`
+                    : '');
             return `
                 <div class="border border-slate-200 rounded-xl p-3 space-y-2 text-xs ${sent ? 'bg-slate-50/60' : 'bg-white'}">
                     <div class="flex items-center gap-2 flex-wrap">
@@ -1884,7 +1892,42 @@
             if (!phone) { alert('此學生沒有可用的 WhatsApp 電話號碼。'); return; }
             const url = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(sendlogMsgFor(e))}`;
             window.open(url, '_blank', 'noopener');
-            // 刻意不自動標記已發（用戶要求手動確認）：發完請點「標記已發」
+            // 瀏覽器無法得知訊息在 WhatsApp 裡是否真的送出（跨域），「點開→已發送」的對應由設定決定：
+            //   confirm（預設）＝標記已開啟＋切回頁面時詢問；badge＝只標記；auto＝點開即移已發送（可移回撤銷）
+            const mode = appSettings.waSentMode || 'confirm';
+            if (mode === 'auto') {
+                GACSendlog.markSent(sendLog, key, 'wa_link', new Date().toISOString());
+            } else {
+                GACSendlog.markWaOpened(sendLog, key, new Date().toISOString());
+                if (mode === 'confirm' && pendingWaConfirmKeys.indexOf(key) === -1) {
+                    pendingWaConfirmKeys.push(key);
+                }
+            }
+            persistSendlog();
+            renderSendCenter();
+        }
+
+        // waSentMode='confirm'：從 WhatsApp 分頁切回本頁時，逐條詢問剛才開啟的訊息是否已發出。
+        // 先清空佇列再詢問——confirm 對話框本身會觸發 focus 事件，避免重入重複詢問。
+        function handleWaReturnConfirm() {
+            if (typeof document !== 'undefined' && document.hidden) return;
+            if (!pendingWaConfirmKeys.length) return;
+            const keys = pendingWaConfirmKeys.slice();
+            pendingWaConfirmKeys.length = 0;
+            let changed = false;
+            keys.forEach(key => {
+                const e = sendLog[key];
+                if (!e || e.status !== 'TODO') return;
+                const meta = SEND_TYPE_META[e.type] || { label: e.type };
+                if (confirm(`剛才開啟的 WhatsApp——${e.studentName || e.studentId} 的「${meta.label}」訊息——已經發出了嗎？\n\n確定＝移到「已發送」\n取消＝留在待發送（條目已標記「已開啟」，可稍後手動標記）`)) {
+                    GACSendlog.markSent(sendLog, key, 'wa_link', new Date().toISOString());
+                    changed = true;
+                }
+            });
+            if (changed) {
+                persistSendlog();
+                renderSendCenter();
+            }
         }
 
         // ===== 設定頁（gac_settings_v2）=====
@@ -1892,6 +1935,7 @@
             const chk = document.getElementById('setPayNoShow');
             if (!chk) return;
             chk.checked = appSettings.payNoShow !== false;
+            document.getElementById('setWaSentMode').value = appSettings.waSentMode || 'confirm';
             document.getElementById('setPublicIcsUrl').value = appSettings.publicIcsUrl || '';
             document.getElementById('setGcalClientId').value = appSettings.gcalClientId || '';
             document.getElementById('setGcalCalendarId').value = appSettings.gcalCalendarId || 'primary';
@@ -1899,6 +1943,7 @@
 
         function saveSettingsForm() {
             appSettings.payNoShow = document.getElementById('setPayNoShow').checked;
+            appSettings.waSentMode = document.getElementById('setWaSentMode').value || 'confirm';
             appSettings.publicIcsUrl = document.getElementById('setPublicIcsUrl').value.trim();
             appSettings.gcalClientId = document.getElementById('setGcalClientId').value.trim();
             appSettings.gcalCalendarId = document.getElementById('setGcalCalendarId').value.trim() || 'primary';

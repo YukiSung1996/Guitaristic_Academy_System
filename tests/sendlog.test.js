@@ -80,3 +80,16 @@ test('孤兒清理：課被刪除的 TODO 確認條目移除，SENT 保留作紀
     assert.deepStrictEqual(removed, ['MAKEUP_CONFIRM:A-1']);
     assert.ok(log['MAKEUP_CONFIRM:B-1'], 'SENT 條目保留');
 });
+
+test('WhatsApp 開啟標記：markWaOpened 只記時間不改狀態；移回待發時清空', () => {
+    const log = {};
+    const e = SL.upsertTuition(log, params());
+    const marked = SL.markWaOpened(log, e.key, '2026-09-16T03:00:00.000Z');
+    assert.strictEqual(marked.waOpenedAt, '2026-09-16T03:00:00.000Z');
+    assert.strictEqual(marked.status, 'TODO', '點開 ≠ 已發，狀態不變');
+    SL.markSent(log, e.key, 'wa_link', '2026-09-16T03:05:00.000Z');
+    assert.strictEqual(log[e.key].waOpenedAt, '2026-09-16T03:00:00.000Z', '標記已發保留開啟紀錄');
+    SL.markUnsent(log, e.key);
+    assert.strictEqual(log[e.key].waOpenedAt, null, '移回待發 → 重發流程從頭開始');
+    assert.strictEqual(SL.markWaOpened(log, 'NOPE'), null);
+});

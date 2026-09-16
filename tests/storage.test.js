@@ -57,6 +57,7 @@ test('F3: 損壞的 localStorage JSON → 不拋錯，收集錯誤並回退預�
     assert.deepStrictEqual(lessons, {});
     assert.deepStrictEqual(sendlog, {});
     assert.strictEqual(settings.payNoShow, true, '設定回退預設值');
+    assert.strictEqual(settings.waSentMode, 'confirm', 'WhatsApp 發送確認方式預設最安全的 confirm');
     assert.ok(store.errors.length >= 3, '錯誤被收集供 UI 提示：' + store.errors.join('; '));
 });
 

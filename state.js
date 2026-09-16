@@ -8,3 +8,4 @@
         let currentViewMode = 'list';
         let monthWeeksData = [];
         let manualMode = false;         // 手動模式：跳過狀態機限制、不觸發小組聯動（每次載入預設關閉，防誤觸）
+        let pendingWaConfirmKeys = [];  // 發送中心：點開 WhatsApp 後待「切回頁面時詢問是否已發」的條目 key（waSentMode='confirm'）

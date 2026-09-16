@@ -517,7 +517,7 @@
                         <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
                             <i class="fa-solid fa-paper-plane text-teal-500"></i> 發送中心
                         </h2>
-                        <p class="text-xs text-slate-500 mt-0.5">學費、請假確認、補堂確認訊息集中處理。開 WhatsApp <b>不會</b>自動移欄，發送後請手動點「標記已發」。</p>
+                        <p class="text-xs text-slate-500 mt-0.5">學費、請假確認、補堂確認訊息集中處理。預設：開 WhatsApp 只會標記「已開啟」、切回本頁時詢問是否已發（可在「設定」改為自動移欄或只標記）。</p>
                     </div>
                     <div class="flex items-center gap-2 text-xs">
                         <label class="font-bold text-slate-600">月份：</label>
@@ -558,6 +558,15 @@
                         <span class="block text-xs text-slate-500 mt-0.5">學生無故缺席但導師已到場，該堂照計工資（高級薪酬「匯入學生及課堂」時生效）。</span>
                     </span>
                 </label>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">發送中心：點開 WhatsApp 後的處理</label>
+                    <select id="setWaSentMode" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white">
+                        <option value="confirm">安全（預設）：標記「已開啟」＋切回本頁時詢問是否已發</option>
+                        <option value="badge">最保守：只標記「已開啟」，不詢問、不自動移欄</option>
+                        <option value="auto">進取：點開 WhatsApp 即自動移到「已發送」（可移回撤銷）</option>
+                    </select>
+                    <p class="text-xs text-slate-500 mt-1">瀏覽器無法得知訊息在 WhatsApp 裡是否真的送出，此選項決定「點開連結」如何對應「已發送」。</p>
+                </div>
                 <div>
                     <label class="block text-xs font-bold text-slate-600 mb-1">公開 ICS 網址（高級薪酬「讀取公開 ICS」使用）</label>
                     <input type="url" id="setPublicIcsUrl" placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
