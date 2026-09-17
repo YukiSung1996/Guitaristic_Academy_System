@@ -315,10 +315,16 @@ function renderGcalDiffModal(monthKey) {
         });
     }
     if (d.deletions.length) {
+        // 防呆：大量刪除多半是「清場」而非逐堂取消——若照套用會整批標請假、灌爆待補堂池。
+        // 此情況預設不勾並警告；逐堂取消（少量）才預設全勾跟隨 Calendar。
+        const massDelete = d.deletions.length >= 5;
         parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🗑️ 事件已在 GCal 刪除（勾選＝跟隨 Calendar：本地標記請假・事假；取消勾選＝保留本地，可再按「導入」在 GCal 重建）</div>');
+        if (massDelete) {
+            parts.push(`<div class="p-2 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 text-xs">⚠️ 一次偵測到 ${d.deletions.length} 件刪除——看起來像批量清場而非逐堂取消，<b>已預設不勾</b>（套用會把這些課全部標成請假、湧入待補堂池）。若你是想清場重來，請改用「設定 → 全部清場」或「清理 GCal」；真的是逐堂取消才自行勾選。</div>`);
+        }
         d.deletions.forEach((del, i) => {
             parts.push(gcalDiffRow('gdD_' + i,
-                `<b>${del.lesson.studentName}</b>（${del.lesson.studentId}）${del.lesson.date} ${del.lesson.time}（目前狀態：${del.lesson.status}）`, '', true));
+                `<b>${del.lesson.studentName}</b>（${del.lesson.studentId}）${del.lesson.date} ${del.lesson.time}（目前狀態：${del.lesson.status}）`, '', !massDelete));
         });
     }
     if (d.statusChanges.length) {
@@ -443,4 +449,83 @@ function applyGcalDiff() {
     let msg = done.length ? `✅ 已套用 ${done.length} 項：\n` + done.join('\n') : '沒有成功套用的項目。';
     if (errs.length) msg += `\n\n⚠️ ${errs.length} 項未能套用：\n` + errs.join('\n');
     alert(msg);
+}
+
+// ===== 全部清場重來（設定頁危險區）：測試點亂後從零開始 =====
+// GCal 側：掃今天前後各一年，刪除「所有」帶 gacLessonId 標籤的事件（不限單月——月度「清理 GCal」
+//          會漏掉散落在其他月份的補堂殘留；手動事件一樣絕不刪，垃圾桶可還原）。
+// 本地側：清空全部課堂（所有月份）與發送紀錄。學生名單與設定保留。
+function resetAllScheduleData() {
+    const months = Object.keys(lessonsByMonth).sort();
+    if (!confirm('🧨 全部清場重來——將執行：\n' +
+        '1) Google Calendar：刪除今天前後一年內、所有由本系統導入（帶標籤）的事件\n' +
+        '   （GCal 垃圾桶可還原；你手動建立的事件絕不刪）\n' +
+        `2) 本地：清空全部課堂（${months.length ? months.join('、') : '目前無資料'}）與發送紀錄——不可還原！\n\n` +
+        '學生名單與設定會保留。建議先按頂部「全量備份 (JSON)」保存現狀。\n\n確定清場？')) return;
+
+    const wipeLocal = () => {
+        lessonsByMonth = {};
+        Object.keys(sendLog).forEach(k => delete sendLog[k]);
+        gacStore.saveLessons(lessonsByMonth);
+        persistSendlog();
+        // 高級薪酬一併歸零：匯入的行、調整項、封存糧單（拆帳％與深色模式屬設定，保留）
+        if (typeof advancedPayrollState !== 'undefined') {
+            advancedPayrollState.rows = [];
+            advancedPayrollState.adjustments = [];
+            advancedPayrollState.archives = [];
+            try {
+                localStorage.removeItem('gac_adjustments');
+                localStorage.removeItem('gac_payroll_archives');
+            } catch (e) { /* 忽略 */ }
+            if (typeof advancedRenderRows === 'function') advancedRenderRows();
+            if (typeof advancedRenderAdjustments === 'function') advancedRenderAdjustments();
+            if (typeof advancedRenderArchives === 'function') advancedRenderArchives();
+            if (typeof advancedCalculate === 'function') advancedCalculate();
+        }
+        rebuildMonthContext();
+        renderAll();
+    };
+
+    // 未設定 GCal → 只清本地（不用走授權）
+    if (!appSettings.gcalClientId) {
+        wipeLocal();
+        alert('✅ 已清空本地課表與發送紀錄（未設定 GCal，Google Calendar 未動）。\n學生名單保留，可重新「生成」。');
+        return;
+    }
+
+    setGcalBusy(true);
+    ensureGcalToken()
+        .then(token => {
+            const client = gcalClient(token);
+            const now = Date.now();
+            const timeMin = new Date(now - 366 * 86400000).toISOString();
+            const timeMax = new Date(now + 366 * 86400000).toISOString();
+            return client.listWindow(timeMin, timeMax).then(events => {
+                const items = [];
+                (events || []).forEach(ev => {
+                    if (!ev || ev.status === 'cancelled') return;
+                    const lessonId = GACGcal.eventLessonId(ev);
+                    if (lessonId) items.push({ eventId: ev.id, lessonId: lessonId });
+                });
+                if (!items.length) return { deleted: [], gone: [], failed: [] };
+                return GACGcal.deleteEvents(client, items);
+            });
+        })
+        .then(r => {
+            wipeLocal();
+            let msg = `✅ 清場完成：\n• GCal 刪除 ${r.deleted.length} 件（垃圾桶可還原）` +
+                (r.gone.length ? `、另 ${r.gone.length} 件本已不存在` : '') +
+                '\n• 本地課表與發送紀錄已清空（學生名單保留）\n\n現在可以重新：「生成」→「導入 GCal (API)」。';
+            if (r.failed.length) {
+                msg = `⚠️ GCal 有 ${r.failed.length} 件刪除失敗（首個錯誤：${r.failed[0].error}），其餘已完成：\n\n` + msg;
+            }
+            alert(msg);
+        })
+        .catch(e => {
+            if (confirm(`⚠️ GCal 清理未完成：${(e && e.message) || e}\n\n仍要清空「本地」課表與發送紀錄嗎？\n（Google Calendar 上的事件會留著，之後可再清）`)) {
+                wipeLocal();
+                alert('✅ 已清空本地課表與發送紀錄（GCal 未清理）。');
+            }
+        })
+        .finally(() => setGcalBusy(false));
 }
