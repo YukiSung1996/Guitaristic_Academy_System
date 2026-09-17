@@ -10,10 +10,7 @@
             }
 
             const monthStr = localDateStr(new Date()).slice(0, 7);
-            document.getElementById('startDateOverride').value = monthStr + '-01';
             document.getElementById('batchMonth').value = monthStr;
-            document.getElementById('targetMonth').value = monthStr;
-            document.getElementById('effectiveMonth').value = monthStr;
             document.getElementById('sendMonth').value = monthStr;
 
             // 切回頁面時詢問 WhatsApp 是否已發（waSentMode='confirm'）；focus 與 visibilitychange
@@ -22,7 +19,6 @@
             document.addEventListener('visibilitychange', handleWaReturnConfirm);
 
             loadSettingsForm();
-            populateSelectOptions();
             renderBatchCheckboxes();
             renderStudentTable();
             rebuildMonthContext();
@@ -110,79 +106,6 @@
             return { weekday: student.weekday, time: student.time, isFuture: false };
         }
 
-        function populateSelectOptions() {
-            const select = document.getElementById('studentSelect');
-            select.innerHTML = '<option value="">-- 請選擇學生或班際課程 --</option>';
-
-            const groupOptGroup = document.createElement('optgroup');
-            groupOptGroup.label = '🎓 班際課程 Group Courses';
-            groupCourses.forEach((course, index) => {
-                const opt = document.createElement('option');
-                opt.value = `GROUP_${index}`;
-                opt.textContent = `${course.name} [${course.duration} mins, ${course.totalLessons} 堂]`;
-                groupOptGroup.appendChild(opt);
-            });
-            select.appendChild(groupOptGroup);
-
-            const tutors = [...new Set(studentDatabase.map(s => s.tutor))];
-            tutors.forEach(tutorName => {
-                const group = document.createElement('optgroup');
-                group.label = `👨‍🏫 導師：${tutorName}`;
-                studentDatabase.forEach((student, index) => {
-                    if (student.tutor === tutorName) {
-                        const opt = document.createElement('option');
-                        opt.value = `STUDENT_${index}`;
-                        opt.textContent = `${student.id} - ${student.name} (${student.program})`;
-                        group.appendChild(opt);
-                    }
-                });
-                select.appendChild(group);
-            });
-            const tutorFilter = document.getElementById('singleStudentTutorFilter');
-            if (tutorFilter) {
-                tutorFilter.innerHTML = '<option value="ALL">全部導師</option>' + tutors.map(tutor => `<option value="${tutor}">${tutor}</option>`).join('');
-            }
-            renderSingleStudentPicker();
-        }
-
-        function renderSingleStudentPicker() {
-            const picker = document.getElementById('singleStudentPicker');
-            if (!picker) return;
-            const selectedValue = document.getElementById('studentSelect')?.value || '';
-            const search = (document.getElementById('singleStudentSearch')?.value || '').trim().toLowerCase();
-            const tutor = document.getElementById('singleStudentTutorFilter')?.value || 'ALL';
-            const allItems = [
-                ...groupCourses.map((course, index) => ({
-                    value: `GROUP_${index}`,
-                    label: course.name,
-                    detail: `${course.duration} 分鐘 · ${course.totalLessons} 堂 · ${course.tutor}`,
-                    tutor: course.tutor,
-                    search: `${course.id} ${course.name} ${course.program} ${course.tutor}`.toLowerCase(),
-                    group: true
-                })),
-                ...studentDatabase.map((student, index) => ({
-                    value: `STUDENT_${index}`,
-                    label: `${student.id} ${student.name}`,
-                    detail: `${student.tutor} · ${getWeekdayName(student.weekday)} ${student.time}`,
-                    tutor: student.tutor,
-                    search: `${student.id} ${student.name} ${student.phone || ''} ${student.email || ''} ${student.program}`.toLowerCase(),
-                    group: false
-                }))
-            ];
-            const items = allItems.filter(item => (tutor === 'ALL' || item.tutor === tutor) && (!search || item.search.includes(search)));
-            picker.innerHTML = items.map(item => `<label class="single-student-option ${item.group ? 'group-option' : ''}"><input type="checkbox" value="${item.value}" ${item.value === selectedValue ? 'checked' : ''} onchange="selectSingleStudent(this)"><span><strong>${item.label}</strong><small>${item.detail}</small></span></label>`).join('') || '<span class="text-xs text-slate-500">沒有符合的學生或班際課程。</span>';
-            const selection = document.getElementById('singleStudentSelection');
-            if (selection) selection.textContent = selectedValue ? `已選：${allItems.find(item => item.value === selectedValue)?.label || '目前項目'}` : '尚未選擇學生或班際課程。';
-        }
-
-        function selectSingleStudent(input) {
-            document.querySelectorAll('#singleStudentPicker input[type="checkbox"]').forEach(item => { item.checked = item === input; });
-            const select = document.getElementById('studentSelect');
-            select.value = input.checked ? input.value : '';
-            loadStudentData();
-            renderSingleStudentPicker();
-        }
-
         function updateDashboardKPIs() {
             document.getElementById('statTotalStudents').textContent = studentDatabase.length;
             const lessons = currentMonthLessons();
@@ -196,177 +119,6 @@
 
             const banner = document.getElementById('clashWarningBanner');
             banner.classList.toggle('hidden', clashCount === 0);
-        }
-
-        function getFullDatesFromStart(startDateStr, weekday, totalLessons) {
-            const dates = [];
-            let [y, m, d] = startDateStr.split('-').map(Number);
-            let dateObj = new Date(y, m - 1, d);
-
-            while (dateObj.getDay() !== weekday) {
-                dateObj.setDate(dateObj.getDate() + 1);
-            }
-
-            if (totalLessons) {
-                while (dates.length < totalLessons) {
-                    const cy = dateObj.getFullYear();
-                    const cm = String(dateObj.getMonth() + 1).padStart(2, '0');
-                    const cd = String(dateObj.getDate()).padStart(2, '0');
-                    dates.push(`${cy}-${cm}-${cd}`);
-                    dateObj.setDate(dateObj.getDate() + 7);
-                }
-            } else {
-                const targetMonth = dateObj.getMonth();
-                const targetYear = dateObj.getFullYear();
-                while (dateObj.getMonth() === targetMonth && dateObj.getFullYear() === targetYear) {
-                    if (dateObj.getDay() === weekday) {
-                        const cy = dateObj.getFullYear();
-                        const cm = String(dateObj.getMonth() + 1).padStart(2, '0');
-                        const cd = String(dateObj.getDate()).padStart(2, '0');
-                        dates.push(`${cy}-${cm}-${cd}`);
-                    }
-                    dateObj.setDate(dateObj.getDate() + 1);
-                }
-            }
-            return dates.join(', ');
-        }
-
-        function autoCalculateDays(forceResetFromDb = false) {
-            const selectVal = document.getElementById('studentSelect').value;
-            const targetMonthVal = document.getElementById('targetMonth').value;
-            const startDateInput = document.getElementById('startDateOverride').value;
-
-            if (forceResetFromDb && selectVal.startsWith('STUDENT_')) {
-                const idx = parseInt(selectVal.replace('STUDENT_', ''));
-                const s = studentDatabase[idx];
-                const sched = getStudentScheduleForMonth(s, targetMonthVal);
-                document.getElementById('dayOfWeek').value = sched.weekday;
-                document.getElementById('startTime').value = sched.time;
-            }
-
-            const dayOfWeek = parseInt(document.getElementById('dayOfWeek').value);
-            if (!startDateInput || isNaN(dayOfWeek)) return;
-
-            if (selectVal.startsWith('GROUP_')) {
-                const groupIdx = parseInt(selectVal.replace('GROUP_', ''));
-                const gc = groupCourses[groupIdx];
-                document.getElementById('customDays').value = getFullDatesFromStart(startDateInput, dayOfWeek, gc.totalLessons);
-            } else {
-                document.getElementById('customDays').value = getFullDatesFromStart(startDateInput, dayOfWeek, null);
-            }
-        }
-
-        function loadStudentData() {
-            const selectVal = document.getElementById('studentSelect').value;
-            const deleteBtn = document.getElementById('deleteBtn');
-            const saveTimeBtn = document.getElementById('saveTimeBtn');
-            const noticeBox = document.getElementById('studentStatusNotice');
-            const targetMonthInput = document.getElementById('targetMonth');
-
-            if (selectVal === "") {
-                clearForm();
-                return;
-            }
-
-            if (selectVal.startsWith('GROUP_')) {
-                const groupIdx = parseInt(selectVal.replace('GROUP_', ''));
-                const gc = groupCourses[groupIdx];
-
-                document.getElementById('studentId').value = gc.id;
-                document.getElementById('studentName').value = gc.name;
-                document.getElementById('studentPhone').value = gc.phone || '-';
-                document.getElementById('studentEmail').value = gc.email || '-';
-                document.getElementById('tutor').value = gc.tutor;
-                document.getElementById('levelFormat').value = `${gc.program} - ${gc.level}`;
-                document.getElementById('dayOfWeek').value = gc.weekday;
-                document.getElementById('startTime').value = gc.time;
-                document.getElementById('duration').value = gc.duration;
-
-                deleteBtn.classList.add('hidden');
-                saveTimeBtn.classList.add('hidden');
-                
-                noticeBox.classList.remove('hidden');
-                noticeBox.innerHTML = `🎓 <strong>班際課程：</strong> ${gc.name} (${gc.totalLessons} 堂, ${gc.duration}分鐘)`;
-                autoCalculateDays(false);
-                return;
-            }
-
-            const idx = parseInt(selectVal.replace('STUDENT_', ''));
-            const s = studentDatabase[idx];
-            const targetMonthVal = targetMonthInput.value;
-            const currentSched = getStudentScheduleForMonth(s, targetMonthVal);
-
-            document.getElementById('studentId').value = s.id;
-            document.getElementById('studentName').value = s.name;
-            document.getElementById('studentPhone').value = s.phone || '';
-            document.getElementById('studentEmail').value = s.email || '';
-            document.getElementById('tutor').value = s.tutor;
-            document.getElementById('levelFormat').value = `${s.program} - ${s.level} (${s.type})`;
-            document.getElementById('dayOfWeek').value = currentSched.weekday;
-            document.getElementById('startTime').value = currentSched.time;
-            document.getElementById('duration').value = s.duration;
-
-            if (s.effectiveMonth) {
-                document.getElementById('effectiveMonth').value = s.effectiveMonth;
-                noticeBox.classList.remove('hidden');
-                noticeBox.innerHTML = `💡 <strong>歷史/新時間備忘：</strong> 原逢 ${getWeekdayName(s.weekday)} ${s.time} ➔ 由 <strong>${s.effectiveMonth}</strong> 起改為 逢 ${getWeekdayName(s.futureWeekday)} ${s.futureTime}`;
-            } else {
-                document.getElementById('effectiveMonth').value = targetMonthVal;
-                noticeBox.classList.add('hidden');
-            }
-
-            deleteBtn.classList.remove('hidden');
-            saveTimeBtn.classList.remove('hidden');
-            autoCalculateDays(false);
-        }
-
-        function deleteCurrentStudent() {
-            const selectVal = document.getElementById('studentSelect').value;
-            if (!selectVal.startsWith('STUDENT_')) return;
-            const idx = parseInt(selectVal.replace('STUDENT_', ''));
-            deleteStudentFromDb(idx);
-            clearForm();
-        }
-
-        function onTargetMonthChange() {
-            const targetMonthVal = document.getElementById('targetMonth').value;
-            document.getElementById('startDateOverride').value = targetMonthVal + "-01";
-            document.getElementById('effectiveMonth').value = targetMonthVal;
-            autoCalculateDays(true);
-        }
-
-        function updateStudentTimeConfig() {
-            const selectVal = document.getElementById('studentSelect').value;
-            if (!selectVal.startsWith('STUDENT_')) {
-                alert('請先選擇要變更時間的常規學生！');
-                return;
-            }
-
-            const idx = parseInt(selectVal.replace('STUDENT_', ''));
-            const selectedWeekday = parseInt(document.getElementById('dayOfWeek').value);
-            const selectedTime = document.getElementById('startTime').value;
-            const effMonth = document.getElementById('effectiveMonth').value;
-
-            if (!selectedTime || !effMonth) {
-                alert('請完整選擇「上課時間」與「生效月份」！');
-                return;
-            }
-
-            const s = studentDatabase[idx];
-            s.phone = document.getElementById('studentPhone').value.trim();
-            s.email = document.getElementById('studentEmail').value.trim();
-            s.effectiveMonth = effMonth;
-            s.futureWeekday = selectedWeekday;
-            s.futureTime = selectedTime;
-
-            saveToLocalStorage();
-            populateSelectOptions();
-            renderBatchCheckboxes();
-
-            document.getElementById('studentSelect').value = `STUDENT_${idx}`;
-            loadStudentData();
-
-            alert(`✅ 已成功保存「${s.name}」的時間與聯絡變更！\n• ${effMonth} 起生效新時間`);
         }
 
         function renderBatchCheckboxes() {
@@ -398,9 +150,140 @@
                         <span class="font-bold text-slate-800">${student.id}</span> ${student.name}
                         <span class="text-sky-600 font-semibold">(${getWeekdayName(sched.weekday)} ${sched.time})</span>
                     </label>
+                    <button onclick="openQuickEdit(${index})" class="shrink-0 px-1.5 py-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition" title="調整常規時間／升班（含撞堂預覽）">
+                        <i class="fa-solid fa-pen"></i>
+                    </button>
                 `;
                 grid.appendChild(div);
             });
+        }
+
+        // ===== 快速編輯（原「單一學生」頁籤已合併到此）：改常規時間（保留歷史）／升班，即時撞堂預覽 =====
+        let quickEditIdx = -1;
+
+        function openQuickEdit(index) {
+            const s = studentDatabase[index];
+            if (!s) return;
+            quickEditIdx = index;
+            const monthKey = currentMonthKey() || localDateStr(new Date()).slice(0, 7);
+            const sched = getStudentScheduleForMonth(s, monthKey);
+            document.getElementById('qeTitle').innerHTML =
+                `<i class="fa-solid fa-user-pen text-amber-500 mr-1"></i>調整常規時間／升班 — ${s.id} ${s.name}`;
+            renderQuickEditInfo(s);
+            document.getElementById('qeWeekday').value = sched.weekday;
+            document.getElementById('qeTime').value = sched.time;
+            document.getElementById('qeDuration').value = s.duration || 45;
+            document.getElementById('qeLevel').value = s.level || '';
+            document.getElementById('qeEffMonth').value = monthKey;
+            renderQuickEditPreview();
+            document.getElementById('quickEditModal').classList.remove('hidden');
+        }
+
+        function renderQuickEditInfo(s) {
+            const pending = s.effectiveMonth && s.futureWeekday !== null
+                ? `<div class="p-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">💡 已排定變更：原逢 ${getWeekdayName(s.weekday)} ${s.time} ➔ 由 <b>${s.effectiveMonth}</b> 起改為 逢 ${getWeekdayName(s.futureWeekday)} ${s.futureTime}
+                       <button onclick="qeClearFuture()" class="ml-1 px-2 py-0.5 bg-white border border-amber-300 text-amber-700 rounded font-semibold hover:bg-amber-100 transition">清除此變更</button></div>`
+                : '';
+            document.getElementById('qeInfo').innerHTML = `
+                <div>導師：<b>${s.tutor}</b> · ${s.program} - <b>${s.level}</b>（${s.type}）· 基準時間 逢 ${getWeekdayName(s.weekday)} ${s.time}</div>
+                ${pending}`;
+        }
+
+        // 撞堂預覽：以「生效月份」當月計算——該月已生成的課（排除本人）＋未生成者按其他學生常規時間模擬
+        function renderQuickEditPreview() {
+            const s = studentDatabase[quickEditIdx];
+            const box = document.getElementById('qePreview');
+            if (!s || !box) return;
+            const weekday = parseInt(document.getElementById('qeWeekday').value);
+            const time = document.getElementById('qeTime').value;
+            const duration = parseInt(document.getElementById('qeDuration').value) || 45;
+            const effMonth = document.getElementById('qeEffMonth').value;
+            if (!time || !effMonth || isNaN(weekday)) {
+                box.innerHTML = '<div class="text-slate-400 italic">請選擇星期、時間與生效月份以預覽衝突。</div>';
+                return;
+            }
+            const others = studentDatabase.filter((x, i) => i !== quickEditIdx);
+            const rows = GACSchedule.previewTimeChange(s, others, lessonsByMonth[effMonth] || [], effMonth,
+                { weekday: weekday, time: time, duration: duration });
+            const clashDays = rows.filter(r => r.clashes.length);
+            const head = clashDays.length
+                ? `<div class="p-2 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 font-bold">⚠️ ${effMonth} 逢 ${getWeekdayName(weekday)} ${time}：${rows.length} 堂中有 ${clashDays.length} 堂與 ${s.tutor} 的其他課重疊</div>`
+                : `<div class="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 font-bold">✓ ${effMonth} 逢 ${getWeekdayName(weekday)} ${time}：${rows.length} 堂均無時間衝突</div>`;
+            box.innerHTML = head + rows.map(r => r.clashes.length
+                ? `<div class="flex items-start gap-1.5 text-amber-800"><span class="shrink-0">⚠️ ${r.date}</span><span>與 ${r.clashes.map(c => `${c.studentName || c.studentId}（${c.time}，${c.duration}分）`).join('、')} 撞堂</span></div>`
+                : `<div class="text-slate-500">✓ ${r.date} ${r.time}</div>`).join('') +
+                `<div class="text-[10px] text-slate-400 mt-1.5">預覽依生效月份當月計算（已生成的課＋其他學生的常規時間）。保存後請到該月按「生成」套用；已生成的舊時間課（仍為已排課者）會在重新生成時自動移除並補上新時間的課。</div>`;
+        }
+
+        function closeQuickEdit() {
+            quickEditIdx = -1;
+            document.getElementById('quickEditModal').classList.add('hidden');
+        }
+
+        // 清除已排定但想撤銷的時間變更（基準時間不動）
+        function qeClearFuture() {
+            const s = studentDatabase[quickEditIdx];
+            if (!s || !s.effectiveMonth) return;
+            if (!confirm(`清除「由 ${s.effectiveMonth} 起改為 逢 ${getWeekdayName(s.futureWeekday)} ${s.futureTime}」的排定變更？\n（基準時間 逢 ${getWeekdayName(s.weekday)} ${s.time} 不變；已生成的課表需重新生成才會倒回）`)) return;
+            s.effectiveMonth = '';
+            s.futureWeekday = null;
+            s.futureTime = '';
+            saveToLocalStorage();
+            renderBatchCheckboxes();
+            renderStudentTable();
+            openQuickEdit(quickEditIdx); // 重載彈窗內容
+        }
+
+        function saveQuickEdit() {
+            const s = studentDatabase[quickEditIdx];
+            if (!s) return;
+            const weekday = parseInt(document.getElementById('qeWeekday').value);
+            const time = document.getElementById('qeTime').value;
+            const duration = parseInt(document.getElementById('qeDuration').value) || 45;
+            const level = document.getElementById('qeLevel').value.trim();
+            const effMonth = document.getElementById('qeEffMonth').value;
+            if (!time || !effMonth || isNaN(weekday)) {
+                alert('請完整選擇「星期」「上課時間」與「生效月份」！');
+                return;
+            }
+            const cur = getStudentScheduleForMonth(s, effMonth);
+            const timeChanged = weekday !== Number(cur.weekday) || time !== cur.time;
+            const levelChanged = level && level !== s.level;
+            const oldLevel = s.level;
+            const changes = [];
+            if (timeChanged) {
+                // 二次變更且舊變更生效得更早 → 舊 future 晉升為基準，保住 [舊生效月, 新生效月) 的正確時間。
+                // （單一 pending 變更模型只能保留兩段歷史；更早的過去月份通常已生成、不受影響）
+                if (s.effectiveMonth && s.futureWeekday !== null && effMonth > s.effectiveMonth) {
+                    s.weekday = s.futureWeekday;
+                    s.time = s.futureTime;
+                }
+                s.effectiveMonth = effMonth;
+                s.futureWeekday = weekday;
+                s.futureTime = time;
+                changes.push(`由 ${effMonth} 起改為 逢 ${getWeekdayName(weekday)} ${time}（此前月份保留舊時間）`);
+            }
+            if (Number(s.duration) !== duration) {
+                s.duration = duration;
+                changes.push(`時長改為 ${duration} 分鐘`);
+            }
+            if (levelChanged) {
+                s.level = level;
+                changes.push(`升班：${oldLevel} → ${level}`);
+            }
+            if (!changes.length) {
+                alert('沒有任何變更。');
+                return;
+            }
+            saveToLocalStorage();
+            renderBatchCheckboxes();
+            renderStudentTable();
+            closeQuickEdit();
+            const genMonths = Object.keys(lessonsByMonth).filter(k => k >= effMonth).sort();
+            const genNote = timeChanged && genMonths.length
+                ? `\n\n⚠️ ${genMonths.join('、')} 已生成課表：請到該月按「生成」重新套用（舊時間中仍是「已排課」的課會移除並補上新時間；已有狀態的課不受影響）。`
+                : '';
+            alert(`✅ 已保存「${s.name}」：\n• ${changes.join('\n• ')}${genNote}`);
         }
 
         function selectAllStudents(checked) {
@@ -1278,8 +1161,8 @@
                     <td class="p-3 font-medium text-sky-700">${student.tutor}</td>
                     <td class="p-3 font-medium">逢 ${getWeekdayName(student.weekday)} ${student.time}</td>
                     <td class="p-3 text-right whitespace-nowrap">
-                        <button onclick="scheduleStudentFromDb(${index})" class="text-sky-600 hover:text-sky-800 px-2 py-1 font-semibold hover:bg-sky-50 rounded-lg transition" title="前往單獨排堂">
-                            <i class="fa-solid fa-calendar-days"></i> 排堂
+                        <button onclick="scheduleStudentFromDb(${index})" class="text-sky-600 hover:text-sky-800 px-2 py-1 font-semibold hover:bg-sky-50 rounded-lg transition" title="調整常規時間／升班（含撞堂預覽）">
+                            <i class="fa-solid fa-clock"></i> 改時間/升班
                         </button>
                         <button onclick="openStudentModal(${index})" class="text-amber-600 hover:text-amber-800 px-2 py-1 font-semibold hover:bg-amber-50 rounded-lg transition" title="編輯學生與電話電郵">
                             <i class="fa-solid fa-pen-to-square"></i> 編輯
@@ -1293,10 +1176,9 @@
             });
         }
 
+        // 原「前往單獨排堂」跳第二頁籤；頁籤合併後直接開快速編輯彈窗
         function scheduleStudentFromDb(index) {
-            switchTab('studentTab');
-            document.getElementById('studentSelect').value = `STUDENT_${index}`;
-            loadStudentData();
+            openQuickEdit(index);
         }
 
         function deleteStudentFromDb(index) {
@@ -1304,7 +1186,6 @@
             if (confirm(`確定要刪除學生「${s.name} (${s.id})」嗎？`)) {
                 studentDatabase.splice(index, 1);
                 saveToLocalStorage();
-                populateSelectOptions();
                 renderBatchCheckboxes();
                 renderStudentTable();
             }
@@ -1397,112 +1278,9 @@
             }
 
             saveToLocalStorage();
-            populateSelectOptions();
             renderBatchCheckboxes();
             renderStudentTable();
             closeStudentModal();
-        }
-
-        function clearForm() {
-            document.getElementById('studentId').value = '';
-            document.getElementById('studentName').value = '';
-            document.getElementById('studentPhone').value = '';
-            document.getElementById('studentEmail').value = '';
-            document.getElementById('startTime').value = '';
-            document.getElementById('customDays').value = '';
-            document.getElementById('deleteBtn').classList.add('hidden');
-            document.getElementById('saveTimeBtn').classList.add('hidden');
-            document.getElementById('resultCard').classList.add('hidden');
-            document.getElementById('studentStatusNotice').classList.add('hidden');
-        }
-
-        function generateSchedule() {
-            const studentId = document.getElementById('studentId').value.trim();
-            const studentName = document.getElementById('studentName').value.trim();
-            const targetMonthVal = document.getElementById('targetMonth').value;
-            const startTime = document.getElementById('startTime').value;
-            const customDaysInput = document.getElementById('customDays').value.trim();
-
-            if (!studentId || !studentName || !startTime || !customDaysInput) {
-                alert('請完整填寫學生資料與日期！');
-                return;
-            }
-
-            const parsedDates = parseCustomDates(customDaysInput, targetMonthVal);
-            generatedLessons = parsedDates.map((dObj, idx) => ({
-                lessonNum: idx + 1,
-                date: `${dObj.year}-${String(dObj.month).padStart(2, '0')}-${String(dObj.day).padStart(2, '0')}`,
-                time: startTime,
-                status: 'NORMAL',
-                leaveType: '',
-                makeupForIndex: null
-            }));
-
-            renderSingleScheduleList();
-            document.getElementById('resultCard').classList.remove('hidden');
-        }
-
-        function parseCustomDates(inputStr, defaultMonthStr) {
-            const items = inputStr.split(',').map(s => s.trim()).filter(s => s.length > 0);
-            const result = [];
-
-            items.forEach(item => {
-                if (item.includes('-')) {
-                    const parts = item.split('-').map(Number);
-                    if (parts.length === 3) result.push({ year: parts[0], month: parts[1], day: parts[2] });
-                } else {
-                    const d = parseInt(item);
-                    if (!isNaN(d) && defaultMonthStr) {
-                        const [y, m] = defaultMonthStr.split('-').map(Number);
-                        result.push({ year: y, month: m, day: d });
-                    }
-                }
-            });
-            return result;
-        }
-
-        function renderSingleScheduleList() {
-            const listContainer = document.getElementById('scheduleList');
-            const studentId = document.getElementById('studentId').value.trim();
-            const studentName = document.getElementById('studentName').value.trim();
-            const phone = document.getElementById('studentPhone').value.trim();
-            const email = document.getElementById('studentEmail').value.trim();
-            const tutor = document.getElementById('tutor').value;
-            const levelFormat = document.getElementById('levelFormat').value.trim();
-            const duration = parseInt(document.getElementById('duration').value);
-
-            listContainer.innerHTML = '';
-            const totalRegular = generatedLessons.filter(l => l.status !== 'MAKEUP').length;
-
-            generatedLessons.forEach((lesson) => {
-                const [lYear, lMonth, lDay] = lesson.date.split('-').map(Number);
-                const title = `${studentId} ${studentName}([${lesson.lessonNum}/${totalRegular}] ${String(lMonth).padStart(2, '0')}/${lYear})`;
-
-                const [lHours, lMinutes] = lesson.time.split(':').map(Number);
-                const startDateTime = new Date(lYear, lMonth - 1, lDay, lHours, lMinutes, 0);
-                const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
-                const calendarUrl = buildGoogleCalendarUrl(
-                    title,
-                    startDateTime,
-                    endDateTime,
-                    `導師：${tutor}\n級別：${levelFormat}${phone ? `\n電話：${phone}` : ''}${email ? `\n電郵：${email}` : ''}`
-                );
-
-                const itemHtml = `
-                    <div class="bg-slate-50 border p-3 rounded-xl flex flex-col md:flex-row md:justify-between md:items-center gap-3 text-xs">
-                        <div>
-                            <strong class="text-slate-800">${title}</strong>
-                            <div class="text-slate-500 mt-0.5">${lesson.date} (${getWeekdayName(startDateTime.getDay())}) ${lesson.time} [${tutor} - ${levelFormat}]</div>
-                            ${(phone || email) ? `<div class="text-[11px] text-slate-400 mt-0.5">${phone ? `📞 ${phone}` : ''} ${email ? `✉️ ${email}` : ''}</div>` : ''}
-                        </div>
-                        <div class="flex items-center gap-1.5 self-end md:self-center">
-                            ${phone ? `<button onclick="openWhatsAppLesson(${generatedLessons.indexOf(lesson)})" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>` : ''}
-                            <a href="${calendarUrl}" target="_blank" rel="noopener" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-calendar-plus"></i> + Calendar</a>
-                        </div>
-                    </div>
-                `;
-                listContainer.innerHTML += itemHtml;
-            });
         }
 
         function buildGoogleCalendarUrl(title, start, end, details) {
@@ -1512,21 +1290,6 @@
                 String(date.getHours()).padStart(2, '0') +
                 String(date.getMinutes()).padStart(2, '0') + '00';
             return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${formatISO(start)}/${formatISO(end)}&details=${encodeURIComponent(details)}&location=${encodeURIComponent('')}`;
-        }
-
-        function openWhatsAppLesson(index) {
-            const lesson = generatedLessons[index];
-            const phone = getWhatsAppPhone(document.getElementById('studentPhone').value.trim());
-            if (!phone) {
-                alert('此學生沒有可用的 WhatsApp 電話號碼。');
-                return;
-            }
-
-            const studentName = document.getElementById('studentName').value.trim();
-            const [year, month, day] = lesson.date.split('-').map(Number);
-            const message = `你好，已確認 ${studentName} 於 ${year}年${month}月${day}日 (${getWeekdayName(new Date(year, month - 1, day).getDay())}) ${lesson.time} 上課，謝謝！`;
-            const whatsappUrl = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`;
-            window.open(whatsappUrl, '_blank', 'noopener');
         }
 
         // 降級方案：為每堂課開一個 Google Calendar 建立分頁（每頁須手動按「儲存」）。
@@ -1586,34 +1349,6 @@
             openGoogleCalendarEvents(lessons.map(lessonToExportEvent));
         }
 
-        function openSingleGoogleCalendar() {
-            if (generatedLessons.length === 0) {
-                alert('請先生成個人或班際課堂。');
-                return;
-            }
-            const studentId = document.getElementById('studentId').value.trim();
-            const studentName = document.getElementById('studentName').value.trim();
-            const phone = document.getElementById('studentPhone').value.trim();
-            const email = document.getElementById('studentEmail').value.trim();
-            const duration = parseInt(document.getElementById('duration').value);
-
-            const events = generatedLessons.map(l => {
-                const [y, m, d] = l.date.split('-').map(Number);
-                const [h, min] = l.time.split(':').map(Number);
-                const start = new Date(y, m - 1, d, h, min, 0);
-                const end = new Date(start.getTime() + duration * 60000);
-                return {
-                    title: `${studentId} ${studentName}`,
-                    phone, email,
-                    start, end,
-                    status: l.status,
-                    leaveType: l.leaveType
-                };
-            });
-
-            openGoogleCalendarEvents(events);
-        }
-
         function downloadMasterICS() {
             const lessons = sortedMonthLessons();
             if (lessons.length === 0) {
@@ -1623,31 +1358,8 @@
             buildICSFile(lessons.map(lessonToExportEvent), `Guitaristic_Academy_${currentMonthKey() || 'schedule'}.ics`);
         }
 
-        function downloadSingleICS() {
-            if (generatedLessons.length === 0) {
-                alert('請先生成個人或班際課堂。');
-                return;
-            }
-            const studentId = document.getElementById('studentId').value.trim();
-            const studentName = document.getElementById('studentName').value.trim();
-            const phone = document.getElementById('studentPhone').value.trim();
-            const email = document.getElementById('studentEmail').value.trim();
-            const duration = parseInt(document.getElementById('duration').value);
-            const events = generatedLessons.map(lesson => {
-                const [year, month, day] = lesson.date.split('-').map(Number);
-                const [hours, minutes] = lesson.time.split(':').map(Number);
-                const start = new Date(year, month - 1, day, hours, minutes, 0);
-                // 單人排堂沒有 lessonId，用同樣的確定性規則組 UID，避免重複導入產生重複事件
-                const uid = `${(studentId || 'single')}-${lesson.date.replace(/-/g, '')}-${lesson.time.replace(':', '')}@guitaristic`;
-                return {title: `${studentId} ${studentName}`, phone, email, start, end: new Date(start.getTime() + duration * 60000), status: lesson.status, uid};
-            });
-            const filename = `${studentId || 'student'}_${studentName || 'schedule'}_schedule.ics`.replace(/[\\/:*?"<>|]/g, '_');
-            buildICSFile(events, filename);
-        }
-
-        // Keep the original export function names available for existing links or bookmarks.
+        // Keep the original export function name available for existing links or bookmarks.
         function exportMasterICS() { downloadMasterICS(); }
-        function exportSingleICS() { downloadSingleICS(); }
 
         function buildICSFile(events, filename) {
             let icsContent = [
@@ -1722,7 +1434,6 @@
                 gacStore.saveSendlog(sendLog);
                 gacStore.saveSettings(appSettings);
             }
-            populateSelectOptions();
             renderBatchCheckboxes();
             renderStudentTable();
             rebuildMonthContext();
@@ -1750,7 +1461,6 @@
             if (confirm('確定要恢復預設學生名單嗎？')) {
                 studentDatabase = [...defaultStudents];
                 saveToLocalStorage();
-                populateSelectOptions();
                 renderBatchCheckboxes();
                 renderStudentTable();
                 alert('已恢復預設資料庫！');
@@ -1785,9 +1495,10 @@
                 .replace('{amount}', 'HK$ ' + Number(entry.amount || 0).toLocaleString('en-US'));
         }
 
-        // 發送中心條目 → 訊息文字（學費按模板；請假/補堂重用課堂訊息）
+        // 發送中心條目 → 訊息文字（學費按模板；自定義用建立時定稿的快照；請假/補堂重用課堂訊息）
         function sendlogMsgFor(entry) {
             if (entry.type === 'TUITION') return tuitionMsgFor(entry);
+            if (entry.type === 'CUSTOM') return entry.message || '';
             const f = GACLessonState.findLesson(lessonsByMonth, entry.lessonId);
             if (!f) return '（原課堂已不存在，此條目僅留作歷史紀錄）';
             return entry.type === 'LEAVE_CONFIRM' ? leaveMsgFor(f.lesson) : makeupMsgFor(f.lesson);
@@ -1797,7 +1508,8 @@
         const SEND_TYPE_META = {
             TUITION: { label: '學費', cls: 'bg-emerald-100 text-emerald-700' },
             LEAVE_CONFIRM: { label: '請假確認', cls: 'bg-amber-100 text-amber-700' },
-            MAKEUP_CONFIRM: { label: '補堂確認', cls: 'bg-sky-100 text-sky-700' }
+            MAKEUP_CONFIRM: { label: '補堂確認', cls: 'bg-sky-100 text-sky-700' },
+            CUSTOM: { label: '自定義', cls: 'bg-violet-100 text-violet-700' }
         };
 
         function sendCenterMonth() {
@@ -1829,10 +1541,15 @@
                 ? `<button onclick="sendWhatsApp('${e.key}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold" title="打開 WhatsApp 預填訊息（不會自動移到已發送，發完請點「標記已發」）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`
                 : `<button disabled class="px-2.5 py-1.5 bg-slate-100 text-slate-400 rounded-lg font-semibold cursor-not-allowed" title="此學生沒有電話號碼，僅可複製或手動已發"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`;
             const waOpened = !sent && e.waOpenedAt;
+            // 自定義條目由群發手動建立、無課堂掛鉤，允許在待發送欄直接刪除（其他類型由系統管理，不提供刪除）
+            const delBtn = e.type === 'CUSTOM'
+                ? `<button onclick="sendDeleteEntry('${e.key}')" class="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg font-semibold" title="刪除此自定義條目"><i class="fa-solid fa-trash-can"></i></button>`
+                : '';
             const actions = sent
                 ? `<button onclick="sendMarkUnsent('${e.key}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold" title="移回待發送（發錯了想重發）"><i class="fa-solid fa-rotate-left"></i> 移回待發</button>`
                 : `<button onclick="sendCopy('${e.key}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold"><i class="fa-solid fa-copy"></i> 複製</button>
                    ${waBtn}
+                   ${delBtn}
                    <span class="ml-auto pl-3 flex items-center gap-1.5">
                        <button onclick="sendMarkSent('${e.key}', 'wa_link')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold${waOpened ? ' ring-2 ring-emerald-300' : ''}" title="已用 WhatsApp 發出 → 移到已發送"><i class="fa-solid fa-check"></i> 標記已發</button>
                        <button onclick="sendMarkSent('${e.key}', 'manual')" class="px-2.5 py-1.5 bg-slate-600 hover:bg-slate-700 text-white rounded-lg font-semibold" title="不經 WhatsApp（如面談／電話已通知）→ 直接移到已發送">手動已發</button>
@@ -1922,6 +1639,81 @@
             }
             persistSendlog();
             renderSendCenter();
+        }
+
+        // 刪除自定義條目（僅 CUSTOM：群發手動建立、無課堂掛鉤；其他類型由系統管理不可刪）
+        function sendDeleteEntry(key) {
+            const e = sendLog[key];
+            if (!e || e.type !== 'CUSTOM') return;
+            if (!confirm(`刪除 ${e.studentName || e.studentId} 的自定義條目？\n（只刪除此發送紀錄，不影響其他資料）`)) return;
+            delete sendLog[key];
+            persistSendlog();
+            renderSendCenter();
+        }
+
+        // ===== 自定義群發：自訂訊息（{name}/{id} 佔位符），按導師篩選勾選學生，批量加入待發送欄 =====
+        function openBroadcastModal() {
+            document.getElementById('bcMonth').value = sendCenterMonth();
+            const tutors = [...new Set(studentDatabase.map(s => s.tutor))];
+            document.getElementById('bcTutor').innerHTML =
+                '<option value="ALL">所有導師</option>' + tutors.map(t => `<option value="${t}">${t}</option>`).join('');
+            renderBroadcastList();
+            document.getElementById('broadcastModal').classList.remove('hidden');
+        }
+
+        function closeBroadcastModal() {
+            document.getElementById('broadcastModal').classList.add('hidden');
+        }
+
+        function renderBroadcastList() {
+            const tutor = document.getElementById('bcTutor').value || 'ALL';
+            const list = document.getElementById('bcList');
+            const rows = [];
+            studentDatabase.forEach((s, idx) => {
+                if (tutor !== 'ALL' && s.tutor !== tutor) return;
+                rows.push(`
+                    <label class="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 cursor-pointer hover:border-violet-300 transition">
+                        <input type="checkbox" value="${idx}" checked class="accent-violet-600 rounded">
+                        <span class="truncate"><b>${s.id}</b> ${s.name} <span class="text-slate-400">· ${s.tutor}</span>
+                        ${s.phone ? '' : '<span class="text-amber-600 font-semibold">（無電話，僅可複製）</span>'}</span>
+                    </label>`);
+            });
+            list.innerHTML = rows.join('') || '<span class="text-slate-400 italic">此導師沒有學生。</span>';
+            document.getElementById('bcCount').textContent = `符合篩選：${rows.length} 位學生（預設全勾）`;
+        }
+
+        function bcSetAll(checked) {
+            document.querySelectorAll('#bcList input[type="checkbox"]').forEach(chk => { chk.checked = checked; });
+        }
+
+        function applyBroadcast() {
+            const msg = document.getElementById('bcMessage').value.trim();
+            const monthKey = document.getElementById('bcMonth').value;
+            if (!msg) { alert('請先輸入訊息內容！'); return; }
+            if (!monthKey) { alert('請選擇歸屬月份！'); return; }
+            const chosen = [...document.querySelectorAll('#bcList input[type="checkbox"]')]
+                .filter(chk => chk.checked)
+                .map(chk => studentDatabase[parseInt(chk.value)])
+                .filter(Boolean);
+            if (!chosen.length) { alert('請至少勾選一位學生！'); return; }
+            if (!confirm(`將為 ${chosen.length} 位學生建立「自定義」待發送條目（歸入 ${monthKey}）。\n之後到「待發送」欄逐一複製／WhatsApp 發送。\n\n確定建立？`)) return;
+            // batchId 用建立時刻，同月多次群發互不覆蓋；{name}/{id} 在此按學生解析定稿
+            const now = new Date();
+            const batchId = now.toISOString().replace(/\D/g, '').slice(0, 14);
+            chosen.forEach(s => {
+                GACSendlog.addCustomEntry(sendLog, {
+                    batchId: batchId, studentId: s.id, studentName: s.name, phone: s.phone || '',
+                    monthKey: monthKey,
+                    message: msg.split('{name}').join(s.name).split('{id}').join(s.id),
+                    now: now.toISOString()
+                });
+            });
+            persistSendlog();
+            const sendMonthEl = document.getElementById('sendMonth');
+            if (sendMonthEl) sendMonthEl.value = monthKey;
+            renderSendCenter();
+            closeBroadcastModal();
+            alert(`✅ 已為 ${chosen.length} 位學生建立自定義待發送條目（${monthKey}）。\n在「待發送」欄逐一發送；建錯了可在條目上直接刪除。`);
         }
 
         // waSentMode='confirm'：從 WhatsApp 分頁切回本頁時，逐條詢問剛才開啟的訊息是否已發出。

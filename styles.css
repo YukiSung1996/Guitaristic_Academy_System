@@ -16,10 +16,3 @@
         .cal-pill-clash { background-color: #ffedd5; color: #9a3412; border-left: 3px solid #f97316; }
         .cal-pill-attended { background-color: #d1fae5; color: #065f46; border-left: 3px solid #10b981; }
         .cal-pill-noshow { background-color: #ede9fe; color: #5b21b6; border-left: 3px solid #8b5cf6; }
-        .single-student-option { display: flex; align-items: flex-start; gap: .5rem; padding: .55rem .65rem; border: 1px solid #d1fae5; border-radius: .65rem; background: #fff; cursor: pointer; transition: border-color .15s, background-color .15s; }
-        .single-student-option:hover { border-color: #34d399; background: #f0fdf4; }
-        .single-student-option input { margin-top: .15rem; accent-color: #059669; }
-        .single-student-option span { min-width: 0; display: flex; flex-direction: column; }
-        .single-student-option strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; color: #1e293b; }
-        .single-student-option small { color: #64748b; font-size: .7rem; margin-top: .15rem; }
-        .single-student-option.group-option { border-color: #bfdbfe; background: #eff6ff; }

@@ -81,6 +81,32 @@ test('孤兒清理：課被刪除的 TODO 確認條目移除，SENT 保留作紀
     assert.ok(log['MAKEUP_CONFIRM:B-1'], 'SENT 條目保留');
 });
 
+test('自定義群發條目：快照訊息、同批次幂等、不同批次共存、孤兒清理不碰、可標記已發', () => {
+    const log = {};
+    const p = { batchId: '20260917120000', studentId: 'S001', studentName: 'Student 001', phone: '00000000', monthKey: '2026-09', message: 'Student 001 家長您好，學費將調整。', now: '2026-09-17T12:00:00.000Z' };
+    const e = SL.addCustomEntry(log, p);
+    assert.strictEqual(e.key, 'CUSTOM:20260917120000:S001');
+    assert.strictEqual(e.type, 'CUSTOM');
+    assert.strictEqual(e.status, 'TODO');
+    assert.strictEqual(e.month, '2026-09');
+    assert.strictEqual(e.message, 'Student 001 家長您好，學費將調整。');
+    // 同批次同學生幂等
+    SL.addCustomEntry(log, Object.assign({}, p, { message: '不應覆蓋' }));
+    assert.strictEqual(Object.keys(log).length, 1);
+    assert.strictEqual(log[e.key].message, 'Student 001 家長您好，學費將調整。');
+    // 不同批次（同月第二次群發）共存
+    SL.addCustomEntry(log, Object.assign({}, p, { batchId: '20260918090000', message: '第二次通知' }));
+    assert.strictEqual(Object.keys(log).length, 2);
+    // 進入該月待發送欄；無 lessonId → 孤兒清理絕不移除
+    assert.strictEqual(SL.listByMonth(log, '2026-09').todo.length, 2);
+    assert.deepStrictEqual(SL.pruneOrphans(log, () => false), []);
+    // 標記已發/移回照常
+    SL.markSent(log, e.key, 'wa_link', '2026-09-17T13:00:00.000Z');
+    assert.strictEqual(SL.listByMonth(log, '2026-09').sent.length, 1);
+    SL.markUnsent(log, e.key);
+    assert.strictEqual(log[e.key].status, 'TODO');
+});
+
 test('WhatsApp 開啟標記：markWaOpened 只記時間不改狀態；移回待發時清空', () => {
     const log = {};
     const e = SL.upsertTuition(log, params());

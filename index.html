@@ -119,10 +119,6 @@
                     <i class="fa-solid fa-calendar-days text-sky-500"></i>
                     <span>全校時間表與總排堂預覽</span>
                 </button>
-                <button onclick="switchTab('studentTab')" id="tab_studentTab" class="tab-btn py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
-                    <i class="fa-solid fa-id-card text-emerald-500"></i>
-                    <span>單一學生 / 班際排堂設定</span>
-                </button>
                 <button onclick="switchTab('databaseTab')" id="tab_databaseTab" class="tab-btn py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
                     <i class="fa-solid fa-database text-purple-500"></i>
                     <span>學生名單庫 (CRUD 整合)</span>
@@ -157,7 +153,7 @@
                         <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
                             <i class="fa-solid fa-sliders text-sky-500"></i> 全校月度總時間表、即時調堂與衝突檢測
                         </h2>
-                        <p class="text-xs text-slate-500 mt-0.5">選擇月份與導師以自動生成整合課堂，系統會自動標示同一導師的「撞堂」時段。</p>
+                        <p class="text-xs text-slate-500 mt-0.5">選擇月份與導師以自動生成整合課堂，系統會自動標示同一導師的「撞堂」時段。學生列表每行的 <i class="fa-solid fa-pen text-amber-500"></i> 可直接調整常規時間／升班（含撞堂預覽）。</p>
                     </div>
 
                     <div class="flex items-center gap-2 flex-wrap">
@@ -285,162 +281,6 @@
             </div>
         </section>
 
-        <!-- TAB 2: SINGLE STUDENT / GROUP SCHEDULING -->
-        <section id="studentTab" class="tab-content hidden space-y-6">
-            
-            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-5">
-                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div>
-                        <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
-                            <i class="fa-solid fa-user-pen text-emerald-500"></i> 單一學生 / 班際課程詳細排堂設定
-                        </h2>
-                        <p class="text-xs text-slate-500">快速選擇學生、計算開班日日期、調整個別上課時間或設定歷史生效月份。</p>
-                    </div>
-                </div>
-
-                <!-- Student Checkbox Quick Selection -->
-                <div class="bg-emerald-50/60 p-4 rounded-xl border border-emerald-100 space-y-2">
-                    <label class="block text-xs font-bold text-emerald-900">快速載入學生 / 班際課程資料：</label>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <input id="singleStudentSearch" type="search" placeholder="搜尋學生 ID、姓名、電話或電郵..." oninput="renderSingleStudentPicker()" class="w-full px-3 py-2 text-sm border border-emerald-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white">
-                        <select id="singleStudentTutorFilter" onchange="renderSingleStudentPicker()" class="w-full px-3 py-2 text-sm border border-emerald-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white">
-                            <option value="ALL">全部導師</option>
-                        </select>
-                    </div>
-                    <div id="singleStudentPicker" class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto p-3 bg-white/70 rounded-xl border border-emerald-200"></div>
-                    <select id="studentSelect" onchange="loadStudentData()" class="hidden" aria-hidden="true" tabindex="-1">
-                        <option value="">-- 請選擇學生或班際課程 --</option>
-                    </select>
-                    <p id="singleStudentSelection" class="text-xs text-emerald-700">尚未選擇學生或班際課程。</p>
-                </div>
-
-                <!-- Dynamic Notice / Effective Status Banner -->
-                <div id="studentStatusNotice" class="hidden p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs space-y-1"></div>
-
-                <!-- Form Inputs Grid -->
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">學生 / 班別 ID：</label>
-                        <input type="text" id="studentId" placeholder="例如: 0071" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">學生 / 班別名稱：</label>
-                        <input type="text" id="studentName" placeholder="例如: Student 001" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">電話號碼 Phone：</label>
-                        <input type="tel" id="studentPhone" placeholder="例如: 00000000" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">電郵地址 Email：</label>
-                        <input type="email" id="studentEmail" placeholder="例如: student@example.com" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">負責導師：</label>
-                        <select id="tutor" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white">
-                            <option value="Instructor A">Instructor A</option>
-                            <option value="Instructor B">Instructor B</option>
-                            <option value="Demo Music Academy">Demo Music Academy</option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">級別與授課形式：</label>
-                        <input type="text" id="levelFormat" placeholder="例如: Pop Guitar - Intermediate 中級 (一對一)" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">起始目標月份：</label>
-                        <input type="month" id="targetMonth" value="2026-08" onchange="onTargetMonthChange()" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">開班起始日 (計算基準)：</label>
-                        <input type="date" id="startDateOverride" value="2026-08-01" onchange="autoCalculateDays(false)" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">常規星期幾：</label>
-                        <select id="dayOfWeek" onchange="autoCalculateDays(false)" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white">
-                            <option value="1">逢星期一 (Mon)</option>
-                            <option value="2">逢星期二 (Tue)</option>
-                            <option value="3">逢星期三 (Wed)</option>
-                            <option value="4">逢星期四 (Thu)</option>
-                            <option value="5">逢星期五 (Fri)</option>
-                            <option value="6">逢星期六 (Sat)</option>
-                            <option value="0">逢星期日 (Sun)</option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">上課時間 (HH:MM)：</label>
-                        <input type="time" id="startTime" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">課堂時長 (分鐘)：</label>
-                        <input type="number" id="duration" value="45" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                    </div>
-
-                    <div class="md:col-span-2 lg:col-span-3">
-                        <label class="block text-xs font-bold text-slate-600 mb-1">計算後 / 指定課堂日期 (以逗號分隔)：</label>
-                        <input type="text" id="customDays" placeholder="例如: 2026-08-03, 2026-08-10 或 4,11,18,25" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono text-xs">
-                        <p class="text-[11px] text-slate-400 mt-1">💡 系統會根據「開班起始日」自動計算整月日期，亦可手動輸入特定跨月日期。</p>
-                    </div>
-                </div>
-
-                <!-- Effective Change Rule Box -->
-                <div id="timeChangeContainer" class="bg-sky-50/70 border border-sky-200 p-4 rounded-xl space-y-2">
-                    <h4 class="font-bold text-sky-900 text-xs flex items-center gap-1.5">
-                        <i class="fa-solid fa-clock-rotate-left"></i> 時間變更並保留歷史紀錄
-                    </h4>
-                    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs font-semibold text-slate-700">新時間生效月份：</span>
-                            <input type="month" id="effectiveMonth" value="2026-08" class="px-2.5 py-1.5 text-xs border border-sky-300 rounded-lg bg-white">
-                        </div>
-                        <p class="text-[11px] text-sky-700 flex-1">在此月份前維持舊時間；由此月份起（包含該月）將自動套用新選取的星期與時間。</p>
-                    </div>
-                </div>
-
-                <!-- Actions -->
-                <div class="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
-                    <button id="deleteBtn" onclick="deleteCurrentStudent()" class="hidden px-4 py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs font-bold rounded-xl transition flex items-center gap-1.5">
-                        <i class="fa-solid fa-trash-can"></i> 刪除此學生
-                    </button>
-
-                    <div class="flex items-center gap-2 ml-auto">
-                        <button id="saveTimeBtn" onclick="updateStudentTimeConfig()" class="hidden px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center gap-1.5">
-                            <i class="fa-solid fa-floppy-disk"></i> 保存新時間設定
-                        </button>
-                        <button onclick="generateSchedule()" class="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center gap-1.5">
-                            <i class="fa-solid fa-calendar-plus"></i> 生成個人/班際課堂清單
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Single Result Card -->
-            <div id="resultCard" class="hidden bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
-                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
-                        <i class="fa-solid fa-square-check text-emerald-500"></i> 單人排堂結果與匯出
-                    </h3>
-                    <button onclick="openSingleGoogleCalendar()" class="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5">
-                        <i class="fa-solid fa-calendar-plus"></i> 加入 Google Calendar
-                    </button>
-                    <button onclick="downloadSingleICS()" title="在本地導出 .ics 文件，可用於 Google Calendar 批量導入" class="px-3.5 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5">
-                        <i class="fa-solid fa-file-arrow-down"></i> 導出 .ics（批量導入）
-                    </button>
-                </div>
-                <div id="scheduleList" class="space-y-3"></div>
-            </div>
-        </section>
-
         <!-- TAB 3: STUDENT DATABASE MANAGEMENT (INTEGRATED CRUD) -->
         <section id="databaseTab" class="tab-content hidden space-y-6">
             
@@ -523,6 +363,9 @@
                         <p class="text-xs text-slate-500 mt-0.5">學費、請假確認、補堂確認訊息集中處理。預設：開 WhatsApp 只會標記「已開啟」、切回本頁時詢問是否已發（可在「設定」改為自動移欄或只標記）。</p>
                     </div>
                     <div class="flex items-center gap-2 text-xs">
+                        <button onclick="openBroadcastModal()" title="自訂訊息內容（支持 {name}／{id} 佔位符），按導師篩選、勾選學生後批量加入「待發送」欄，如調整學費通知" class="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
+                            <i class="fa-solid fa-bullhorn"></i> 自定義群發
+                        </button>
                         <label class="font-bold text-slate-600">月份：</label>
                         <input type="month" id="sendMonth" onchange="renderSendCenter()" class="px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none">
                     </div>
@@ -758,6 +601,90 @@
                 <div class="flex gap-2">
                     <button onclick="closeGcalCleanupModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
                     <button onclick="applyGcalCleanup()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition">刪除勾選事件</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- 快速編輯彈窗（原「單一學生」頁籤已合併到此）：改常規時間（保留歷史）／升班，即時撞堂預覽 -->
+    <div id="quickEditModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-5 space-y-3 max-h-[85vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                <h3 id="qeTitle" class="text-sm font-bold text-slate-800"></h3>
+                <button onclick="closeQuickEdit()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="qeInfo" class="text-xs text-slate-600 space-y-1.5"></div>
+            <div class="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">常規星期</label>
+                    <select id="qeWeekday" onchange="renderQuickEditPreview()" class="w-full p-2 border border-slate-300 rounded-lg bg-white">
+                        <option value="1">逢星期一 (Mon)</option>
+                        <option value="2">逢星期二 (Tue)</option>
+                        <option value="3">逢星期三 (Wed)</option>
+                        <option value="4">逢星期四 (Thu)</option>
+                        <option value="5">逢星期五 (Fri)</option>
+                        <option value="6">逢星期六 (Sat)</option>
+                        <option value="0">逢星期日 (Sun)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">上課時間 (HH:MM)</label>
+                    <input type="time" id="qeTime" onchange="renderQuickEditPreview()" class="w-full p-2 border border-slate-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">課堂時長（分鐘）</label>
+                    <input type="number" id="qeDuration" min="15" onchange="renderQuickEditPreview()" class="w-full p-2 border border-slate-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">新時間生效月份</label>
+                    <input type="month" id="qeEffMonth" onchange="renderQuickEditPreview()" class="w-full p-2 border border-slate-300 rounded-lg">
+                    <p class="text-[10px] text-slate-400 mt-0.5">此月前維持舊時間（保留歷史），由此月起套用新時間。</p>
+                </div>
+                <div class="col-span-2">
+                    <label class="block font-bold text-slate-600 mb-1">級別（升班在此修改，如 Elementary 初級 → Intermediate 中級）</label>
+                    <input type="text" id="qeLevel" class="w-full p-2 border border-slate-300 rounded-lg">
+                </div>
+            </div>
+            <div id="qePreview" class="text-xs space-y-1 max-h-52 overflow-y-auto"></div>
+            <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button onclick="closeQuickEdit()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
+                <button onclick="saveQuickEdit()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl transition"><i class="fa-solid fa-floppy-disk mr-1"></i>保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 自定義群發彈窗：自訂訊息，按導師篩選勾選學生，批量加入發送中心「待發送」欄 -->
+    <div id="broadcastModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-5 space-y-3 max-h-[85vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                <h3 class="text-sm font-bold text-slate-800"><i class="fa-solid fa-bullhorn text-violet-500 mr-1"></i>自定義群發（加入發送中心待發送欄）</h3>
+                <button onclick="closeBroadcastModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="space-y-2 text-xs">
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">訊息內容（可用佔位符：<code class="bg-slate-100 px-1 rounded">{name}</code>＝學生姓名、<code class="bg-slate-100 px-1 rounded">{id}</code>＝學生 ID）</label>
+                    <textarea id="bcMessage" rows="4" placeholder="例：{name} 家長您好，由 2026 年 11 月起本中心學費將作調整，詳情請與我們聯絡，謝謝！" class="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:outline-none"></textarea>
+                </div>
+                <div class="flex flex-wrap items-center gap-3">
+                    <label class="font-bold text-slate-600">歸屬月份：
+                        <input type="month" id="bcMonth" class="ml-1 px-2 py-1.5 border border-slate-300 rounded-lg bg-white font-normal">
+                    </label>
+                    <label class="font-bold text-slate-600">篩選導師：
+                        <select id="bcTutor" onchange="renderBroadcastList()" class="ml-1 px-2 py-1.5 border border-slate-300 rounded-lg bg-white font-normal">
+                            <option value="ALL">所有導師</option>
+                        </select>
+                    </label>
+                    <span id="bcCount" class="text-slate-500"></span>
+                </div>
+                <div id="bcList" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-56 overflow-y-auto p-2.5 bg-slate-50 rounded-xl border border-slate-200"></div>
+            </div>
+            <div class="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                <div class="flex gap-2">
+                    <button onclick="bcSetAll(true)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全選</button>
+                    <button onclick="bcSetAll(false)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全不選</button>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeBroadcastModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
+                    <button onclick="applyBroadcast()" class="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-xl transition"><i class="fa-solid fa-paper-plane mr-1"></i>加入待發送</button>
                 </div>
             </div>
         </div>

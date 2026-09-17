@@ -148,3 +148,36 @@ test('補堂 lessonId：帶 -MU- 與最初原課的日期時間，確定性生�
     const id = S.makeMakeupLessonId('S001', '2026-10-02', '15:00', 'S001-20260915-2130');
     assert.strictEqual(id, 'S001-20261002-1500-MU-20260915-2130');
 });
+
+test('A8: previewTimeChange — 對已生成月份：同導師重疊報撞、LEAVE 不佔時段、本人舊課不自擋', () => {
+    const s1 = student(); // S001 週二 21:30
+    const s2 = student({ id: 'S002', name: 'Student 002', weekday: 1, time: '21:30' }); // 週一 21:30
+    const existing = S.generateMonthLessons(s1, '2026-09').concat(S.generateMonthLessons(s2, '2026-09'));
+    // S002 的 9/14（週一）請假 → 該日不佔時段
+    existing.find(l => l.lessonId === 'S002-20260914-2130').status = 'LEAVE';
+    // S001 想改到週一 21:30 → 與 S002 撞（除請假的 9/14 外）
+    const rows = S.previewTimeChange(s1, [s2], existing, '2026-09', { weekday: 1, time: '21:30', duration: 45 });
+    assert.deepStrictEqual(rows.map(r => r.date),
+        ['2026-09-07', '2026-09-14', '2026-09-21', '2026-09-28']);
+    assert.ok(rows[0].clashes.length === 1 && rows[0].clashes[0].studentId === 'S002');
+    assert.strictEqual(rows[1].clashes.length, 0, 'LEAVE 課不佔時段');
+    assert.ok(rows[2].clashes.length === 1 && rows[3].clashes.length === 1);
+    // 本人週二舊課不會自擋：改回自己原本的週二 21:30 應全綠
+    const self = S.previewTimeChange(s1, [s2], existing, '2026-09', { weekday: 2, time: '21:30', duration: 45 });
+    assert.ok(self.every(r => r.clashes.length === 0), '本人的非補堂課應排除在佔用池外');
+});
+
+test('A8b: previewTimeChange — 未生成月份用其他學生常規時間模擬；不同導師不報；同組豁免', () => {
+    const s1 = student(); // Instructor A 週二 21:30
+    const s2 = student({ id: 'S002', name: 'Student 002', weekday: 4, time: '21:30' });
+    const s3 = student({ id: 'S003', tutor: 'Instructor B', weekday: 4, time: '21:30' });
+    // 該月完全未生成（existing 空）：s2 由常規時間模擬 → 週四 21:30 報撞；s3 不同導師不報
+    const rows = S.previewTimeChange(s1, [s2, s3], [], '2026-10', { weekday: 4, time: '21:30', duration: 45 });
+    assert.ok(rows.length > 0 && rows.every(r => r.clashes.length === 1));
+    assert.ok(rows.every(r => r.clashes[0].studentId === 'S002'));
+    // 同 2 人小組同 program 同時段 → 豁免
+    const g1 = student({ id: 'S010', type: '2人小組', program: 'Pop Guitar', duration: 60 });
+    const g2 = student({ id: 'S011', type: '2人小組', program: 'Pop Guitar', duration: 60, weekday: 3, time: '19:00' });
+    const gRows = S.previewTimeChange(g1, [g2], [], '2026-10', { weekday: 3, time: '19:00', duration: 60 });
+    assert.ok(gRows.every(r => r.clashes.length === 0), '同組小組課同時段應豁免');
+});
