@@ -125,6 +125,7 @@ function importGcalMonth() {
             if (r.failed.length) {
                 msg += `\n• 失敗 ${r.failed.length} 件，首個錯誤：\n  ${r.failed[0].error}`;
             }
+            msg += `\n\nℹ️ 之後在 Google Calendar 上挪動／刪除／改狀態碼，按「同步對帳」即可拉回本地（以 Calendar 為準、預設全勾）。`;
             alert((r.failed.length ? '⚠️ ' : '✅ ') + msg);
         })
         .catch(e => alert('⚠️ 導入未執行：' + ((e && e.message) || e) + '\n本地資料未受影響。'))
@@ -288,9 +289,9 @@ function openGcalReconcile() {
         .finally(() => setGcalBusy(false));
 }
 
-function gcalDiffRow(chkId, text, extraHtml) {
+function gcalDiffRow(chkId, text, extraHtml, checked) {
     return `<label class="flex items-start gap-2 p-2 border border-slate-200 rounded-lg text-xs cursor-pointer hover:bg-slate-50">
-        <input type="checkbox" id="${chkId}" class="mt-0.5 w-4 h-4 accent-sky-600">
+        <input type="checkbox" id="${chkId}"${checked ? ' checked' : ''} class="mt-0.5 w-4 h-4 accent-sky-600">
         <span class="flex-1">${text}${extraHtml || ''}</span>
     </label>`;
 }
@@ -304,20 +305,20 @@ function renderGcalDiffModal(monthKey) {
     if (!total) {
         parts.push('<div class="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs font-semibold">✅ Google Calendar 與本地課表完全一致，沒有差異。</div>');
     } else {
-        parts.push(`<div class="p-2 bg-sky-50 border border-sky-200 rounded-lg text-sky-800 text-xs">對帳範圍：${monthKey}（前後各 7 天）。共 ${total} 項差異，<b>預設全不勾</b>——勾選要套用到本地的項目後按「套用」。</div>`);
+        parts.push(`<div class="p-2 bg-sky-50 border border-sky-200 rounded-lg text-sky-800 text-xs">對帳範圍：${monthKey}（前後各 7 天）。共 ${total} 項差異，<b>以 Google Calendar 為準、預設全勾</b>——直接按「套用」即以 Calendar 更新本地；個別不想跟 Calendar 的項目請取消勾選。（手動新建的事件需先選擇收編方式，預設不勾。）</div>`);
     }
     if (d.timeChanges.length) {
         parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🕒 時間變更（GCal 上被挪動）</div>');
         d.timeChanges.forEach((c, i) => {
             parts.push(gcalDiffRow('gdT_' + i,
-                `<b>${c.lesson.studentName}</b>（${c.lesson.studentId}）${c.lesson.date} ${c.lesson.time} → <b>${c.date} ${c.time}</b>`));
+                `<b>${c.lesson.studentName}</b>（${c.lesson.studentId}）${c.lesson.date} ${c.lesson.time} → <b>${c.date} ${c.time}</b>`, '', true));
         });
     }
     if (d.deletions.length) {
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🗑️ 事件已在 GCal 刪除（勾選＝本地標記請假・事假；不勾＝忽略，可再按「導入」在 GCal 重建）</div>');
+        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🗑️ 事件已在 GCal 刪除（勾選＝跟隨 Calendar：本地標記請假・事假；取消勾選＝保留本地，可再按「導入」在 GCal 重建）</div>');
         d.deletions.forEach((del, i) => {
             parts.push(gcalDiffRow('gdD_' + i,
-                `<b>${del.lesson.studentName}</b>（${del.lesson.studentId}）${del.lesson.date} ${del.lesson.time}（目前狀態：${del.lesson.status}）`));
+                `<b>${del.lesson.studentName}</b>（${del.lesson.studentId}）${del.lesson.date} ${del.lesson.time}（目前狀態：${del.lesson.status}）`, '', true));
         });
     }
     if (d.statusChanges.length) {
@@ -325,7 +326,7 @@ function renderGcalDiffModal(monthKey) {
         d.statusChanges.forEach((s, i) => {
             const toLabel = s.to.status === 'NOSHOW' ? 'NS 缺席' : getLeaveText(s.to.leaveType);
             parts.push(gcalDiffRow('gdS_' + i,
-                `<b>${s.lesson.studentName}</b>（${s.lesson.studentId}）${s.lesson.date} ${s.lesson.time}：${s.lesson.status} → <b>${toLabel}</b>`));
+                `<b>${s.lesson.studentName}</b>（${s.lesson.studentId}）${s.lesson.date} ${s.lesson.time}：${s.lesson.status} → <b>${toLabel}</b>`, '', true));
         });
     }
     if (d.manualNew.length) {
