@@ -351,6 +351,10 @@
                 msg += `\n\n⚠️ 以下 ${res.conflicts.length} 堂已有狀態，生成邏輯不會改動，請人工處理：\n` +
                     res.conflicts.map(c => `  • ${c.lesson.date} ${c.lesson.time} ${c.lesson.studentName}（${c.lesson.status}）`).join('\n');
             }
+            // 常見誤會：生成只管本地課表；GCal 是投影，需另按導入推送（僅在已設定 GCal 時提示）
+            if (appSettings.gcalClientId) {
+                msg += `\n\nℹ️ Google Calendar 不會自動更新——需要推送時請按「導入 GCal (API)」。`;
+            }
             alert(msg);
         }
 

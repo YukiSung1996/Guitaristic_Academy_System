@@ -257,6 +257,7 @@ function applyGcalCleanup() {
             let msg = `已刪除 ${r.deleted.length} 件（GCal 垃圾桶可還原）`;
             if (r.gone.length) msg += `\n• ${r.gone.length} 件本已不存在`;
             if (r.failed.length) msg += `\n• 失敗 ${r.failed.length} 件，首個錯誤：\n  ${r.failed[0].error}`;
+            msg += `\n\n本地課表未受影響（本地才是主資料）。\n要把事件放回 Google Calendar → 按「導入 GCal (API)」即可全部重建；\n「生成」只管本地課表，與 GCal 無關。`;
             alert((r.failed.length ? '⚠️ ' : '✅ ') + msg);
         })
         .catch(e => alert('⚠️ 刪除未執行：' + ((e && e.message) || e)))
