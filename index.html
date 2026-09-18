@@ -157,14 +157,8 @@
                     </div>
 
                     <div class="flex items-center gap-2 flex-wrap">
-                        <button onclick="importGcalMonth()" id="gcalImportBtn" title="OAuth 授權後經 API 導入本月課堂：先按 gacLessonId 查重，已存在一律跳過、絕不覆蓋（需在設定頁填 Client ID，並經 http://localhost 開啟）" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
-                            <i class="fa-solid fa-cloud-arrow-up"></i> 導入 GCal (API)
-                        </button>
-                        <button onclick="openGcalReconcile()" id="gcalReconcileBtn" title="讀取 Google Calendar（本月前後各 7 天）與本地課表比對：時間變更／已刪除／狀態碼差異以 Calendar 為準、預設全勾，按「套用」即以 Calendar 更新本地；手動新增事件需選擇收編方式" class="px-4 py-2 bg-indigo-100 hover:bg-indigo-200 disabled:opacity-50 text-indigo-800 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
-                            <i class="fa-solid fa-rotate"></i> 同步對帳
-                        </button>
-                        <button onclick="openGcalCleanup()" id="gcalCleanupBtn" title="列出本月由本系統導入（帶系統標籤）的事件，可按導師／學生篩選後批量刪除；手動建立的事件絕不列入。刪除後可在 GCal 垃圾桶還原，本地課表不受影響" class="px-4 py-2 bg-rose-100 hover:bg-rose-200 disabled:opacity-50 text-rose-800 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
-                            <i class="fa-solid fa-broom"></i> 清理 GCal (API)
+                        <button onclick="openGcalSync()" id="gcalSyncBtn" title="一次過比對本地與 Google Calendar（本月前後各 7 天）：缺的推送、GCal 上的改動拉回（Calendar 為準）、殘留清掉、手動事件收編——面板逐項勾選後執行。需在設定頁填 Client ID 並經 http 開啟" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
+                            <i class="fa-solid fa-rotate"></i> 同步 GCal
                         </button>
                         <button onclick="downloadMasterICS()" title="在本地導出 .ics 文件，可用於 Google Calendar 批量導入" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
                             <i class="fa-solid fa-file-arrow-down"></i> 導出 .ics（批量導入）
@@ -588,37 +582,22 @@
         </div>
     </div>
 
-    <!-- Google Calendar 同步對帳彈窗（差異逐條勾選，預設全不勾） -->
-    <div id="gcalDiffModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <!-- 同步 GCal 面板：一次抓取，兩邊差異分組（推送/時間/狀態碼/已刪/殘留/手動新建）勾選執行 -->
+    <div id="gcalSyncModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-5 space-y-3 max-h-[85vh] overflow-y-auto">
             <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                <h3 class="text-sm font-bold text-slate-800"><i class="fa-solid fa-rotate text-indigo-500 mr-1"></i>Google Calendar 同步對帳</h3>
-                <button onclick="closeGcalDiffModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
+                <h3 class="text-sm font-bold text-slate-800"><i class="fa-solid fa-rotate text-indigo-500 mr-1"></i>同步 Google Calendar</h3>
+                <button onclick="closeGcalSyncModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            <div id="gcalDiffBody" class="space-y-2 text-xs"></div>
-            <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button onclick="closeGcalDiffModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
-                <button onclick="applyGcalDiff()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition">套用勾選項目</button>
-            </div>
-        </div>
-    </div>
-    <!-- 清理 GCal 彈窗：只列本系統導入（帶 gacLessonId 標籤）的本月事件，按導師/學生篩選後批量刪除 -->
-    <div id="gcalCleanupModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-5 space-y-3 max-h-[85vh] overflow-y-auto">
-            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                <h3 class="text-sm font-bold text-slate-800"><i class="fa-solid fa-broom text-rose-500 mr-1"></i>清理 Google Calendar（僅本系統導入的事件）</h3>
-                <button onclick="closeGcalCleanupModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <div id="gcalCleanupHead" class="space-y-2 text-xs"></div>
-            <div id="gcalCleanupBody" class="space-y-2 text-xs"></div>
+            <div id="gcalSyncBody" class="space-y-2 text-xs"></div>
             <div class="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
                 <div class="flex gap-2">
-                    <button onclick="gcalCleanupSetAll(true)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全選</button>
-                    <button onclick="gcalCleanupSetAll(false)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全不選</button>
+                    <button onclick="gcalSyncSetAll(true)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全選</button>
+                    <button onclick="gcalSyncSetAll(false)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全不選</button>
                 </div>
                 <div class="flex gap-2">
-                    <button onclick="closeGcalCleanupModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
-                    <button onclick="applyGcalCleanup()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition">刪除勾選事件</button>
+                    <button onclick="closeGcalSyncModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
+                    <button onclick="applyGcalSync()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition">執行勾選項目</button>
                 </div>
             </div>
         </div>
