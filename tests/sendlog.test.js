@@ -83,10 +83,12 @@ test('孤兒清理：課被刪除的 TODO 確認條目移除，SENT 保留作紀
 
 test('自定義群發條目：快照訊息、同批次幂等、不同批次共存、孤兒清理不碰、可標記已發', () => {
     const log = {};
-    const p = { batchId: '20260917120000', studentId: 'S001', studentName: 'Student 001', phone: '00000000', monthKey: '2026-09', message: 'Student 001 家長您好，學費將調整。', now: '2026-09-17T12:00:00.000Z' };
+    const p = { batchId: '20260917120000', title: '調整學費', studentId: 'S001', studentName: 'Student 001', phone: '00000000', monthKey: '2026-09', message: 'Student 001 家長您好，學費將調整。', now: '2026-09-17T12:00:00.000Z' };
     const e = SL.addCustomEntry(log, p);
     assert.strictEqual(e.key, 'CUSTOM:20260917120000:S001');
     assert.strictEqual(e.type, 'CUSTOM');
+    assert.strictEqual(e.batchId, '20260917120000', 'batchId 顯式落欄位（二級分類用）');
+    assert.strictEqual(e.title, '調整學費', '批次名稱落欄位');
     assert.strictEqual(e.status, 'TODO');
     assert.strictEqual(e.month, '2026-09');
     assert.strictEqual(e.message, 'Student 001 家長您好，學費將調整。');

@@ -1396,6 +1396,47 @@
             return (el && el.value) || currentMonthKey();
         }
 
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c =>
+                ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        // 舊條目沒有 batchId 欄位（只藏在 key CUSTOM:<batchId>:<studentId> 裡）→ 從 key 補回
+        function customBatchId(e) {
+            return e.batchId || String(e.key || '').split(':')[1] || '';
+        }
+
+        // 類別下拉只列「本月實際存在」的類別；自定義按批次名稱列二級子分類（optgroup）。
+        // 選中的類別若在本月已不存在（換月／被清掉）→ 回退「全部」。回傳生效的篩選值。
+        function rebuildSendTypeOptions(entries) {
+            const sel = document.getElementById('sendTypeFilter');
+            if (!sel) return 'ALL';
+            const prev = sel.value || 'ALL';
+            const present = new Set(entries.map(e => e.type));
+            const batches = new Map(); // batchId → title（保持建立順序）
+            entries.forEach(e => {
+                if (e.type !== 'CUSTOM') return;
+                const bid = customBatchId(e);
+                if (!batches.has(bid)) batches.set(bid, e.title || '未命名群發');
+            });
+            let html = '<option value="ALL">全部類別</option>';
+            [['TUITION', '學費'], ['LEAVE_CONFIRM', '請假確認'], ['MAKEUP_CONFIRM', '補堂確認']].forEach(([v, label]) => {
+                if (present.has(v)) html += `<option value="${v}">${label}</option>`;
+            });
+            if (batches.size) {
+                html += '<optgroup label="自定義">';
+                if (batches.size > 1) html += '<option value="CUSTOM">全部自定義</option>';
+                batches.forEach((title, bid) => {
+                    html += `<option value="CUSTOM:${escapeHtml(bid)}">${escapeHtml(title)}</option>`;
+                });
+                html += '</optgroup>';
+            }
+            sel.innerHTML = html;
+            sel.value = prev;
+            if (sel.value !== prev) sel.value = 'ALL'; // 原選項已不存在
+            return sel.value || 'ALL';
+        }
+
         // 電話以學生資料庫現值優先（條目中的 phone 是建立時的快照，可能已更新）
         function sendEntryPhone(entry) {
             const stu = studentDatabase.find(s => s.id === entry.studentId);
@@ -1403,7 +1444,10 @@
         }
 
         function sendEntryCard(e, sent) {
-            const meta = SEND_TYPE_META[e.type] || { label: e.type, cls: 'bg-slate-100 text-slate-600' };
+            // 自定義條目的標籤帶批次名稱（「自定義：調整學費」），與類別下拉的二級分類對應
+            const meta = e.type === 'CUSTOM'
+                ? { label: '自定義：' + escapeHtml(e.title || '未命名群發'), cls: 'bg-violet-100 text-violet-700' }
+                : (SEND_TYPE_META[e.type] || { label: e.type, cls: 'bg-slate-100 text-slate-600' });
             const phone = sendEntryPhone(e);
             const msg = sendlogMsgFor(e);
             const amountRow = e.type === 'TUITION'
@@ -1457,14 +1501,27 @@
             const todoList = document.getElementById('sendTodoList');
             const sentList = document.getElementById('sendSentList');
             if (!todoList || !sentList) return;
-            const typeFilter = document.getElementById('sendTypeFilter')?.value || 'ALL';
             const cols = GACSendlog.listByMonth(sendLog, sendCenterMonth());
-            const byType = e => typeFilter === 'ALL' || e.type === typeFilter;
+            const typeFilter = rebuildSendTypeOptions(cols.todo.concat(cols.sent));
+            const byType = e => {
+                if (typeFilter === 'ALL') return true;
+                if (typeFilter.indexOf('CUSTOM:') === 0) {
+                    return e.type === 'CUSTOM' && customBatchId(e) === typeFilter.slice(7);
+                }
+                return e.type === typeFilter;
+            };
             const todo = cols.todo.filter(byType);
             const sent = cols.sent.filter(byType);
-            const filterNote = typeFilter !== 'ALL'
-                ? `（目前只顯示「${(SEND_TYPE_META[typeFilter] || { label: typeFilter }).label}」，切回「全部類別」可見其他）`
-                : '';
+            let filterLabel = '';
+            if (typeFilter.indexOf('CUSTOM:') === 0) {
+                const hit = cols.todo.concat(cols.sent).find(e => e.type === 'CUSTOM' && customBatchId(e) === typeFilter.slice(7));
+                filterLabel = '自定義：' + escapeHtml((hit && hit.title) || '未命名群發');
+            } else if (typeFilter === 'CUSTOM') {
+                filterLabel = '全部自定義';
+            } else if (typeFilter !== 'ALL') {
+                filterLabel = (SEND_TYPE_META[typeFilter] || { label: typeFilter }).label;
+            }
+            const filterNote = filterLabel ? `（目前只顯示「${filterLabel}」，切回「全部類別」可見其他）` : '';
             todoList.innerHTML = todo.map(e => sendEntryCard(e, false)).join('')
                 || `<div class="text-slate-400 text-xs italic p-3">此月份沒有待發送項目${filterNote}。生成課表／標記請假／安排補堂會自動產生對應條目。</div>`;
             sentList.innerHTML = sent.map(e => sendEntryCard(e, true)).join('')
@@ -1539,6 +1596,7 @@
 
         // ===== 自定義群發：自訂訊息（{name}/{id} 佔位符），按導師篩選勾選學生，批量加入待發送欄 =====
         function openBroadcastModal() {
+            document.getElementById('bcTitle').value = '';
             document.getElementById('bcMonth').value = sendCenterMonth();
             const tutors = [...new Set(studentDatabase.map(s => s.tutor))];
             document.getElementById('bcTutor').innerHTML =
@@ -1573,6 +1631,7 @@
         }
 
         function applyBroadcast() {
+            const title = document.getElementById('bcTitle').value.trim() || '未命名群發';
             const msg = document.getElementById('bcMessage').value.trim();
             const monthKey = document.getElementById('bcMonth').value;
             if (!msg) { alert('請先輸入訊息內容！'); return; }
@@ -1582,13 +1641,14 @@
                 .map(chk => studentDatabase[parseInt(chk.value)])
                 .filter(Boolean);
             if (!chosen.length) { alert('請至少勾選一位學生！'); return; }
-            if (!confirm(`將為 ${chosen.length} 位學生建立「自定義」待發送條目（歸入 ${monthKey}）。\n之後到「待發送」欄逐一複製／WhatsApp 發送。\n\n確定建立？`)) return;
+            if (!confirm(`將建立群發「${title}」：為 ${chosen.length} 位學生建立待發送條目（歸入 ${monthKey}）。\n之後到「待發送」欄逐一複製／WhatsApp 發送，可用「類別」下拉只看這批。\n\n確定建立？`)) return;
             // batchId 用建立時刻，同月多次群發互不覆蓋；{name}/{id} 在此按學生解析定稿
             const now = new Date();
             const batchId = now.toISOString().replace(/\D/g, '').slice(0, 14);
             chosen.forEach(s => {
                 GACSendlog.addCustomEntry(sendLog, {
-                    batchId: batchId, studentId: s.id, studentName: s.name, phone: s.phone || '',
+                    batchId: batchId, title: title,
+                    studentId: s.id, studentName: s.name, phone: s.phone || '',
                     monthKey: monthKey,
                     message: msg.split('{name}').join(s.name).split('{id}').join(s.id),
                     now: now.toISOString()
@@ -1597,9 +1657,11 @@
             persistSendlog();
             const sendMonthEl = document.getElementById('sendMonth');
             if (sendMonthEl) sendMonthEl.value = monthKey;
+            const typeSel = document.getElementById('sendTypeFilter');
+            if (typeSel) typeSel.value = 'CUSTOM:' + batchId; // 建完直接聚焦到這批（rebuild 會確認有效）
             renderSendCenter();
             closeBroadcastModal();
-            alert(`✅ 已為 ${chosen.length} 位學生建立自定義待發送條目（${monthKey}）。\n在「待發送」欄逐一發送；建錯了可在條目上直接刪除。`);
+            alert(`✅ 已建立群發「${title}」：${chosen.length} 位學生（${monthKey}）。\n「待發送」欄已切到此類別；建錯了可在條目上直接刪除。`);
         }
 
         // waSentMode='confirm'：從 WhatsApp 分頁切回本頁時，逐條詢問剛才開啟的訊息是否已發出。

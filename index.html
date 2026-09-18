@@ -362,12 +362,9 @@
                             <i class="fa-solid fa-bullhorn"></i> 自定義群發
                         </button>
                         <label class="font-bold text-slate-600">類別：</label>
+                        <!-- 選項由 rebuildSendTypeOptions 動態生成：只列本月存在的類別，自定義按群發名稱列二級子分類 -->
                         <select id="sendTypeFilter" onchange="renderSendCenter()" class="px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white">
                             <option value="ALL">全部類別</option>
-                            <option value="TUITION">學費</option>
-                            <option value="LEAVE_CONFIRM">請假確認</option>
-                            <option value="MAKEUP_CONFIRM">補堂確認</option>
-                            <option value="CUSTOM">自定義</option>
                         </select>
                         <label class="font-bold text-slate-600">月份：</label>
                         <input type="month" id="sendMonth" onchange="renderSendCenter()" class="px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none">
@@ -677,6 +674,10 @@
                 <button onclick="closeBroadcastModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="space-y-2 text-xs">
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">訊息名稱（會成為發送中心「類別」下的子分類，方便只看這一批）</label>
+                    <input type="text" id="bcTitle" placeholder="例：調整學費" class="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:outline-none">
+                </div>
                 <div>
                     <label class="block font-bold text-slate-600 mb-1">訊息內容（可用佔位符：<code class="bg-slate-100 px-1 rounded">{name}</code>＝學生姓名、<code class="bg-slate-100 px-1 rounded">{id}</code>＝學生 ID）</label>
                     <textarea id="bcMessage" rows="4" placeholder="例：{name} 家長您好，由 2026 年 11 月起本中心學費將作調整，詳情請與我們聯絡，謝謝！" class="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:outline-none"></textarea>
