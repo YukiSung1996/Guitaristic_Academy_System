@@ -4,7 +4,11 @@
 
 ## 運行
 
-直接開啟 `index.html`，或使用 VS Code Live Server。所有資料均為虛構測試資料，只保存於瀏覽器 `localStorage`，不會改動其他版本。
+- **雙擊 `serve.cmd`**（推薦）：用倉庫附帶的便攜 Node 起本地伺服器並自動開瀏覽器 `http://127.0.0.1:5500/`。
+- 或 VS Code 開啟本資料夾 → 右下角「Go Live」（Live Server 擴充，同為 5500 埠）。
+- 直接雙擊 `index.html`（`file://`）也能用本地功能，但 **Google OAuth 不支援 file://**，GCal 三個 API 按鈕會用不了；且 `file://` 與 `http://127.0.0.1:5500` 是不同 origin、`localStorage` 資料各自獨立——請固定用同一種方式開啟。
+
+所有資料均為虛構測試資料，只保存於瀏覽器 `localStorage`，不會改動其他版本。
 
 ## 脫敏聲明
 
