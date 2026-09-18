@@ -61,7 +61,14 @@ function ensureGcalToken() {
 
 function gcalClient(token) {
     return GACGcal.createRestClient({
-        fetchFn: (u, o) => fetch(u, o),
+        // 每個請求 30 秒逾時：網路卡住時明確報錯，而不是永遠沒動靜
+        fetchFn: (u, o) => {
+            const init = Object.assign({}, o);
+            try {
+                if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) init.signal = AbortSignal.timeout(30000);
+            } catch (e) { /* 舊瀏覽器不支援就算了 */ }
+            return fetch(u, init);
+        },
         token: token,
         calendarId: (appSettings.gcalCalendarId || 'primary')
     });
@@ -223,9 +230,23 @@ function gcalSyncSetAll(checked) {
     document.querySelectorAll('#gcalSyncBody input[type="checkbox"]').forEach(cb => { cb.checked = checked; });
 }
 
+// 執行中的面板狀態：正文換成進度條文字、面板按鈕鎖定（防重複點擊）
+function gcalSyncShowBusy(text) {
+    const body = document.getElementById('gcalSyncBody');
+    if (body) body.innerHTML = `<div class="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-800 text-xs font-semibold">${text}</div>`;
+    ['gcalSyncApplyBtn', 'gcalSyncCancelBtn'].forEach(id => {
+        const b = document.getElementById(id);
+        if (b) b.disabled = true;
+    });
+}
+
 function closeGcalSyncModal() {
     const m = document.getElementById('gcalSyncModal');
     if (m) m.classList.add('hidden');
+    ['gcalSyncApplyBtn', 'gcalSyncCancelBtn'].forEach(id => {
+        const b = document.getElementById(id);
+        if (b) b.disabled = false;
+    });
     gcalSyncPlan = null;
 }
 
@@ -234,7 +255,16 @@ function gcalChk(id) {
     return !!(el && el.checked);
 }
 
+// 外層 try/catch：任何程式錯誤都彈窗回報，不再靜默沒動靜（遠端部分另有自己的 .catch）
 function applyGcalSync() {
+    try {
+        applyGcalSyncInner();
+    } catch (e) {
+        alert('⚠️ 執行失敗（程式錯誤）：' + ((e && e.message) || e) + '\n請把此訊息回報。');
+    }
+}
+
+function applyGcalSyncInner() {
     if (!gcalSyncPlan) return;
     const p = gcalSyncPlan;
     const done = [];
@@ -327,12 +357,23 @@ function applyGcalSync() {
         return;
     }
 
-    const opts = { titleFn: GACSchedule.lessonTitle, timeZone: gcalTimeZone() };
+    // 進度顯示：推送每堂 1–2 個請求、逐件執行，整月可能需時十多秒——沒有進度會像「沒動靜」
+    const totalRemote = delOrphans.length + pushLessons.length;
+    let processedRemote = 0;
+    const busyText = () => `⏳ 執行中（${processedRemote}/${totalRemote}）…` +
+        (delOrphans.length ? `刪除殘留 ${delOrphans.length} 件` : '') +
+        (delOrphans.length && pushLessons.length ? '、' : '') +
+        (pushLessons.length ? `推送 ${pushLessons.length} 件` : '') +
+        '。每件需 1–2 個請求，請稍候，不要關閉此視窗。';
+    const bump = () => { processedRemote++; gcalSyncShowBusy(busyText()); };
+    gcalSyncShowBusy(busyText());
+
+    const opts = { titleFn: GACSchedule.lessonTitle, timeZone: gcalTimeZone(), onEach: bump };
     setGcalBusy(true);
     ensureGcalToken()
         .then(token => {
             const client = gcalClient(token);
-            return (delOrphans.length ? GACGcal.deleteEvents(client, delOrphans) : Promise.resolve(null))
+            return (delOrphans.length ? GACGcal.deleteEvents(client, delOrphans, bump) : Promise.resolve(null))
                 .then(delRes => (pushLessons.length ? GACGcal.importLessons(client, pushLessons, opts) : Promise.resolve(null))
                     .then(pushRes => ({ delRes: delRes, pushRes: pushRes })));
         })

@@ -596,8 +596,8 @@
                     <button onclick="gcalSyncSetAll(false)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全不選</button>
                 </div>
                 <div class="flex gap-2">
-                    <button onclick="closeGcalSyncModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
-                    <button onclick="applyGcalSync()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition">執行勾選項目</button>
+                    <button onclick="closeGcalSyncModal()" id="gcalSyncCancelBtn" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition disabled:opacity-50">取消</button>
+                    <button onclick="applyGcalSync()" id="gcalSyncApplyBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition disabled:opacity-50">執行勾選項目</button>
                 </div>
             </div>
         </div>
