@@ -366,6 +366,10 @@
                         <select id="sendTypeFilter" onchange="renderSendCenter()" class="px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white">
                             <option value="ALL">全部類別</option>
                         </select>
+                        <!-- 只在篩選到自定義（某批次或全部）時出現：整批刪除，含已發送紀錄 -->
+                        <button id="sendBatchDeleteBtn" onclick="sendDeleteCustomBatch()" title="批量刪除目前篩選的自定義群發條目（含已發送紀錄；其他類別的訊息由系統管理，不可批刪）" class="hidden px-3 py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl text-xs font-bold transition">
+                            <i class="fa-solid fa-trash-can"></i> 刪除此批
+                        </button>
                         <label class="font-bold text-slate-600">月份：</label>
                         <input type="month" id="sendMonth" onchange="renderSendCenter()" class="px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none">
                     </div>

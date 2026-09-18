@@ -1522,6 +1522,15 @@
                 filterLabel = (SEND_TYPE_META[typeFilter] || { label: typeFilter }).label;
             }
             const filterNote = filterLabel ? `（目前只顯示「${filterLabel}」，切回「全部類別」可見其他）` : '';
+            // 「刪除此批」鈕只在篩選到自定義時出現（某一批或全部自定義）
+            const batchBtn = document.getElementById('sendBatchDeleteBtn');
+            if (batchBtn) {
+                const isCustom = typeFilter.indexOf('CUSTOM') === 0;
+                batchBtn.classList.toggle('hidden', !isCustom);
+                if (isCustom) {
+                    batchBtn.innerHTML = `<i class="fa-solid fa-trash-can"></i> ${typeFilter === 'CUSTOM' ? '刪除全部自定義' : '刪除此批'}`;
+                }
+            }
             todoList.innerHTML = todo.map(e => sendEntryCard(e, false)).join('')
                 || `<div class="text-slate-400 text-xs italic p-3">此月份沒有待發送項目${filterNote}。生成課表／標記請假／安排補堂會自動產生對應條目。</div>`;
             sentList.innerHTML = sent.map(e => sendEntryCard(e, true)).join('')
@@ -1582,6 +1591,27 @@
             }
             persistSendlog();
             renderSendCenter();
+        }
+
+        // 批量刪除自定義：刪掉目前篩選的整批群發（某 batchId）或本月全部自定義，含已發送紀錄。
+        // 其他類別（學費/請假/補堂確認）由系統按課堂管理，不提供批刪。
+        function sendDeleteCustomBatch() {
+            const typeFilter = document.getElementById('sendTypeFilter')?.value || 'ALL';
+            if (typeFilter.indexOf('CUSTOM') !== 0) return;
+            const monthKey = sendCenterMonth();
+            const bid = typeFilter.indexOf('CUSTOM:') === 0 ? typeFilter.slice(7) : null;
+            const hits = Object.keys(sendLog).map(k => sendLog[k]).filter(e =>
+                e && e.type === 'CUSTOM' && e.month === monthKey && (!bid || customBatchId(e) === bid));
+            if (!hits.length) { alert('目前篩選下沒有可刪除的自定義條目。'); return; }
+            const what = bid ? `群發「${hits[0].title || '未命名群發'}」` : `${monthKey} 的全部自定義訊息`;
+            const sentCount = hits.filter(e => e.status === 'SENT').length;
+            if (!confirm(`批量刪除${what}：共 ${hits.length} 筆` +
+                (sentCount ? `（含 ${sentCount} 筆已發送的紀錄）` : '') +
+                `。\n只刪發送中心的條目，不影響課表或其他資料。不可還原，確定刪除？`)) return;
+            hits.forEach(e => { delete sendLog[e.key]; });
+            persistSendlog();
+            renderSendCenter();
+            alert(`✅ 已刪除 ${hits.length} 筆自定義條目。`);
         }
 
         // 刪除自定義條目（僅 CUSTOM：群發手動建立、無課堂掛鉤；其他類型由系統管理不可刪）
