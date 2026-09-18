@@ -1457,15 +1457,22 @@
             const todoList = document.getElementById('sendTodoList');
             const sentList = document.getElementById('sendSentList');
             if (!todoList || !sentList) return;
+            const typeFilter = document.getElementById('sendTypeFilter')?.value || 'ALL';
             const cols = GACSendlog.listByMonth(sendLog, sendCenterMonth());
-            todoList.innerHTML = cols.todo.map(e => sendEntryCard(e, false)).join('')
-                || '<div class="text-slate-400 text-xs italic p-3">此月份沒有待發送項目。生成課表／標記請假／安排補堂會自動產生對應條目。</div>';
-            sentList.innerHTML = cols.sent.map(e => sendEntryCard(e, true)).join('')
-                || '<div class="text-slate-400 text-xs italic p-3">此月份還沒有已發送紀錄。</div>';
+            const byType = e => typeFilter === 'ALL' || e.type === typeFilter;
+            const todo = cols.todo.filter(byType);
+            const sent = cols.sent.filter(byType);
+            const filterNote = typeFilter !== 'ALL'
+                ? `（目前只顯示「${(SEND_TYPE_META[typeFilter] || { label: typeFilter }).label}」，切回「全部類別」可見其他）`
+                : '';
+            todoList.innerHTML = todo.map(e => sendEntryCard(e, false)).join('')
+                || `<div class="text-slate-400 text-xs italic p-3">此月份沒有待發送項目${filterNote}。生成課表／標記請假／安排補堂會自動產生對應條目。</div>`;
+            sentList.innerHTML = sent.map(e => sendEntryCard(e, true)).join('')
+                || `<div class="text-slate-400 text-xs italic p-3">此月份還沒有已發送紀錄${filterNote}。</div>`;
             const todoCountEl = document.getElementById('sendTodoCount');
             const sentCountEl = document.getElementById('sendSentCount');
-            if (todoCountEl) todoCountEl.textContent = cols.todo.length;
-            if (sentCountEl) sentCountEl.textContent = cols.sent.length;
+            if (todoCountEl) todoCountEl.textContent = todo.length;
+            if (sentCountEl) sentCountEl.textContent = sent.length;
             // 頁籤紅點徽章：所有月份 TODO 總數
             const badge = document.getElementById('sendTabBadge');
             if (badge) {

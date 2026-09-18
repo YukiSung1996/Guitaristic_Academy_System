@@ -361,6 +361,14 @@
                         <button onclick="openBroadcastModal()" title="自訂訊息內容（支持 {name}／{id} 佔位符），按導師篩選、勾選學生後批量加入「待發送」欄，如調整學費通知" class="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
                             <i class="fa-solid fa-bullhorn"></i> 自定義群發
                         </button>
+                        <label class="font-bold text-slate-600">類別：</label>
+                        <select id="sendTypeFilter" onchange="renderSendCenter()" class="px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white">
+                            <option value="ALL">全部類別</option>
+                            <option value="TUITION">學費</option>
+                            <option value="LEAVE_CONFIRM">請假確認</option>
+                            <option value="MAKEUP_CONFIRM">補堂確認</option>
+                            <option value="CUSTOM">自定義</option>
+                        </select>
                         <label class="font-bold text-slate-600">月份：</label>
                         <input type="month" id="sendMonth" onchange="renderSendCenter()" class="px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none">
                     </div>
