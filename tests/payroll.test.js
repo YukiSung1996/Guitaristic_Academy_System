@@ -61,3 +61,37 @@ test('E5: 存在「日期已過仍 SCHEDULED」的課 → 警告清單列出', (
     const expired = P.expiredScheduled(buckets, '2026-09', '2026-09-20');
     assert.deepStrictEqual(expired.map(l => l.date), ['2026-09-08', '2026-09-15']);
 });
+
+test('E6: 導師節數——樂理五人小組同時段算 1 節；成員的一對一另計；不同導師分開', () => {
+    // 樂理 Grade 5 五人小組（Instructor B，週六 15:00）：S020-T/S021-T（另有一對一）＋ S030–S032（只上小組）
+    const theory = (id) => student({
+        id: id, type: '5人小組', program: 'Music Theory', level: 'Grade 5',
+        duration: 60, tutor: 'Instructor B', weekday: 6, time: '15:00'
+    });
+    const buckets = { '2026-09': [] };
+    ['S020-T', 'S021-T', 'S030', 'S031', 'S032'].forEach(id => {
+        buckets['2026-09'].push(...S.generateMonthLessons(theory(id), '2026-09'));
+    });
+    // S020 自己的一對一（Instructor B 週三）＋另一導師的一對一（Instructor A）
+    buckets['2026-09'].push(...S.generateMonthLessons(student({ id: 'S020', tutor: 'Instructor B', weekday: 3, time: '18:00', duration: 60 }), '2026-09'));
+    buckets['2026-09'].push(...S.generateMonthLessons(student({ id: 'S001', tutor: 'Instructor A' }), '2026-09'));
+    // 首週六（9/5）小組五人全部出席 → B 只算 1 節；S020 一對一 9/2 出席 → B +1；A 的 9/1 出席 → A 1 節
+    ['S020-T', 'S021-T', 'S030', 'S031', 'S032'].forEach(id => {
+        LS.markStatus(buckets, id + '-20260905-1500', 'ATTENDED');
+    });
+    LS.markStatus(buckets, 'S020-20260902-1800', 'ATTENDED');
+    LS.markStatus(buckets, 'S001-20260901-2130', 'ATTENDED');
+    const sessions = P.tutorSessions(buckets, '2026-09');
+    assert.deepStrictEqual(sessions, { 'Instructor B': 2, 'Instructor A': 1 },
+        '小組 5 人＝1 節；一對一各算 1 節；導師分開統計');
+    // 人次照舊分開計（收費按學生）
+    const counts = P.countPayableByStudent(buckets, '2026-09');
+    assert.strictEqual(counts['S020-T'], 1);
+    assert.strictEqual(counts['S030'], 1);
+    assert.strictEqual(counts['S020'], 1);
+    // 第二週六（9/12）只有 3 人出席 → 仍是同一時段一節：B 節數 +1
+    ['S020-T', 'S030', 'S031'].forEach(id => {
+        LS.markStatus(buckets, id + '-20260912-1500', 'ATTENDED');
+    });
+    assert.strictEqual(P.tutorSessions(buckets, '2026-09')['Instructor B'], 3);
+});

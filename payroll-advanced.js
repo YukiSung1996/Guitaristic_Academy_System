@@ -16,7 +16,8 @@ function advancedGrade(student) {
 }
 
 function advancedClassType(student) {
-  return student.type === '一對一' ? '一對一個別授課 Individual' : student.type === '3人小組' ? '3-4人小組授課' : '2人小組授課';
+  if (student.type === '一對一') return '一對一個別授課 Individual';
+  return /[3-9]人/.test(String(student.type || '')) ? '3-4人小組授課' : '2人小組授課';
 }
 
 function advancedRate(student) {
@@ -31,10 +32,34 @@ function advancedMoney(value) {
   return `HK$ ${Number(value || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 }
 
+// 按導師分組渲染：每位導師一行小計（學生行數／人次堂數／導師節數／課程總額／導師應得），
+// 「隱藏 0 堂學生」勾選時 0 堂行不顯示（仍在資料中，取消勾選即回來）。
+// 行內編輯用原始 index 映射回 state.rows，分組不影響編輯/刪除。
 function advancedRenderRows() {
   const body = document.querySelector('#advancedPayrollBody');
   if (!body) return;
-  body.innerHTML = advancedPayrollState.rows.map((row, index) => `<tr><td>${row.id}</td><td>${row.name}</td><td>${row.tutor}</td><td><input data-advanced-lessons="${index}" type="number" min="0" value="${row.lessons}"></td><td>${advancedMoney(row.rate)}</td><td>${advancedMoney(row.lessons * row.rate)}</td><td><button type="button" data-remove-advanced="${index}">刪除</button></td></tr>`).join('') || '<tr><td colspan="7">請從學生資料匯入薪酬資料。</td></tr>';
+  const hideZero = !!document.getElementById('advancedHideZero')?.checked;
+  const share = advancedPayrollState.share;
+  const sessions = advancedPayrollState.sessions || null;
+  const groups = new Map();
+  advancedPayrollState.rows.forEach((row, index) => {
+    if (!groups.has(row.tutor)) groups.set(row.tutor, []);
+    groups.get(row.tutor).push({ row, index });
+  });
+  const parts = [];
+  let hiddenCount = 0;
+  groups.forEach((items, tutor) => {
+    const gross = items.reduce((s, x) => s + x.row.lessons * x.row.rate, 0);
+    const headcount = items.reduce((s, x) => s + x.row.lessons, 0);
+    const sess = sessions ? (sessions[tutor] || 0) : null;
+    parts.push(`<tr class="advanced-tutor-head"><td colspan="7"><b>👨‍🏫 ${tutor}</b>　學生 ${items.length} 行｜人次 ${headcount} 堂${sess !== null ? `｜導師節數 ${sess}（小組同時段算 1 節，按課表計）` : ''}｜課程總額 ${advancedMoney(gross)}｜導師應得（${share}%）<b>${advancedMoney(gross * share / 100)}</b></td></tr>`);
+    items.forEach(({ row, index }) => {
+      if (hideZero && !row.lessons) { hiddenCount++; return; }
+      parts.push(`<tr><td>${row.id}</td><td>${row.name}</td><td>${row.tutor}</td><td><input data-advanced-lessons="${index}" type="number" min="0" value="${row.lessons}"></td><td>${advancedMoney(row.rate)}</td><td>${advancedMoney(row.lessons * row.rate)}</td><td><button type="button" data-remove-advanced="${index}">刪除</button></td></tr>`);
+    });
+  });
+  if (hiddenCount) parts.push(`<tr><td colspan="7" style="color:#94a3b8;font-size:.72rem">已隱藏 ${hiddenCount} 行 0 堂學生（取消「隱藏 0 堂學生」勾選可顯示）。</td></tr>`);
+  body.innerHTML = parts.join('') || '<tr><td colspan="7">請從學生資料匯入薪酬資料。</td></tr>';
   body.querySelectorAll('[data-advanced-lessons]').forEach(input => input.addEventListener('input', () => { advancedPayrollState.rows[Number(input.dataset.advancedLessons)].lessons = Number(input.value) || 0; advancedCalculate(); }));
   body.querySelectorAll('[data-remove-advanced]').forEach(button => button.addEventListener('click', () => { advancedPayrollState.rows.splice(Number(button.dataset.removeAdvanced), 1); advancedRenderRows(); advancedCalculate(); }));
 }
@@ -52,7 +77,12 @@ function advancedCalculate() {
   const adjustments = advancedPayrollState.adjustments.reduce((sum, item) => sum + (item.type === 'sub' ? -1 : 1) * Number(item.amount || 0), 0);
   const payout = gross * advancedPayrollState.share / 100 + adjustments;
   const set = (id, value) => { const node = document.getElementById(id); if (node) node.textContent = value; };
-  set('advancedGross', advancedMoney(gross)); set('advancedPayout', advancedMoney(payout)); set('advancedLessons', advancedPayrollState.rows.reduce((sum, row) => sum + row.lessons, 0)); set('advancedAdjustmentTotal', advancedMoney(adjustments));
+  const headcount = advancedPayrollState.rows.reduce((sum, row) => sum + row.lessons, 0);
+  const sess = advancedPayrollState.sessions;
+  const sessTotal = sess ? Object.keys(sess).reduce((sum, k) => sum + sess[k], 0) : null;
+  set('advancedGross', advancedMoney(gross)); set('advancedPayout', advancedMoney(payout));
+  set('advancedLessons', sessTotal !== null ? `${headcount}（節數 ${sessTotal}）` : String(headcount));
+  set('advancedAdjustmentTotal', advancedMoney(adjustments));
 }
 
 function advancedTodayStr() {
@@ -68,6 +98,8 @@ function advancedImportStudents() {
   const payNoShow = !appSettings || appSettings.payNoShow !== false;
   const counts = GACPayroll.countPayableByStudent(lessonsByMonth, monthKey, {payNoShow});
   advancedPayrollState.rows = studentDatabase.map(student => ({id: student.id, name: student.name, tutor: student.tutor, rate: advancedRate(student), lessons: counts[student.id] || 0}));
+  // 導師節數（小組同時段算 1 節）按課表計算；手改堂數只影響金額，不影響節數
+  advancedPayrollState.sessions = GACPayroll.tutorSessions(lessonsByMonth, monthKey, {payNoShow});
   advancedRenderExpiredWarning(monthKey);
   advancedRenderRows(); advancedCalculate();
 }
@@ -106,7 +138,7 @@ function advancedSaveArchive() {
 function advancedRenderArchives() {
   const body = document.querySelector('#advancedArchivesBody'); if (!body) return;
   body.innerHTML = advancedPayrollState.archives.map((archive, index) => `<tr><td>${archive.savedAt}</td><td>${archive.month}</td><td><button type="button" data-restore-advanced="${index}">載入</button><button type="button" data-delete-advanced="${index}">刪除</button></td></tr>`).join('') || '<tr><td colspan="3">沒有封存紀錄。</td></tr>';
-  body.querySelectorAll('[data-restore-advanced]').forEach(button => button.addEventListener('click', () => { const archive = advancedPayrollState.archives[Number(button.dataset.restoreAdvanced)]; advancedPayrollState.rows = structuredClone(archive.rows); advancedPayrollState.adjustments = structuredClone(archive.adjustments); advancedPayrollState.share = archive.share; document.getElementById('advancedShare').value = archive.share; advancedRenderRows(); advancedRenderAdjustments(); advancedCalculate(); }));
+  body.querySelectorAll('[data-restore-advanced]').forEach(button => button.addEventListener('click', () => { const archive = advancedPayrollState.archives[Number(button.dataset.restoreAdvanced)]; advancedPayrollState.rows = structuredClone(archive.rows); advancedPayrollState.adjustments = structuredClone(archive.adjustments); advancedPayrollState.share = archive.share; advancedPayrollState.sessions = null; /* 封存不含節數，載入後不顯示以免誤導 */ document.getElementById('advancedShare').value = archive.share; advancedRenderRows(); advancedRenderAdjustments(); advancedCalculate(); }));
   body.querySelectorAll('[data-delete-advanced]').forEach(button => button.addEventListener('click', () => { advancedPayrollState.archives.splice(Number(button.dataset.deleteAdvanced), 1); localStorage.setItem('gac_payroll_archives', JSON.stringify(advancedPayrollState.archives)); advancedRenderArchives(); }));
 }
 
@@ -145,6 +177,7 @@ function initAdvancedPayroll() {
   const month = document.getElementById('advancedPayrollMonth'); if (month) month.value = new Date().toISOString().slice(0, 7);
   const share = document.getElementById('advancedShare'); if (share) { share.value = advancedPayrollState.share; share.addEventListener('input', () => { advancedPayrollState.share = Math.max(0, Math.min(100, Number(share.value) || 0)); localStorage.setItem('gac_tutor_share_pct', advancedPayrollState.share); advancedCalculate(); }); }
   document.getElementById('advancedImportStudents')?.addEventListener('click', advancedImportStudents);
+  document.getElementById('advancedHideZero')?.addEventListener('change', advancedRenderRows);
   document.getElementById('advancedAddAdjustment')?.addEventListener('click', advancedAddAdjustment);
   document.getElementById('advancedSaveArchive')?.addEventListener('click', advancedSaveArchive);
   document.getElementById('advancedExport')?.addEventListener('click', advancedExport);
