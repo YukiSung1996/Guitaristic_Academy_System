@@ -166,9 +166,6 @@
                         <button onclick="openGcalCleanup()" id="gcalCleanupBtn" title="列出本月由本系統導入（帶系統標籤）的事件，可按導師／學生篩選後批量刪除；手動建立的事件絕不列入。刪除後可在 GCal 垃圾桶還原，本地課表不受影響" class="px-4 py-2 bg-rose-100 hover:bg-rose-200 disabled:opacity-50 text-rose-800 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
                             <i class="fa-solid fa-broom"></i> 清理 GCal (API)
                         </button>
-                        <button onclick="openMasterGoogleCalendar()" title="降級方案（非批量）：為每堂課開啟一個 Google Calendar 建立分頁，每頁須手動儲存；瀏覽器會攔截多餘分頁。批量導入請用「導入 GCal (API)」或 ICS" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
-                            <i class="fa-solid fa-calendar-plus"></i> 逐堂 GCal 建立頁
-                        </button>
                         <button onclick="downloadMasterICS()" title="在本地導出 .ics 文件，可用於 Google Calendar 批量導入" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
                             <i class="fa-solid fa-file-arrow-down"></i> 導出 .ics（批量導入）
                         </button>
@@ -243,7 +240,6 @@
                         <div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 text-xs font-semibold">
                             <button id="btnListView" onclick="switchView('list')" class="px-3 py-1 rounded-md active bg-white text-sky-600 shadow-sm transition">📋 清單</button>
                             <button id="btnCalView" onclick="switchView('calendar')" class="px-3 py-1 rounded-md text-slate-600 transition">📅 月曆</button>
-                            <button id="btnWeekView" onclick="switchView('week')" class="px-3 py-1 rounded-md text-slate-600 transition">📆 週曆</button>
                         </div>
                     </div>
 
@@ -277,7 +273,6 @@
                 <!-- Views -->
                 <div id="masterScheduleList" class="space-y-3 max-h-[600px] overflow-y-auto pr-1"></div>
                 <div id="masterCalendarView" class="hidden overflow-x-auto"></div>
-                <div id="masterWeekView" class="hidden overflow-x-auto"></div>
             </div>
         </section>
 

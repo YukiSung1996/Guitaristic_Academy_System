@@ -371,29 +371,23 @@
             renderPendingPool();
             renderMasterScheduleList();
             renderMasterCalendarView();
-            renderMasterWeekView();
             renderSendCenter();
         }
 
+        // 兩種視圖：清單（操作）＋月曆（總覽）。原「週曆」已移除——清單按週次過濾＋月曆已完全覆蓋其用途。
         function switchView(mode) {
             currentViewMode = mode;
             const listEl = document.getElementById('masterScheduleList');
             const calEl = document.getElementById('masterCalendarView');
-            const weekEl = document.getElementById('masterWeekView');
 
             listEl.classList.add('hidden');
             calEl.classList.add('hidden');
-            weekEl.classList.add('hidden');
 
             document.querySelectorAll('#masterScheduleWrapper .inline-flex button').forEach(b => b.classList.remove('bg-white', 'text-sky-600', 'shadow-sm'));
 
             if (mode === 'calendar') {
                 calEl.classList.remove('hidden');
                 document.getElementById('btnCalView').classList.add('bg-white', 'text-sky-600', 'shadow-sm');
-            } else if (mode === 'week') {
-                weekEl.classList.remove('hidden');
-                document.getElementById('btnWeekView').classList.add('bg-white', 'text-sky-600', 'shadow-sm');
-                renderMasterWeekView();
             } else {
                 listEl.classList.remove('hidden');
                 document.getElementById('btnListView').classList.add('bg-white', 'text-sky-600', 'shadow-sm');
@@ -402,11 +396,7 @@
         }
 
         function onWeekSelectChange() {
-            if (currentViewMode === 'week') {
-                renderMasterWeekView();
-            } else if (currentViewMode === 'list') {
-                renderMasterScheduleList();
-            }
+            if (currentViewMode === 'list') renderMasterScheduleList();
         }
 
         function buildMonthWeeksData(year, month) {
@@ -486,22 +476,8 @@
         function renderLessonRow(lesson, isClash) {
             const id = lesson.lessonId;
             const start = lessonStart(lesson);
-            const end = lessonEnd(lesson);
             const title = GACSchedule.lessonTitle(lesson);
             const locationStr = getLocationText(lesson);
-
-            const formatISO = (d) => d.getFullYear() +
-                String(d.getMonth() + 1).padStart(2, '0') +
-                String(d.getDate()).padStart(2, '0') + 'T' +
-                String(d.getHours()).padStart(2, '0') +
-                String(d.getMinutes()).padStart(2, '0') + '00';
-
-            let details = `導師：${lesson.tutor}\n級別：${lesson.program} - ${lesson.level} (${lesson.classType})`;
-            if (lesson.phone) details += `\n電話：${lesson.phone}`;
-            if (lesson.email) details += `\n電郵：${lesson.email}`;
-            if (lesson.isMakeup) details += `\n備註：Make up class`;
-            if (lesson.status === 'LEAVE') details += `\n狀態：請假取消 [${getLeaveText(lesson.leaveType)}]`;
-            const gcalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${formatISO(start)}/${formatISO(end)}&details=${encodeURIComponent(details)}&location=${encodeURIComponent(locationStr)}`;
 
             let bgClass = "bg-sky-50/50 border-l-4 border-sky-500";
             if (lesson.status === 'ATTENDED') bgClass = "bg-emerald-50/40 border-l-4 border-emerald-500";
@@ -600,10 +576,6 @@
                 btns.push(`<button onclick="copyMakeupMsgMaster('${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> 複製補堂</button>`);
                 btns.push(`<button onclick="openWhatsAppMessage('${id}', 'makeup')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填補堂訊息"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`);
             }
-            btns.push(`<a href="${gcalUrl}" target="_blank" class="px-2.5 py-1.5 ${lesson.status === 'LEAVE' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white rounded-lg font-semibold flex items-center gap-1">
-                <i class="fa-solid fa-calendar-plus"></i> ${lesson.status === 'LEAVE' ? '請假紀錄' : '+ Calendar'}
-            </a>`);
-
             return `
                 <div class="${bgClass} p-3 rounded-r-xl border-y border-r border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
                     <div class="space-y-1 flex-1">
@@ -626,7 +598,7 @@
             `;
         }
 
-        // 月曆/週曆共用的色塊樣式
+        // 月曆色塊樣式
         function lessonPillClass(lesson, isClash) {
             let pill = lesson.tutor === 'Instructor A' ? 'cal-pill-eric' : 'cal-pill-tony';
             if (lesson.isMakeup) pill = 'cal-pill-makeup';
@@ -688,56 +660,6 @@
 
             gridHtml += `</div>`;
             calContainer.innerHTML = gridHtml;
-        }
-
-        function renderMasterWeekView() {
-            const weekContainer = document.getElementById('masterWeekView');
-            const weekVal = document.getElementById('weekSelect').value;
-            const weekIdx = weekVal === 'ALL' ? 0 : parseInt(weekVal || 0);
-
-            if (!monthWeeksData || !monthWeeksData[weekIdx]) return;
-
-            const monthLessons = sortedMonthLessons();
-            const clashIds = GACSchedule.detectClashes(monthLessons);
-            const selectedWeekDays = monthWeeksData[weekIdx];
-
-            let gridHtml = `
-                <div class="grid grid-cols-7 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden min-w-[750px]">
-                    <div class="bg-slate-800 text-white text-center py-2 text-xs font-bold">日 (Sun)</div>
-                    <div class="bg-slate-800 text-white text-center py-2 text-xs font-bold">一 (Mon)</div>
-                    <div class="bg-slate-800 text-white text-center py-2 text-xs font-bold">二 (Tue)</div>
-                    <div class="bg-slate-800 text-white text-center py-2 text-xs font-bold">三 (Wed)</div>
-                    <div class="bg-slate-800 text-white text-center py-2 text-xs font-bold">四 (Thu)</div>
-                    <div class="bg-slate-800 text-white text-center py-2 text-xs font-bold">五 (Fri)</div>
-                    <div class="bg-slate-800 text-white text-center py-2 text-xs font-bold">六 (Sat)</div>
-            `;
-
-            selectedWeekDays.forEach(dayObj => {
-                if (!dayObj) {
-                    gridHtml += `<div class="bg-slate-50 min-h-[180px]"></div>`;
-                } else {
-                    const dayLessons = monthLessons.filter(l => l.date === dayObj.dateString);
-                    gridHtml += `
-                        <div class="bg-white p-2 min-h-[180px] flex flex-col space-y-1">
-                            <div class="text-xs font-bold text-slate-600 border-b pb-1 mb-1">${dayObj.dateString.slice(5)}</div>
-                    `;
-
-                    dayLessons.forEach(lesson => {
-                        const pillStyle = lessonPillClass(lesson, clashIds.has(lesson.lessonId));
-                        gridHtml += `
-                            <div class="${pillStyle} text-[10px] p-1.5 rounded leading-snug" title="${lesson.time} ${lesson.studentName} (${lesson.phone})">
-                                <div class="font-bold">${lesson.time} ${lesson.isMakeup ? 'MU ' : ''}${lesson.studentName}</div>
-                                <div class="text-[9px] opacity-75">${lesson.tutor} ${lesson.phone ? `| 📞 ${lesson.phone}` : ''}</div>
-                            </div>
-                        `;
-                    });
-
-                    gridHtml += `</div>`;
-                }
-            });
-
-            gridHtml += `</div>`;
-            weekContainer.innerHTML = gridHtml;
         }
 
         function toggleLessonBox(kind, lessonId) {
@@ -1287,44 +1209,6 @@
             closeStudentModal();
         }
 
-        function buildGoogleCalendarUrl(title, start, end, details) {
-            const formatISO = (date) => date.getFullYear() +
-                String(date.getMonth() + 1).padStart(2, '0') +
-                String(date.getDate()).padStart(2, '0') + 'T' +
-                String(date.getHours()).padStart(2, '0') +
-                String(date.getMinutes()).padStart(2, '0') + '00';
-            return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${formatISO(start)}/${formatISO(end)}&details=${encodeURIComponent(details)}&location=${encodeURIComponent('')}`;
-        }
-
-        // 降級方案：為每堂課開一個 Google Calendar 建立分頁（每頁須手動按「儲存」）。
-        // 瀏覽器彈窗攔截通常只放行第一個分頁，其餘靜默失敗——故先告知，開啟後偵測被攔截數量明確回報。
-        // 批量導入請用總課表的「導入 GCal (API)」或 ICS 檔。
-        function openGoogleCalendarEvents(events) {
-            if (!events.length) {
-                alert('目前沒有已生成的課堂可加入 Google Calendar！');
-                return;
-            }
-            if (events.length > 1 && !confirm(
-                `此為逐堂降級方案：將為 ${events.length} 堂課各開啟一個 Google Calendar 建立分頁，每個分頁都要手動按「儲存」。\n` +
-                '瀏覽器通常會攔截第一個以外的分頁（需在網址列允許本站的彈出式視窗）。\n\n' +
-                '批量導入建議改用總課表的「導入 GCal (API)」（一鍵查重寫入）或「導出 ICS」。\n仍要逐堂開啟？')) return;
-            let blocked = 0;
-            events.forEach((event) => {
-                const title = event.title || `${event.studentId} ${event.studentName}`;
-                const details = `導師：${event.tutor || ''}${event.phone ? `\n電話：${event.phone}` : ''}${event.email ? `\n電郵：${event.email}` : ''}${event.status === 'LEAVE' ? '\n狀態：請假' : event.isMakeup ? '\n狀態：補堂' : ''}`;
-                const url = buildGoogleCalendarUrl(title, event.start, event.end, details);
-                // 不傳 'noopener'：需要回傳值判斷分頁是否被攔截；改以手動斷開 opener 達到同樣隔離
-                const w = window.open(url, '_blank');
-                if (w) { try { w.opener = null; } catch (e) { /* 跨域限制可忽略 */ } }
-                else blocked++;
-            });
-            if (blocked) {
-                alert(`⚠️ 已開啟 ${events.length - blocked} 個建立分頁，另有 ${blocked} 個被瀏覽器攔截。\n請按網址列右側的彈出視窗圖示選擇「一律允許」後重試，\n或改用「導入 GCal (API)」／「導出 ICS」批量導入。`);
-            } else if (events.length > 1) {
-                alert(`已開啟 ${events.length} 個 Google Calendar 建立頁面，請逐一按「儲存」。`);
-            }
-        }
-
         // lesson → 匯出用事件（Date 在此重建；UID 用 lessonId 保證導入查重）
         function lessonToExportEvent(lesson) {
             return {
@@ -1342,15 +1226,6 @@
                 uid: `${lesson.lessonId}@guitaristic`,
                 location: getLocationText(lesson)
             };
-        }
-
-        function openMasterGoogleCalendar() {
-            const lessons = sortedMonthLessons();
-            if (lessons.length === 0) {
-                alert('目前沒有已生成的課堂可加入 Google Calendar！');
-                return;
-            }
-            openGoogleCalendarEvents(lessons.map(lessonToExportEvent));
         }
 
         function downloadMasterICS() {
