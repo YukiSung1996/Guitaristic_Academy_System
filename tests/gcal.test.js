@@ -230,6 +230,63 @@ test('restClient：listWindow 走分頁並合併結果', async () => {
     assert.ok(calls[1].includes('pageToken=p2'));
 });
 
+test('D8: 小組課一節一個事件——importCells 全組一件、成員回填同一 id、precheck/reconcile 按課節', async () => {
+    const theory = (id) => student({ id: id, name: 'Student ' + id.slice(1), type: '5人小組', program: 'Music Theory', level: 'Grade 5', duration: 60, tutor: 'Instructor B', weekday: 6, time: '15:00' });
+    const lessons = []
+        .concat(S.generateMonthLessons(theory('S030'), '2026-09'))
+        .concat(S.generateMonthLessons(theory('S031'), '2026-09'))
+        .concat(S.generateMonthLessons(theory('S032'), '2026-09'))
+        .concat(S.generateMonthLessons(student(), '2026-09')); // S001 一對一 ×5
+    const cells = S.groupByCell(lessons);
+    assert.strictEqual(cells.length, 4 + 5);
+    const cal = mockCalendar();
+    cal.client.listByCellKey = (key) => Promise.resolve(cal.events.filter(ev =>
+        ev.status !== 'cancelled' && ev.extendedProperties && ev.extendedProperties.private &&
+        ev.extendedProperties.private.gacCellKey === key));
+    const r1 = await G.importCells(cal.client, cells, IMPORT_OPTS);
+    assert.strictEqual(r1.ok, true);
+    assert.strictEqual(r1.inserted.length, 9, '4 個小組節 + 5 堂一對一 = 9 件事件（不是 12+5）');
+    assert.strictEqual(cal.events.length, 9);
+    const groupEv = cal.events.find(ev => ev.extendedProperties.private.gacCellKey);
+    assert.strictEqual(groupEv.summary, 'Music Theory Grade 5 小組 ×3 (09/2026)');
+    assert.ok(groupEv.description.includes('S030 Student 030') && groupEv.description.includes('S032 Student 032'));
+    assert.strictEqual(groupEv.extendedProperties.private.gacLessonIds.split(',').length, 3);
+    // 三位成員回填同一事件 id
+    const sat1 = lessons.filter(l => l.date === '2026-09-05');
+    assert.strictEqual(sat1.length, 3);
+    assert.ok(sat1.every(l => l.gcalEventId === groupEv.id));
+    // 再導入 → 全 skip
+    const r2 = await G.importCells(cal.client, cells, IMPORT_OPTS);
+    assert.strictEqual(r2.inserted.length, 0);
+    assert.strictEqual(r2.skipped.length, 9);
+    // precheck：全部一致；把小組事件挪時間 → 該節 stale「時間」；成員少一人 → 「成員」
+    let pre = G.importPrecheck(lessons, cal.events, IMPORT_OPTS);
+    assert.strictEqual(pre.stale.length, 0);
+    assert.strictEqual(pre.orphans.length, 0);
+    groupEv.start.dateTime = '2026-09-05T16:00:00+08:00';
+    pre = G.importPrecheck(lessons, cal.events, IMPORT_OPTS);
+    assert.deepStrictEqual(pre.stale.map(s => s.reasons), [['時間']]);
+    // reconcile：時間變更帶全體 3 位成員；小組事件 location=TL → 狀態碼變更帶全體
+    groupEv.location = 'TL';
+    const diff = G.reconcile(lessons, cal.events, ['S001', 'S030', 'S031', 'S032']);
+    assert.strictEqual(diff.timeChanges.length, 1);
+    assert.strictEqual(diff.timeChanges[0].lessons.length, 3);
+    assert.strictEqual(diff.timeChanges[0].time, '16:00');
+    assert.strictEqual(diff.statusChanges.length, 1);
+    assert.deepStrictEqual(diff.statusChanges[0].to, { status: 'LEAVE', leaveType: 'TL' });
+    assert.strictEqual(diff.deletions.length, 0);
+    // 舊格式：小組成員各自的逐人事件（gacLessonId 標籤）→ key 對不上小組節 → 殘留 orphan，且不算「已刪除」
+    const legacy = { id: 'legacy1', status: 'confirmed', summary: 'S030 Student 030([2/4] 09/2026)', location: '',
+        start: { dateTime: '2026-09-12T15:00:00+08:00' }, extendedProperties: { private: { gacLessonId: 'S030-20260912-1500' } } };
+    cal.events.push(legacy);
+    cal.events.find(ev => ev.extendedProperties.private.gacCellKey && ev.start.dateTime.startsWith('2026-09-12')).status = 'cancelled';
+    lessons.filter(l => l.date === '2026-09-12').forEach(l => { l.gcalEventId = 'legacy1'; });
+    pre = G.importPrecheck(lessons, cal.events, IMPORT_OPTS);
+    assert.ok(pre.orphans.some(ev => ev.id === 'legacy1'), '逐人舊事件成殘留');
+    const diff2 = G.reconcile(lessons, cal.events, ['S030', 'S031', 'S032', 'S001']);
+    assert.strictEqual(diff2.deletions.length, 0, '成員連結的事件仍存在（舊格式）→ 不是刪除，交由殘留組清理');
+});
+
 test('D3-D6: reconcile 分類——時間變更/已刪除/狀態碼/手動新增；無關事件忽略', () => {
     const lessons = S.generateMonthLessons(student(), '2026-09'); // 9/1,8,15,22,29
     const ids = lessons.map(l => l.lessonId);

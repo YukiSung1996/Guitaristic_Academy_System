@@ -111,24 +111,25 @@ function openGcalSync() {
             const windowLessons = GACLessonState.allLessons(lessonsByMonth)
                 .filter(l => l.date >= lo && l.date <= hi);
             const diff = GACGcal.reconcile(windowLessons, events, studentDatabase.map(s => s.id));
-            // 殘留：本月帶標籤事件（牆鐘月份）中，標籤對不上任何本地課者（跨月補堂也算本地課）
+            // 殘留：本月帶標籤事件（牆鐘月份）中，key 對不上任何本地課節者（跨月補堂也算本地課；
+            // 小組課改成一節一事件後，舊的逐人事件也會在此現身，勾選即清）
             const monthEvents = events.filter(ev => {
-                if (!ev || ev.status === 'cancelled' || !GACGcal.eventLessonId(ev)) return false;
+                if (!ev || ev.status === 'cancelled' || !GACGcal.eventCellKey(ev)) return false;
                 const local = GACGcal.eventStartToLocal(ev);
                 return !!local && local.date.slice(0, 7) === monthKey;
             });
             const pre = GACGcal.importPrecheck(GACLessonState.allLessons(lessonsByMonth), monthEvents, opts);
-            // 推送候選：本月本地課中 GCal（視窗內）沒有對應事件者。
-            // 「已刪除」組的課排除在外——同一堂課不能同時「標請假」又「重推」；不勾刪除的課下次同步可再推。
-            const evById = {};
+            // 推送候選：本月課節中 GCal（視窗內）沒有對應事件者（一節一事件：小組一個）。
+            // 「已刪除」組的課節排除在外——同一節不能同時「標請假」又「重推」；不勾刪除的下次同步可再推。
+            const evByKey = {};
             events.forEach(ev => {
                 if (!ev || ev.status === 'cancelled') return;
-                const id = GACGcal.eventLessonId(ev);
-                if (id) evById[id] = ev;
+                const key = GACGcal.eventCellKey(ev);
+                if (key) evByKey[key] = ev;
             });
-            const delIds = new Set(diff.deletions.map(d => d.lesson.lessonId));
-            const toPush = (lessonsByMonth[monthKey] || [])
-                .filter(l => !evById[l.lessonId] && !delIds.has(l.lessonId));
+            const delKeys = new Set(diff.deletions.map(d => d.cell.key));
+            const toPush = GACSchedule.groupByCell(lessonsByMonth[monthKey] || [])
+                .filter(c => !evByKey[c.key] && !delKeys.has(c.key));
             gcalSyncPlan = {
                 monthKey: monthKey,
                 toPush: toPush,
@@ -142,6 +143,18 @@ function openGcalSync() {
         })
         .catch(e => alert('⚠️ 同步未執行：' + ((e && e.message) || e) + '\n本地與 GCal 均未改動。'))
         .finally(() => setGcalBusy(false));
+}
+
+// 差異列的主體文字：小組節顯示「👥 program 小組 ×n：成員…」，一對一顯示學生
+function gcalCellLabel(item) {
+    const members = item.lessons || (item.cell && item.cell.lessons) || (item.lesson ? [item.lesson] : []);
+    const rep = members[0];
+    if (!rep) return '';
+    const isGroup = (item.cell && item.cell.isGroup) || (members.length > 1);
+    if (isGroup) {
+        return `👥 <b>${rep.program} ${rep.level} 小組 ×${members.length}</b>：${members.map(l => l.studentName).join('、')}`;
+    }
+    return `<b>${rep.studentName}</b>（${rep.studentId}）`;
 }
 
 function gcalSyncRow(chkId, text, extraHtml, checked) {
@@ -165,25 +178,26 @@ function renderGcalSyncModal() {
         parts.push(`<div class="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-800 text-xs">範圍：${p.monthKey}（前後各 7 天）。共 ${total} 項差異——<b>預設勾選＝執行後兩邊一致</b>（GCal 上的改動以 Calendar 為準）。個別不想動的項目取消勾選即可。</div>`);
     }
     if (p.toPush.length) {
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">⬆️ 推送：本地有、GCal 沒有（新增事件，絕不覆蓋既有）</div>');
-        p.toPush.forEach((l, i) => {
+        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">⬆️ 推送：本地有、GCal 沒有（一節一個事件；小組全組一個。絕不覆蓋既有）</div>');
+        p.toPush.forEach((c, i) => {
+            const rep = c.lessons[0];
             parts.push(gcalSyncRow('gsP_' + i,
-                `<b>${l.studentName}</b>（${l.studentId}）${l.date} ${l.time}${l.isMakeup ? '（補堂）' : ''}${l.status === 'LEAVE' ? '（請假紀錄）' : ''}`, '', true));
+                `${gcalCellLabel(c)} ${rep.date} ${rep.time}${rep.isMakeup ? '（補堂）' : ''}${!c.isGroup && rep.status === 'LEAVE' ? '（請假紀錄）' : ''}`, '', true));
         });
     }
     if (p.timeChanges.length) {
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🕒 時間變更（GCal 上被挪動 → 更新本地）</div>');
+        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🕒 時間變更（GCal 上被挪動 → 更新本地；小組全體成員一併）</div>');
         p.timeChanges.forEach((c, i) => {
             parts.push(gcalSyncRow('gsT_' + i,
-                `<b>${c.lesson.studentName}</b>（${c.lesson.studentId}）${c.lesson.date} ${c.lesson.time} → <b>${c.date} ${c.time}</b>`, '', true));
+                `${gcalCellLabel(c)} ${c.lesson.date} ${c.lesson.time} → <b>${c.date} ${c.time}</b>`, '', true));
         });
     }
     if (p.statusChanges.length) {
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🏷️ 狀態碼變更（GCal 事件 location/標題含 L/SL/TL/NS → 更新本地）</div>');
+        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🏷️ 狀態碼變更（GCal 事件 location/標題含 L/SL/TL/NS → 更新本地；小組全體成員一併）</div>');
         p.statusChanges.forEach((s, i) => {
             const toLabel = s.to.status === 'NOSHOW' ? 'NS 缺席' : getLeaveText(s.to.leaveType);
             parts.push(gcalSyncRow('gsS_' + i,
-                `<b>${s.lesson.studentName}</b>（${s.lesson.studentId}）${s.lesson.date} ${s.lesson.time}：${s.lesson.status} → <b>${toLabel}</b>`, '', true));
+                `${gcalCellLabel(s)} ${s.lesson.date} ${s.lesson.time}：${s.lesson.status} → <b>${toLabel}</b>`, '', true));
         });
     }
     if (p.deletions.length) {
@@ -194,8 +208,9 @@ function renderGcalSyncModal() {
             parts.push(`<div class="p-2 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 text-xs">⚠️ 一次偵測到 ${p.deletions.length} 件刪除——看起來像批量清場而非逐堂取消，<b>已預設不勾</b>（套用會把這些課全部標成請假、湧入待補堂池）。想清場重來請改用「設定 → 清空本月／全部清場」；真的是逐堂取消才自行勾選。</div>`);
         }
         p.deletions.forEach((del, i) => {
+            const isGroup = del.cell && del.cell.isGroup;
             parts.push(gcalSyncRow('gsD_' + i,
-                `<b>${del.lesson.studentName}</b>（${del.lesson.studentId}）${del.lesson.date} ${del.lesson.time}（目前狀態：${del.lesson.status}）`, '', !massDelete));
+                `${gcalCellLabel(del)} ${del.lesson.date} ${del.lesson.time}（目前狀態：${del.lesson.status}${isGroup ? '；勾選＝全組標導師假 TL' : ''}）`, '', !massDelete));
         });
     }
     if (p.orphans.length) {
@@ -311,33 +326,44 @@ function applyGcalSyncInner() {
     const errs = [];
     const nowIso = new Date().toISOString();
 
-    // —— 本地側（同步執行，逐項套用）——
+    // —— 本地側（同步執行，逐項套用；小組節對全體成員生效）——
+    const membersOf = (item) => item.lessons || (item.cell && item.cell.lessons) || [item.lesson];
+
     p.timeChanges.forEach((c, i) => {
         if (!gcalChk('gsT_' + i)) return;
-        const r = GACLessonState.moveLessonDateTime(lessonsByMonth, c.lesson.lessonId, c.date, c.time);
-        if (r.ok) done.push(`時間：${c.lesson.studentName} → ${c.date} ${c.time}`);
-        else errs.push(`${c.lesson.studentName}：${r.error}`);
+        membersOf(c).forEach(l => {
+            const r = GACLessonState.moveLessonDateTime(lessonsByMonth, l.lessonId, c.date, c.time);
+            if (r.ok) done.push(`時間：${l.studentName} → ${c.date} ${c.time}`);
+            else errs.push(`${l.studentName}：${r.error}`);
+        });
     });
 
     p.deletions.forEach((del, i) => {
         if (!gcalChk('gsD_' + i)) return;
-        const r = GACLessonState.markStatus(lessonsByMonth, del.lesson.lessonId, 'LEAVE', { leaveType: 'L' });
-        if (r.ok) {
-            r.lesson.gcalEventId = null; // 事件已不在，清掉回填，之後不再重複提示
-            GACSendlog.ensureLessonEntry(sendLog, 'LEAVE_CONFIRM', r.lesson, nowIso);
-            done.push(`請假：${del.lesson.studentName} ${del.lesson.date}`);
-        } else errs.push(`${del.lesson.studentName} ${del.lesson.date}：${r.error}`);
+        // 小組事件被刪＝整堂取消 → 導師假 TL；一對一 → 事假 L
+        const leaveType = (del.cell && del.cell.isGroup) ? 'TL' : 'L';
+        membersOf(del).forEach(l => {
+            const r = GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'LEAVE', { leaveType });
+            if (r.ok) {
+                r.lesson.gcalEventId = null; // 事件已不在，清掉回填，之後不再重複提示
+                GACSendlog.ensureLessonEntry(sendLog, 'LEAVE_CONFIRM', r.lesson, nowIso);
+                done.push(`請假(${leaveType})：${l.studentName} ${l.date}`);
+            } else errs.push(`${l.studentName} ${l.date}：${r.error}`);
+        });
     });
 
     p.statusChanges.forEach((s, i) => {
         if (!gcalChk('gsS_' + i)) return;
-        const r = s.to.status === 'NOSHOW'
-            ? GACLessonState.markStatus(lessonsByMonth, s.lesson.lessonId, 'NOSHOW')
-            : GACLessonState.markStatus(lessonsByMonth, s.lesson.lessonId, 'LEAVE', { leaveType: s.to.leaveType });
-        if (r.ok) {
-            if (s.to.status === 'LEAVE') GACSendlog.ensureLessonEntry(sendLog, 'LEAVE_CONFIRM', r.lesson, nowIso);
-            done.push(`狀態：${s.lesson.studentName} ${s.lesson.date} → ${s.to.status}${s.to.leaveType ? '/' + s.to.leaveType : ''}`);
-        } else errs.push(`${s.lesson.studentName} ${s.lesson.date}：${r.error}`);
+        membersOf(s).forEach(l => {
+            if (l.status === s.to.status && (s.to.status !== 'LEAVE' || (l.leaveType || '') === s.to.leaveType)) return; // 已一致的成員略過
+            const r = s.to.status === 'NOSHOW'
+                ? GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'NOSHOW')
+                : GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'LEAVE', { leaveType: s.to.leaveType });
+            if (r.ok) {
+                if (s.to.status === 'LEAVE') GACSendlog.ensureLessonEntry(sendLog, 'LEAVE_CONFIRM', r.lesson, nowIso);
+                done.push(`狀態：${l.studentName} ${l.date} → ${s.to.status}${s.to.leaveType ? '/' + s.to.leaveType : ''}`);
+            } else errs.push(`${l.studentName} ${l.date}：${r.error}`);
+        });
     });
 
     p.manualNew.forEach((m, i) => {
@@ -383,12 +409,12 @@ function applyGcalSyncInner() {
     });
 
     // —— 遠端側（有勾選才需要 token）——
-    const pushLessons = p.toPush.filter((l, i) => gcalChk('gsP_' + i));
+    const pushCells = p.toPush.filter((c, i) => gcalChk('gsP_' + i));
     const delOrphans = p.orphans
         .filter((ev, i) => gcalChk('gsO_' + i))
-        .map(ev => ({ eventId: ev.id, lessonId: GACGcal.eventLessonId(ev) }));
+        .map(ev => ({ eventId: ev.id, lessonId: GACGcal.eventCellKey(ev) }));
 
-    if (!pushLessons.length && !delOrphans.length) {
+    if (!pushCells.length && !delOrphans.length) {
         if (!done.length && !errs.length) { alert('沒有勾選任何項目。'); return; }
         persistLessons();
         renderAll();
@@ -397,12 +423,12 @@ function applyGcalSyncInner() {
     }
 
     // 進度顯示：推送每堂 1–2 個請求、逐件執行，整月可能需時十多秒——沒有進度會像「沒動靜」
-    const totalRemote = delOrphans.length + pushLessons.length;
+    const totalRemote = delOrphans.length + pushCells.length;
     let processedRemote = 0;
     const busyText = () => `⏳ 執行中（${processedRemote}/${totalRemote}）…` +
         (delOrphans.length ? `刪除殘留 ${delOrphans.length} 件` : '') +
-        (delOrphans.length && pushLessons.length ? '、' : '') +
-        (pushLessons.length ? `推送 ${pushLessons.length} 件` : '') +
+        (delOrphans.length && pushCells.length ? '、' : '') +
+        (pushCells.length ? `推送 ${pushCells.length} 節` : '') +
         '。每件需 1–2 個請求，請稍候，不要關閉此視窗。';
     const bump = () => { processedRemote++; gcalSyncShowBusy(busyText()); };
     gcalSyncShowBusy(busyText());
@@ -413,7 +439,7 @@ function applyGcalSyncInner() {
         .then(token => {
             const client = gcalClient(token);
             return (delOrphans.length ? GACGcal.deleteEvents(client, delOrphans, bump) : Promise.resolve(null))
-                .then(delRes => (pushLessons.length ? GACGcal.importLessons(client, pushLessons, opts) : Promise.resolve(null))
+                .then(delRes => (pushCells.length ? GACGcal.importCells(client, pushCells, opts) : Promise.resolve(null))
                     .then(pushRes => ({ delRes: delRes, pushRes: pushRes })));
         })
         .then(({ delRes, pushRes }) => {
@@ -479,11 +505,12 @@ function clearCurrentMonthData() {
             const items = [];
             (events || []).forEach(ev => {
                 if (!ev || ev.status === 'cancelled') return;
-                const lessonId = GACGcal.eventLessonId(ev);
-                if (!lessonId) return; // 無標籤＝手動事件，絕不刪
+                const key = GACGcal.eventCellKey(ev);
+                if (!key) return; // 無標籤＝手動事件，絕不刪
                 const local = GACGcal.eventStartToLocal(ev);
                 const inMonth = !!local && local.date.slice(0, 7) === monthKey;
-                if (inMonth || goneIds[lessonId]) items.push({ eventId: ev.id, lessonId: lessonId });
+                const linked = GACGcal.eventLessonIds(ev).some(id => goneIds[id]); // 小組事件：任一成員被刪即算
+                if (inMonth || linked) items.push({ eventId: ev.id, lessonId: key });
             });
             return (items.length
                 ? GACGcal.deleteEvents(client, items)
@@ -561,8 +588,8 @@ function resetAllScheduleData() {
                 const items = [];
                 (events || []).forEach(ev => {
                     if (!ev || ev.status === 'cancelled') return;
-                    const lessonId = GACGcal.eventLessonId(ev);
-                    if (lessonId) items.push({ eventId: ev.id, lessonId: lessonId });
+                    const key = GACGcal.eventCellKey(ev);
+                    if (key) items.push({ eventId: ev.id, lessonId: key });
                 });
                 if (!items.length) return { deleted: [], gone: [], failed: [] };
                 return GACGcal.deleteEvents(client, items);
