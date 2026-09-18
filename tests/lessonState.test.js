@@ -282,3 +282,37 @@ test('對帳: moveLessonDateTime 跨月移桶——鏈接與查找完好，空�
     assert.strictEqual(LS.findLesson(buckets, L2).lesson.makeupLessonId, mu.lessonId, '原課仍指向同一補堂 id');
     assert.strictEqual(LS.moveLessonDateTime(buckets, 'NOPE', '2026-11-01', '10:00').code, 'NOT_FOUND');
 });
+
+test('清空整月 clearMonth：整桶刪除、跨月補堂級聯、鏈式補堂掃盡、倖存請假解鏈回池', () => {
+    // 佈局：9 月 S001 五節；其中 9/8 請假 → 補堂排 10/6；10/6 補堂又請假 → 再補 11/3（鏈式）
+    const buckets = makeBuckets();
+    LS.markStatus(buckets, L2, 'LEAVE', { leaveType: 'L' });
+    const m1 = LS.scheduleMakeup(buckets, L2, { date: '2026-10-06', time: '19:00' });
+    assert.strictEqual(m1.ok, true);
+    LS.markStatus(buckets, m1.makeup.lessonId, 'LEAVE', { leaveType: 'SL' });
+    const m2 = LS.scheduleMakeup(buckets, m1.makeup.lessonId, { date: '2026-11-03', time: '19:00' });
+    assert.strictEqual(m2.ok, true);
+    // 另有：8 月 S002 請假 → 補堂排在 9 月（清 9 月時該補堂被刪，8 月原課應解鏈回池）
+    buckets['2026-08'] = S.generateMonthLessons(student({ id: 'S002', name: 'Student 002' }), '2026-08');
+    LS.markStatus(buckets, 'S002-20260804-2130', 'LEAVE', { leaveType: 'L' });
+    const mIn = LS.scheduleMakeup(buckets, 'S002-20260804-2130', { date: '2026-09-10', time: '20:00' });
+    assert.strictEqual(mIn.ok, true);
+    // 不相干：12 月 S003 兩節，不應受影響
+    buckets['2026-12'] = S.generateMonthLessons(student({ id: 'S003', name: 'Student 003' }), '2026-12').slice(0, 2);
+    const decCount = buckets['2026-12'].length;
+
+    const res = LS.clearMonth(buckets, '2026-09');
+    // 刪除：9 月整桶（5 常規 + 1 入月補堂）＋ 10 月 m1 ＋ 11 月 m2 = 8
+    assert.strictEqual(res.removed.length, 5 + 1 + 2);
+    assert.strictEqual(buckets['2026-09'], undefined, '9 月桶應刪除');
+    assert.strictEqual(buckets['2026-10'], undefined, '10 月只剩的鏈式補堂應級聯刪除');
+    assert.strictEqual(buckets['2026-11'], undefined, '11 月鏈式補堂應級聯刪除');
+    // 8 月原課解鏈回池
+    const aug = LS.findLesson(buckets, 'S002-20260804-2130');
+    assert.strictEqual(aug.lesson.makeupLessonId, null);
+    assert.strictEqual(aug.lesson.status, 'LEAVE', '請假狀態保留（回到待補池）');
+    assert.strictEqual(res.unlinked.length, 1);
+    assert.strictEqual(LS.pendingMakeups(buckets, '2026-12-01')[0].lesson.lessonId, 'S002-20260804-2130');
+    // 12 月不受影響
+    assert.strictEqual(buckets['2026-12'].length, decCount);
+});

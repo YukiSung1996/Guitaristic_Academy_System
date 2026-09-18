@@ -107,6 +107,24 @@ test('自定義群發條目：快照訊息、同批次幂等、不同批次共�
     assert.strictEqual(log[e.key].status, 'TODO');
 });
 
+test('清空月份 purgeMonth：該月條目全刪（含 SENT），引用被刪課堂的跨月條目一併刪，其他保留', () => {
+    const log = {};
+    SL.upsertTuition(log, params());                                    // 2026-09 學費
+    SL.markSent(log, 'TUITION:S001:2026-09', 'manual');                 // 已發送也要清
+    SL.ensureLessonEntry(log, 'LEAVE_CONFIRM',
+        { lessonId: 'S001-20260908-2130', studentId: 'S001', date: '2026-09-08' });
+    SL.addCustomEntry(log, { batchId: 'B1', studentId: 'S001', monthKey: '2026-09', message: 'x' });
+    // 跨月：9 月請假的補堂排在 10 月 → 條目歸 10 月，但課堂屬被刪集合
+    SL.ensureLessonEntry(log, 'MAKEUP_CONFIRM',
+        { lessonId: 'S001-20261006-1900-MU-20260908-2130', studentId: 'S001', date: '2026-10-06' });
+    // 不相干的 10 月學費：保留
+    SL.upsertTuition(log, Object.assign(params(), { monthKey: '2026-10' }));
+    const removed = SL.purgeMonth(log, '2026-09',
+        ['S001-20260908-2130', 'S001-20261006-1900-MU-20260908-2130']);
+    assert.strictEqual(removed.length, 4);
+    assert.deepStrictEqual(Object.keys(log), ['TUITION:S001:2026-10']);
+});
+
 test('WhatsApp 開啟標記：markWaOpened 只記時間不改狀態；移回待發時清空', () => {
     const log = {};
     const e = SL.upsertTuition(log, params());

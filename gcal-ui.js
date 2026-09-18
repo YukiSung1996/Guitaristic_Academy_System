@@ -451,6 +451,83 @@ function applyGcalDiff() {
     alert(msg);
 }
 
+// ===== 清空本月（設定頁危險區）：只清「總課表目前檢視的月份」，其他月份不動 =====
+// GCal 側：刪該月（按牆鐘日期）所有帶標籤事件＋被刪課堂掛連的跨月補堂事件（手動事件絕不刪）。
+// 本地側：GACLessonState.clearMonth 級聯刪整月＋跨月補堂鏈；該月發送紀錄（含 SENT）與
+//         引用被刪課堂的條目一併清（GACSendlog.purgeMonth）。學生／設定／薪酬保留。
+function clearCurrentMonthData() {
+    const monthKey = currentMonthKey();
+    if (!monthKey) return;
+    const count = (lessonsByMonth[monthKey] || []).length;
+    if (!confirm(`🧹 清空本月（${monthKey}）——將執行：\n` +
+        `1) Google Calendar：刪除 ${monthKey} 所有由本系統導入（帶標籤）的事件，連同其跨月補堂事件\n` +
+        '   （GCal 垃圾桶可還原；你手動建立的事件絕不刪）\n' +
+        `2) 本地：刪除 ${monthKey} 全部 ${count} 堂課（含已出席／請假，級聯刪除掛連的跨月補堂）——不可還原！\n` +
+        `3) 發送中心：清掉歸屬 ${monthKey} 的全部條目（含已發送）\n\n` +
+        '其他月份、學生名單、設定與薪酬資料不受影響。建議先按「全量備份 (JSON)」。\n\n確定清空本月？')) return;
+
+    const wipeMonthLocal = () => {
+        const res = GACLessonState.clearMonth(lessonsByMonth, monthKey);
+        GACSendlog.purgeMonth(sendLog, monthKey, res.removed.map(l => l.lessonId));
+        persistLessons(); // 內含 syncSendlog + 落盤
+        rebuildMonthContext();
+        renderAll();
+        return res;
+    };
+
+    // 未設定 GCal → 只清本地
+    if (!appSettings.gcalClientId) {
+        const res = wipeMonthLocal();
+        alert(`✅ 已清空本地 ${monthKey}：刪 ${res.removed.length} 堂（含跨月補堂）` +
+            (res.unlinked.length ? `、${res.unlinked.length} 堂其他月份的請假回到待補池` : '') +
+            '。\n（未設定 GCal，Google Calendar 未動。）');
+        return;
+    }
+
+    setGcalBusy(true);
+    ensureGcalToken()
+        .then(token => {
+            const client = gcalClient(token);
+            const now = Date.now();
+            return client.listWindow(new Date(now - 366 * 86400000).toISOString(),
+                new Date(now + 366 * 86400000).toISOString()).then(events => ({ client, events }));
+        })
+        .then(({ client, events }) => {
+            const res = wipeMonthLocal();
+            const goneIds = {};
+            res.removed.forEach(l => { goneIds[l.lessonId] = true; });
+            const items = [];
+            (events || []).forEach(ev => {
+                if (!ev || ev.status === 'cancelled') return;
+                const lessonId = GACGcal.eventLessonId(ev);
+                if (!lessonId) return; // 無標籤＝手動事件，絕不刪
+                const local = GACGcal.eventStartToLocal(ev);
+                const inMonth = !!local && local.date.slice(0, 7) === monthKey;
+                if (inMonth || goneIds[lessonId]) items.push({ eventId: ev.id, lessonId: lessonId });
+            });
+            return (items.length
+                ? GACGcal.deleteEvents(client, items)
+                : Promise.resolve({ deleted: [], gone: [], failed: [] }))
+                .then(r => ({ r, res }));
+        })
+        .then(({ r, res }) => {
+            let msg = `✅ 已清空 ${monthKey}：\n• GCal 刪除 ${r.deleted.length} 件（垃圾桶可還原）` +
+                (r.gone.length ? `、另 ${r.gone.length} 件本已不存在` : '') +
+                `\n• 本地刪 ${res.removed.length} 堂（含跨月補堂）` +
+                (res.unlinked.length ? `\n• ${res.unlinked.length} 堂其他月份的請假回到待補池（其補堂在本次被刪）` : '') +
+                `\n• 發送中心 ${monthKey} 條目已清\n\n現在可重新「生成」→「導入 GCal (API)」。`;
+            if (r.failed.length) msg = `⚠️ GCal 有 ${r.failed.length} 件刪除失敗（首個錯誤：${r.failed[0].error}），其餘已完成：\n\n` + msg;
+            alert(msg);
+        })
+        .catch(e => {
+            if (confirm(`⚠️ GCal 清理未完成：${(e && e.message) || e}\n\n仍要清空「本地」的 ${monthKey} 嗎？\n（Google Calendar 上的事件會留著，之後可用「清理 GCal」再刪）`)) {
+                const res = wipeMonthLocal();
+                alert(`✅ 已清空本地 ${monthKey}（刪 ${res.removed.length} 堂；GCal 未清理）。`);
+            }
+        })
+        .finally(() => setGcalBusy(false));
+}
+
 // ===== 全部清場重來（設定頁危險區）：測試點亂後從零開始 =====
 // GCal 側：掃今天前後各一年，刪除「所有」帶 gacLessonId 標籤的事件（不限單月——月度「清理 GCal」
 //          會漏掉散落在其他月份的補堂殘留；手動事件一樣絕不刪，垃圾桶可還原）。

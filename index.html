@@ -452,10 +452,15 @@
                 <h3 class="text-sm font-bold text-rose-800 flex items-center gap-2">
                     <i class="fa-solid fa-triangle-exclamation text-rose-500"></i> 危險區：全部清場重來
                 </h3>
-                <p class="text-xs text-slate-500">測試點亂了想從零開始：一鍵刪除 Google Calendar 上<b>今天前後一年內所有</b>由本系統導入（帶標籤）的事件（GCal 垃圾桶可還原；你手動建立的事件絕不刪），並清空本地<b>全部月份</b>的課堂、發送紀錄與高級薪酬資料（調整項／封存糧單）——<b>本地部分不可還原，請先全量備份</b>。學生名單與設定（含 Client ID）保留。</p>
-                <button onclick="resetAllScheduleData()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
-                    <i class="fa-solid fa-bomb"></i> 全部清場（GCal＋本地）
-                </button>
+                <p class="text-xs text-slate-500">測試點亂了想重來：兩個範圍可選——<b>清空本月</b>只清「總課表目前檢視的月份」（該月 GCal 帶標籤事件＋本地課堂連跨月補堂＋該月發送紀錄）；<b>全部清場</b>刪 GCal 上今天前後一年內所有帶標籤事件並清空本地全部月份（課堂／發送紀錄／薪酬調整與封存）。兩者都<b>絕不刪</b>你在 GCal 手動建立的事件（刪掉的可在 GCal 垃圾桶還原）；<b>本地部分不可還原，請先全量備份</b>。學生名單與設定（含 Client ID）一律保留。</p>
+                <div class="flex items-center gap-2">
+                    <button onclick="clearCurrentMonthData()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
+                        <i class="fa-solid fa-broom"></i> 清空本月（GCal＋本地）
+                    </button>
+                    <button onclick="resetAllScheduleData()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
+                        <i class="fa-solid fa-bomb"></i> 全部清場（GCal＋本地）
+                    </button>
+                </div>
             </div>
         </section>
 
