@@ -158,6 +158,7 @@ function renderGcalSyncModal() {
     const parts = [];
     const total = p.toPush.length + p.timeChanges.length + p.statusChanges.length +
         p.deletions.length + p.orphans.length + p.manualNew.length;
+    gcalSyncFooterMode(total ? 'act' : 'ack');
     if (!total) {
         parts.push('<div class="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs font-semibold">✅ 本地與 Google Calendar 完全一致，沒有需要同步的項目。</div>');
     } else {
@@ -228,6 +229,45 @@ function renderGcalSyncModal() {
 
 function gcalSyncSetAll(checked) {
     document.querySelectorAll('#gcalSyncBody input[type="checkbox"]').forEach(cb => { cb.checked = checked; });
+}
+
+// 頁腳模式：'act'＝全選/全不選/取消/執行（有差異待處理）；'ack'＝只有「確認」（零差異或已執行完）
+function gcalSyncFooterMode(mode) {
+    const act = document.getElementById('gcalSyncActions');
+    const ack = document.getElementById('gcalSyncAck');
+    if (act) act.classList.toggle('hidden', mode !== 'act');
+    if (ack) ack.classList.toggle('hidden', mode !== 'ack');
+}
+
+// 執行結果直接顯示在面板內（不再彈 alert），頁腳只剩「確認」
+function showGcalSyncResult(done, errs, pushRes, delRes) {
+    const lines = [];
+    if (done.length) lines.push(`<div><b>本地更新 ${done.length} 項</b><ul class="list-disc pl-5 mt-0.5">${done.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul></div>`);
+    if (pushRes) {
+        lines.push(`<div><b>推送 GCal</b>：新增 ${pushRes.inserted.length} 件、跳過 ${pushRes.skipped.length} 件（已存在，未覆蓋）</div>`);
+        if (pushRes.failed.length) errs.push(`推送失敗 ${pushRes.failed.length} 件：${pushRes.failed[0].error}`);
+    }
+    if (delRes) {
+        lines.push(`<div><b>刪除 GCal 殘留</b>：${delRes.deleted.length} 件（垃圾桶可還原）` +
+            (delRes.gone.length ? `、${delRes.gone.length} 件本已不存在` : '') + '</div>');
+        if (delRes.failed.length) errs.push(`刪除失敗 ${delRes.failed.length} 件：${delRes.failed[0].error}`);
+    }
+    const ok = !errs.length;
+    const body = document.getElementById('gcalSyncBody');
+    if (body) {
+        body.innerHTML =
+            `<div class="p-3 ${ok ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-300 text-amber-900'} border rounded-lg text-xs space-y-2">` +
+            `<div class="font-bold">${ok ? '✅ 同步完成' : '⚠️ 同步完成，但有項目未能執行'}</div>` +
+            (lines.length ? lines.join('') : '<div>沒有執行任何項目。</div>') +
+            (errs.length ? `<div class="pt-1 border-t border-amber-200"><b>${errs.length} 項未能完成：</b><ul class="list-disc pl-5 mt-0.5">${errs.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul></div>` : '') +
+            '</div>';
+    }
+    gcalSyncFooterMode('ack');
+    ['gcalSyncApplyBtn', 'gcalSyncCancelBtn'].forEach(id => {
+        const b = document.getElementById(id);
+        if (b) b.disabled = false;
+    });
+    gcalSyncPlan = null; // 已執行，計劃作廢（再開面板會重新計算）
 }
 
 // 執行中的面板狀態：正文換成進度條文字、面板按鈕鎖定（防重複點擊）
@@ -352,8 +392,7 @@ function applyGcalSyncInner() {
         if (!done.length && !errs.length) { alert('沒有勾選任何項目。'); return; }
         persistLessons();
         renderAll();
-        closeGcalSyncModal();
-        reportGcalSync(done, errs, null, null);
+        showGcalSyncResult(done, errs, null, null);
         return;
     }
 
@@ -380,37 +419,16 @@ function applyGcalSyncInner() {
         .then(({ delRes, pushRes }) => {
             persistLessons();
             renderAll();
-            closeGcalSyncModal();
-            reportGcalSync(done, errs, pushRes, delRes);
+            showGcalSyncResult(done, errs, pushRes, delRes);
         })
         .catch(e => {
             // 本地側已套用的變更如實保存並回報；遠端可重按「同步 GCal」重試（差異會重新計算）
             persistLessons();
             renderAll();
-            closeGcalSyncModal();
-            alert('⚠️ 遠端操作未完成：' + ((e && e.message) || e) +
-                (done.length ? `\n\n本地已套用 ${done.length} 項（已保存）。` : '') +
-                '\n可再按「同步 GCal」重試。');
+            errs.push('遠端操作未完成：' + ((e && e.message) || e) + '——可再按「同步 GCal」重試（差異會重新計算）');
+            showGcalSyncResult(done, errs, null, null);
         })
         .finally(() => setGcalBusy(false));
-}
-
-function reportGcalSync(done, errs, pushRes, delRes) {
-    const lines = [];
-    if (done.length) lines.push(`本地更新 ${done.length} 項：\n` + done.map(d => '  • ' + d).join('\n'));
-    if (pushRes) {
-        lines.push(`推送 GCal：新增 ${pushRes.inserted.length} 件、跳過 ${pushRes.skipped.length} 件（已存在，未覆蓋）`);
-        if (pushRes.failed.length) errs.push(`推送失敗 ${pushRes.failed.length} 件：${pushRes.failed[0].error}`);
-    }
-    if (delRes) {
-        lines.push(`刪除 GCal 殘留：${delRes.deleted.length} 件（垃圾桶可還原）` +
-            (delRes.gone.length ? `、${delRes.gone.length} 件本已不存在` : ''));
-        if (delRes.failed.length) errs.push(`刪除失敗 ${delRes.failed.length} 件：${delRes.failed[0].error}`);
-    }
-    if (!lines.length && !errs.length) { alert('沒有執行任何項目。'); return; }
-    let msg = lines.join('\n');
-    if (errs.length) msg += `\n\n⚠️ ${errs.length} 項未能完成：\n` + errs.map(e => '  • ' + e).join('\n');
-    alert((errs.length ? '⚠️ ' : '✅ ') + msg);
 }
 
 // ===== 清空本月（設定頁危險區）：只清「總課表目前檢視的月份」，其他月份不動 =====

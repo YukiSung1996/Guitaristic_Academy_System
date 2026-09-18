@@ -590,7 +590,8 @@
                 <button onclick="closeGcalSyncModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div id="gcalSyncBody" class="space-y-2 text-xs"></div>
-            <div class="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+            <!-- 兩種頁腳：有差異＝全選/全不選/取消/執行；零差異或執行完畢＝只有「確認」 -->
+            <div id="gcalSyncActions" class="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
                 <div class="flex gap-2">
                     <button onclick="gcalSyncSetAll(true)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全選</button>
                     <button onclick="gcalSyncSetAll(false)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全不選</button>
@@ -599,6 +600,9 @@
                     <button onclick="closeGcalSyncModal()" id="gcalSyncCancelBtn" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition disabled:opacity-50">取消</button>
                     <button onclick="applyGcalSync()" id="gcalSyncApplyBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition disabled:opacity-50">執行勾選項目</button>
                 </div>
+            </div>
+            <div id="gcalSyncAck" class="hidden flex justify-end pt-2 border-t border-slate-100">
+                <button onclick="closeGcalSyncModal()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition">確認</button>
             </div>
         </div>
     </div>
