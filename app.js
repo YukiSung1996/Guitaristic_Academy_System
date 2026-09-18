@@ -459,7 +459,10 @@
                 return;
             }
 
-            listContainer.innerHTML = filtered.map(l => renderLessonRow(l, clashIds.has(l.lessonId))).join('');
+            // 按課節渲染：小組課同時段一張卡（成員列在卡內）；一對一每堂一張卡
+            listContainer.innerHTML = GACSchedule.groupByCell(filtered).map(cell =>
+                cell.isGroup ? renderGroupCard(cell, clashIds) : renderLessonRow(cell.lessons[0], clashIds.has(cell.lessons[0].lessonId))
+            ).join('');
         }
 
         // 從補堂課的 originLessonId（"S001-20260908-2130"）還原出原課日期時間文字
@@ -473,19 +476,8 @@
             return f ? `${f.lesson.date} ${f.lesson.time}` : lesson.makeupLessonId;
         }
 
-        function renderLessonRow(lesson, isClash) {
-            const id = lesson.lessonId;
-            const start = lessonStart(lesson);
-            const title = GACSchedule.lessonTitle(lesson);
-            const locationStr = getLocationText(lesson);
-
-            let bgClass = "bg-sky-50/50 border-l-4 border-sky-500";
-            if (lesson.status === 'ATTENDED') bgClass = "bg-emerald-50/40 border-l-4 border-emerald-500";
-            if (lesson.isMakeup) bgClass = "bg-emerald-50/50 border-l-4 border-emerald-600";
-            if (lesson.status === 'NOSHOW') bgClass = "bg-purple-50/50 border-l-4 border-purple-500";
-            if (lesson.status === 'LEAVE') bgClass = "bg-rose-50/50 border-l-4 border-rose-500";
-            if (isClash) bgClass = "bg-amber-50 border-l-4 border-amber-500 ring-1 ring-amber-300";
-
+        // 課堂卡片的三塊零件（一對一卡片與小組卡成員列共用）：狀態徽章／展開框（請假假別、補堂日期、手動模式）／操作按鈕
+        function lessonBadges(lesson, isClash) {
             const badges = [];
             if (isClash) badges.push(`<span class="bg-amber-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">⚠️ 撞堂重疊</span>`);
             if (lesson.isMakeup) badges.push(`<span class="bg-emerald-600 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">MU 補堂</span>`);
@@ -497,7 +489,11 @@
                     ? `<span class="bg-emerald-100 text-emerald-800 font-semibold px-1.5 py-0.5 rounded text-[10px]">已排補堂 → ${makeupInfoText(lesson)}</span>`
                     : `<span class="bg-amber-100 text-amber-800 font-semibold px-1.5 py-0.5 rounded text-[10px]">⏳ 待補堂</span>`);
             }
+            return badges.join('');
+        }
 
+        function lessonBoxes(lesson) {
+            const id = lesson.lessonId;
             // 兩步拆分：請假只選假別；補堂另按（可稍後從待補堂池再排）
             let boxes = '';
             if (lesson.status === 'SCHEDULED') {
@@ -547,7 +543,11 @@
                         <span class="text-[10px] text-orange-600/70">直接設定狀態，不做流程檢查、不聯動小組</span>
                     </div>`;
             }
+            return boxes;
+        }
 
+        function lessonButtons(lesson) {
+            const id = lesson.lessonId;
             const btns = [];
             if (lesson.status === 'SCHEDULED') {
                 btns.push(`<button onclick="markLessonStatus('${id}','ATTENDED')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold flex items-center gap-1" title="確認學生已上課"><i class="fa-solid fa-check"></i> 出席</button>`);
@@ -576,26 +576,126 @@
                 btns.push(`<button onclick="copyMakeupMsgMaster('${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> 複製補堂</button>`);
                 btns.push(`<button onclick="openWhatsAppMessage('${id}', 'makeup')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填補堂訊息"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`);
             }
+            return btns.join('');
+        }
+
+        function dateHeading(lesson) {
+            const start = lessonStart(lesson);
+            return `${start.getFullYear()}年${start.getMonth() + 1}月${start.getDate()}日 (${getWeekdayName(start.getDay())})`;
+        }
+
+        // 一對一課堂卡片
+        function renderLessonRow(lesson, isClash) {
+            const title = GACSchedule.lessonTitle(lesson);
+            const locationStr = getLocationText(lesson);
+
+            let bgClass = "bg-sky-50/50 border-l-4 border-sky-500";
+            if (lesson.status === 'ATTENDED') bgClass = "bg-emerald-50/40 border-l-4 border-emerald-500";
+            if (lesson.isMakeup) bgClass = "bg-emerald-50/50 border-l-4 border-emerald-600";
+            if (lesson.status === 'NOSHOW') bgClass = "bg-purple-50/50 border-l-4 border-purple-500";
+            if (lesson.status === 'LEAVE') bgClass = "bg-rose-50/50 border-l-4 border-rose-500";
+            if (isClash) bgClass = "bg-amber-50 border-l-4 border-amber-500 ring-1 ring-amber-300";
+
             return `
                 <div class="${bgClass} p-3 rounded-r-xl border-y border-r border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
                     <div class="space-y-1 flex-1">
                         <div class="flex items-center gap-1.5 flex-wrap">
-                            ${badges.join('')}
+                            ${lessonBadges(lesson, isClash)}
                             <span class="bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-semibold text-[10px]">${lesson.tutor}</span>
-                            <strong class="text-slate-800">${start.getFullYear()}年${start.getMonth() + 1}月${start.getDate()}日 (${getWeekdayName(start.getDay())})</strong>
+                            <strong class="text-slate-800">${dateHeading(lesson)}</strong>
                             <span class="text-sky-700 font-bold">${lesson.time}</span>
                             <span class="font-bold text-slate-900">${lesson.studentName}</span> (${lesson.studentId})
                             ${lesson.phone ? `<span class="text-slate-500 text-[11px]"><i class="fa-solid fa-phone text-[10px] text-slate-400"></i> ${lesson.phone}</span>` : ''}
                         </div>
                         <div class="text-slate-500 text-[11px]">📅 ${title} ${locationStr ? `| 📍 地點: ${locationStr}` : ''} ${lesson.isMakeup ? `| ↩ 補 ${originDateText(lesson)} 的請假課` : ''} ${lesson.email ? `| ✉️ ${lesson.email}` : ''}</div>
-                        ${boxes}
+                        ${lessonBoxes(lesson)}
                     </div>
 
                     <div class="flex items-center gap-1.5 flex-wrap self-end md:self-center md:justify-end md:max-w-[46%]">
-                        ${btns.join('')}
+                        ${lessonButtons(lesson)}
                     </div>
                 </div>
             `;
+        }
+
+        // 小組課卡片：一個時段一張卡，成員逐列（各自徽章／展開框／按鈕），卡頭提供整組操作
+        function renderGroupCard(cell, clashIds) {
+            const first = cell.lessons[0];
+            const n = cell.lessons.length;
+            const anyClash = cell.lessons.some(l => clashIds.has(l.lessonId));
+            const allLeave = cell.lessons.every(l => l.status === 'LEAVE');
+            const scheduled = cell.lessons.filter(l => l.status === 'SCHEDULED');
+            const idsCsv = scheduled.map(l => l.lessonId).join(',');
+            let bgClass = 'bg-indigo-50/40 border-l-4 border-indigo-500';
+            if (allLeave) bgClass = 'bg-rose-50/50 border-l-4 border-rose-500';
+            if (anyClash) bgClass = 'bg-amber-50 border-l-4 border-amber-500 ring-1 ring-amber-300';
+            const groupBtns = scheduled.length ? `
+                <button onclick="groupMarkAll('ATTENDED','${idsCsv}')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold flex items-center gap-1" title="把仍是已排課的成員全部標記出席"><i class="fa-solid fa-check-double"></i> 全組出席</button>
+                <button onclick="groupTutorLeave('${idsCsv}')" class="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg font-semibold flex items-center gap-1" title="導師請假：全組成員一併標記 TL"><i class="fa-solid fa-user-slash"></i> 全組 TL 請假</button>` : '';
+            const members = cell.lessons.map(l => `
+                <div class="pt-2 border-t border-indigo-100 flex flex-col md:flex-row md:items-center justify-between gap-2">
+                    <div class="flex-1 space-y-1">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            <span class="font-bold text-slate-900">${l.studentName}</span> <span class="text-slate-500">(${l.studentId})</span>
+                            ${lessonBadges(l, clashIds.has(l.lessonId))}
+                            ${l.isMakeup ? `<span class="text-slate-500 text-[11px]">↩ 補 ${originDateText(l)} 的請假課</span>` : ''}
+                            ${l.phone ? `<span class="text-slate-500 text-[11px]"><i class="fa-solid fa-phone text-[10px] text-slate-400"></i> ${l.phone}</span>` : ''}
+                        </div>
+                        ${lessonBoxes(l)}
+                    </div>
+                    <div class="flex items-center gap-1.5 flex-wrap self-end md:self-center md:justify-end">${lessonButtons(l)}</div>
+                </div>`).join('');
+            return `
+                <div class="${bgClass} p-3 rounded-r-xl border-y border-r border-slate-200 text-xs space-y-1">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            <span class="bg-indigo-600 text-white font-bold px-1.5 py-0.5 rounded text-[10px]"><i class="fa-solid fa-user-group"></i> 小組課 ×${n}</span>
+                            ${anyClash ? '<span class="bg-amber-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">⚠️ 撞堂重疊</span>' : ''}
+                            <span class="bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-semibold text-[10px]">${first.tutor}</span>
+                            <strong class="text-slate-800">${dateHeading(first)}</strong>
+                            <span class="text-sky-700 font-bold">${first.time}</span>
+                            <span class="text-slate-700">${first.program} · ${first.level}（${first.classType}，${first.duration} 分鐘）</span>
+                        </div>
+                        <div class="flex items-center gap-1.5 flex-wrap self-end md:self-center">${groupBtns}</div>
+                    </div>
+                    ${members}
+                </div>
+            `;
+        }
+
+        // 整組操作：把仍是已排課的成員一次標記（出席／缺席）
+        function groupMarkAll(to, idsCsv) {
+            const ids = String(idsCsv || '').split(',').filter(Boolean);
+            if (!ids.length) return;
+            const label = to === 'ATTENDED' ? '已上課' : to;
+            if (!confirm(`全組 ${ids.length} 位成員一併標記為「${label}」？`)) return;
+            let n = 0;
+            ids.forEach(id => { const r = GACLessonState.markStatus(lessonsByMonth, id, to); if (r.ok) n++; });
+            persistLessons();
+            renderAll();
+            alert(`✅ 已標記 ${n} 位成員為「${label}」。`);
+        }
+
+        // 整組導師請假：全組成員標記 TL（與單人 TL 聯動同義，但直接從卡頭一鍵發起）
+        function groupTutorLeave(idsCsv) {
+            const ids = String(idsCsv || '').split(',').filter(Boolean);
+            if (!ids.length) return;
+            const first = GACLessonState.findLesson(lessonsByMonth, ids[0]);
+            if (!first) return;
+            const names = ids.map(id => { const f = GACLessonState.findLesson(lessonsByMonth, id); return f ? f.lesson.studentName : id; }).join('、');
+            if (!confirm(`導師請假（TL）：${first.lesson.date} ${first.lesson.time} 全組 ${ids.length} 位成員一併標記請假？\n${names}`)) return;
+            const done = [];
+            ids.forEach(id => {
+                const r = GACLessonState.markStatus(lessonsByMonth, id, 'LEAVE', { leaveType: 'TL' });
+                if (r.ok) {
+                    GACSendlog.ensureLessonEntry(sendLog, 'LEAVE_CONFIRM', r.lesson, new Date().toISOString());
+                    done.push(id);
+                }
+            });
+            if (!done.length) return;
+            persistLessons();
+            renderAll();
+            openMsgModal('leave', done);
         }
 
         // 月曆色塊樣式
@@ -642,8 +742,19 @@
                         <div class="text-[11px] font-bold text-slate-500">${day}</div>
                 `;
 
-                dayLessons.forEach(lesson => {
-                    const pillStyle = lessonPillClass(lesson, clashIds.has(lesson.lessonId));
+                // 小組課一個時段一個色塊（×人數，成員列在 title）
+                GACSchedule.groupByCell(dayLessons).forEach(cell => {
+                    const lesson = cell.lessons[0];
+                    const anyClash = cell.lessons.some(l => clashIds.has(l.lessonId));
+                    const pillStyle = lessonPillClass(lesson, anyClash);
+                    if (cell.isGroup) {
+                        const names = cell.lessons.map(l => l.studentName).join('、');
+                        gridHtml += `
+                        <div class="${pillStyle} text-[10px] p-1 rounded leading-tight truncate" title="${lesson.time} ${lesson.program} 小組 ×${cell.lessons.length}（${lesson.tutor}）：${names}">
+                            <strong>${lesson.time}</strong> 👥 ${lesson.program} ×${cell.lessons.length}
+                        </div>`;
+                        return;
+                    }
                     gridHtml += `
                         <div class="${pillStyle} text-[10px] p-1 rounded leading-tight truncate" title="${lesson.time} ${lesson.studentName} (${lesson.tutor}) | Phone: ${lesson.phone}">
                             <strong>${lesson.time}</strong> ${lesson.isMakeup ? 'MU ' : ''}${lesson.studentName}

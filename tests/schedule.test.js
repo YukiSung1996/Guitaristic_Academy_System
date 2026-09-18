@@ -149,6 +149,27 @@ test('補堂 lessonId：帶 -MU- 與最初原課的日期時間，確定性生�
     assert.strictEqual(id, 'S001-20261002-1500-MU-20260915-2130');
 });
 
+test('A9: 課節分組 groupByCell——小組同時段合成一節、一對一各自一節、依日期時間排序', () => {
+    const theory = (id) => student({ id: id, type: '5人小組', program: 'Music Theory', level: 'Grade 5', duration: 60, tutor: 'Instructor B', weekday: 6, time: '15:00' });
+    const lessons = []
+        .concat(S.generateMonthLessons(theory('S030'), '2026-09'))
+        .concat(S.generateMonthLessons(theory('S031'), '2026-09'))
+        .concat(S.generateMonthLessons(theory('S032'), '2026-09'))
+        .concat(S.generateMonthLessons(student({ id: 'S001' }), '2026-09'));   // 週二一對一 ×5
+    const cells = S.groupByCell(lessons);
+    // 9 月週六 4 天 → 4 個小組節；週二 5 堂一對一 → 5 節；共 9
+    assert.strictEqual(cells.length, 9);
+    const groupCells = cells.filter(c => c.isGroup);
+    assert.strictEqual(groupCells.length, 4);
+    assert.ok(groupCells.every(c => c.lessons.length === 3), '每個小組節 3 位成員');
+    assert.deepStrictEqual(groupCells[0].lessons.map(l => l.studentId), ['S030', 'S031', 'S032'], '成員依 studentId 排序');
+    assert.strictEqual(S.cellKey(groupCells[0].lessons[0]), S.cellKey(groupCells[0].lessons[1]), '同節 key 相同');
+    assert.strictEqual(S.cellKey(lessons[lessons.length - 1]), lessons[lessons.length - 1].lessonId, '一對一 key = lessonId');
+    // 排序：9/1（週二）在 9/5（週六）之前
+    assert.strictEqual(cells[0].date, '2026-09-01');
+    assert.strictEqual(cells[1].date, '2026-09-05');
+});
+
 test('A8: previewTimeChange — 對已生成月份：同導師重疊報撞、LEAVE 不佔時段、本人舊課不自擋', () => {
     const s1 = student(); // S001 週二 21:30
     const s2 = student({ id: 'S002', name: 'Student 002', weekday: 1, time: '21:30' }); // 週一 21:30
