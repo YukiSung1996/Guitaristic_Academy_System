@@ -223,9 +223,9 @@
             <!-- Schedule Display Container -->
             <div id="masterScheduleWrapper" class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
                 
-                <!-- Schedule Controls Header -->
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                    <div class="flex items-center gap-3">
+                <!-- Schedule Controls Header：左＝標題＋視圖切換（永不換行）；右＝篩選列（空間不足時整列換到下一行） -->
+                <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-100 pb-3">
+                    <div class="flex items-center gap-3 shrink-0 whitespace-nowrap">
                         <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
                             <i class="fa-solid fa-list-check text-sky-500"></i> 課堂時間總表
                         </h3>
@@ -237,25 +237,21 @@
                         </div>
                     </div>
 
-                    <!-- Week Filter Dropdown (Visible for List & Week views) -->
-                    <div id="weekSelectContainer" class="flex flex-wrap items-center gap-2 text-xs">
-                        <!-- 導師／學生（小組班）篩選：清單與月曆同時套用；批量確認出席亦以此範圍為準 -->
-                        <span class="text-slate-500 font-medium">導師：</span>
-                        <select id="schedTutorFilter" onchange="onScheduleFilterChange()" class="px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
+                    <!-- 篩選列：導師／學生（小組班）／週次——清單與月曆同時套用；批量確認出席亦以此範圍為準。下拉首項即標籤，不另加文字 -->
+                    <div id="weekSelectContainer" class="flex flex-wrap items-center gap-1.5 text-xs">
+                        <select id="schedTutorFilter" onchange="onScheduleFilterChange()" title="按導師篩選" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
                             <option value="ALL">所有導師</option>
                         </select>
-                        <span class="text-slate-500 font-medium">學生：</span>
-                        <select id="schedStudentFilter" onchange="onScheduleFilterChange()" class="px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium max-w-[13rem]">
+                        <select id="schedStudentFilter" onchange="onScheduleFilterChange()" title="按學生或小組班篩選" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium max-w-[11rem]">
                             <option value="ALL">所有學生</option>
                         </select>
-                        <span class="text-slate-500 font-medium">週次：</span>
-                        <select id="weekSelect" onchange="onWeekSelectChange()" class="px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
-                            <option value="ALL">所有週次 (全月)</option>
+                        <select id="weekSelect" onchange="onWeekSelectChange()" title="按週次篩選（清單）" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
+                            <option value="ALL">全月</option>
                         </select>
-                        <button onclick="batchConfirmWeek()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold transition flex items-center gap-1" title="把所選週次（或全月）、導師／學生篩選範圍內，今天（含）以前仍是「已排課」的課堂批量標記為已上課">
+                        <button onclick="batchConfirmWeek()" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold transition flex items-center gap-1" title="把所選週次（或全月）、導師／學生篩選範圍內，今天（含）以前仍是「已排課」的課堂批量標記為已上課">
                             <i class="fa-solid fa-check-double"></i> 批量確認出席
                         </button>
-                        <button id="manualModeBtn" onclick="toggleManualMode()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-bold transition flex items-center gap-1" title="手動模式：每行出現直接改狀態控件（跳過流程限制、不觸發小組聯動），用於修正誤操作。每次載入預設關閉。">
+                        <button id="manualModeBtn" onclick="toggleManualMode()" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-bold transition flex items-center gap-1" title="手動模式：每行出現直接改狀態控件（跳過流程限制、不觸發小組聯動），用於修正誤操作。每次載入預設關閉。">
                             <i class="fa-solid fa-wrench"></i> 手動模式
                         </button>
                     </div>
@@ -637,6 +633,20 @@
                     <button onclick="requestCloseModal('groupModal')" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
                     <button onclick="saveGroupModal()" class="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition">儲存小組</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 課節操作彈窗：月曆色塊點開，內容＝清單那張卡片（同一套按鈕）；開啟期間清單容器留空避免重複 id -->
+    <div id="lessonModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-5 space-y-3 max-h-[85vh] overflow-y-auto overscroll-contain">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                <h3 id="lessonModalTitle" class="text-sm font-bold text-slate-800"><i class="fa-solid fa-calendar-check text-sky-500 mr-1"></i>課節操作</h3>
+                <button onclick="closeLessonModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="lessonModalBody" class="space-y-2"></div>
+            <div class="flex justify-end pt-2 border-t border-slate-100">
+                <button onclick="closeLessonModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">關閉</button>
             </div>
         </div>
     </div>
