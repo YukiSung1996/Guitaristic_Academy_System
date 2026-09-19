@@ -2192,6 +2192,7 @@
         function sendlogMsgFor(entry) {
             if (entry.type === 'TUITION') return tuitionMsgFor(entry);
             if (entry.type === 'CUSTOM') return entry.message || '';
+            if (DERIVED_TYPES.has(entry.type)) return derivedMsgFor(entry);
             const f = GACLessonState.findLesson(lessonsByMonth, entry.lessonId);
             if (!f) return '（原課堂已不存在，此條目僅留作歷史紀錄）';
             return entry.type === 'LEAVE_CONFIRM' ? leaveMsgFor(f.lesson) : makeupMsgFor(f.lesson);
@@ -2202,8 +2203,66 @@
             TUITION: { label: '學費', cls: 'bg-emerald-100 text-emerald-700' },
             LEAVE_CONFIRM: { label: '請假確認', cls: 'bg-amber-100 text-amber-700' },
             MAKEUP_CONFIRM: { label: '補堂確認', cls: 'bg-sky-100 text-sky-700' },
-            CUSTOM: { label: '自定義', cls: 'bg-violet-100 text-violet-700' }
+            CUSTOM: { label: '自定義', cls: 'bg-violet-100 text-violet-700' },
+            PAY_REMIND: { label: '催繳', cls: 'bg-rose-100 text-rose-700' },
+            RECEIPT: { label: '收款確認', cls: 'bg-teal-100 text-teal-700' }
         };
+
+        // ===== 催繳／收款確認：由學費條目的繳費狀態派生（lib/sendlog.js syncDerived），每次渲染同步 =====
+        const DERIVED_TYPES = new Set(['PAY_REMIND', 'RECEIPT']);
+
+        function derivedCfg() {
+            const cfg = (typeof appSettings !== 'undefined' && appSettings) || {};
+            const D = GACStorage.DEFAULT_SETTINGS;
+            return {
+                remindAuto: cfg.remindAuto !== false, remindDays: Number(cfg.remindDays) > 0 ? Number(cfg.remindDays) : D.remindDays,
+                receiptAuto: cfg.receiptAuto !== false,
+                remindMsg: cfg.remindMsg || D.remindMsg, receiptMsg: cfg.receiptMsg || D.receiptMsg, fpsId: cfg.fpsId || ''
+            };
+        }
+
+        // 幂等；有增減才落盤。不拍快照——派生條目由學費條目狀態決定，撤銷學費操作後重新渲染會自行對齊
+        function syncDerivedEntries() {
+            const c = derivedCfg();
+            const r = GACSendlog.syncDerived(sendLog, { now: new Date().toISOString(), remindAuto: c.remindAuto, remindDays: c.remindDays, receiptAuto: c.receiptAuto });
+            if (r.created.length || r.removed.length) persistSendlog();
+            return r;
+        }
+
+        // 模板＋學費條目現值即時組成（部分繳交後「未繳」金額隨之更新）
+        function derivedMsgFor(entry) {
+            const t = sendLog[entry.tuitionKey];
+            if (!t) return '（原學費條目已不存在，此條目僅留作歷史紀錄）';
+            const c = derivedCfg();
+            return GACSendlog.fillTemplate(entry.type === 'RECEIPT' ? c.receiptMsg : c.remindMsg,
+                GACSendlog.paymentVars(t, { methodNames: payMethodNames(), fpsId: c.fpsId }));
+        }
+
+        // 催繳／收款確認卡片的資訊列：對應學費條目的應收／已收／未繳與繳費徽章
+        function derivedInfoRow(e) {
+            if (!DERIVED_TYPES.has(e.type)) return '';
+            const t = sendLog[e.tuitionKey];
+            if (!t) return '<div class="text-slate-400 italic">原學費條目已不存在</div>';
+            const due = Number(t.amount) || 0, got = t.paid ? (Number(t.paidAmount) || 0) : 0;
+            const sentOn = t.sentAt ? String(t.sentAt).slice(0, 10) : '';
+            const info = e.type === 'PAY_REMIND'
+                ? `<span>學費單${sentOn ? ' ' + sentOn + ' 發出' : ''} · 應收 ${tuitionMoney(due)} · 已收 ${tuitionMoney(got)} · <b class="text-rose-600">未繳 ${tuitionMoney(Math.max(0, due - got))}</b></span>`
+                : `<span>學費單 ${t.month}</span>`;
+            return `<div class="flex items-center gap-2 flex-wrap text-slate-500">${info} ${paymentBadge(t)}</div>`;
+        }
+
+        // 「不用發」：刪除派生條目並記下略過（學費單移回待發／取消已繳後會重置，見 lib）
+        function sendDismissDerived(key) {
+            const e = sendLog[key];
+            if (!e || !DERIVED_TYPES.has(e.type)) return;
+            const label = (SEND_TYPE_META[e.type] || { label: e.type }).label;
+            if (!confirm(`${e.studentName || e.studentId} 的「${label}」這次不用發？\n（刪除此條目；該學生此月不會再自動建立）`)) return;
+            pushHistory(`不用發${label}：${e.studentName || e.studentId} ${e.month}`);
+            GACSendlog.dismissDerived(sendLog, key);
+            persistSendlog();
+            renderSendCenter();
+            renderPaymentTab();
+        }
 
         // 已發送欄學費卡片的繳費小表單：未繳清預設展開、已繳清收起；用戶手動切換後以此表為準（key → 開/關）
         const sendPayFormOpen = new Map();
@@ -2277,7 +2336,7 @@
             let html = '<option value="ALL">全部類別</option>';
             // 學費之下多兩個繳費狀態子篩選（未繳清＝未繳＋部分；已繳清），只列本月實際有的
             const payStates = new Set(entries.filter(e => e.type === 'TUITION').map(e => (GACSendlog.paymentStatus(e) === 'paid' ? 'paid' : 'due')));
-            [['TUITION', '學費'], ['TUITION:due', '學費 · 未繳清'], ['TUITION:paid', '學費 · 已繳清'], ['LEAVE_CONFIRM', '請假確認'], ['MAKEUP_CONFIRM', '補堂確認']].forEach(([v, label]) => {
+            [['TUITION', '學費'], ['TUITION:due', '學費 · 未繳清'], ['TUITION:paid', '學費 · 已繳清'], ['LEAVE_CONFIRM', '請假確認'], ['MAKEUP_CONFIRM', '補堂確認'], ['PAY_REMIND', '催繳'], ['RECEIPT', '收款確認']].forEach(([v, label]) => {
                 const ok = v.indexOf('TUITION:') === 0 ? payStates.has(v.slice(8)) : present.has(v);
                 if (ok) html += `<option value="${v}">${label}</option>`;
             });
@@ -2321,7 +2380,7 @@
                        ${sent ? sendPayToggleBtn(e) : ''}
                    </div>
                    ${sent ? sendPayFormHtml(e) : ''}`
-                : '';
+                : derivedInfoRow(e);
             const waBtn = phone
                 ? `<button onclick="sendWhatsApp('${e.key}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold" title="打開 WhatsApp 預填訊息（不會自動移到已發送，發完請點「標記已發」）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`
                 : `<button disabled class="px-2.5 py-1.5 bg-slate-100 text-slate-400 rounded-lg font-semibold cursor-not-allowed" title="此學生沒有電話號碼，僅可複製或手動已發"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`;
@@ -2329,7 +2388,9 @@
             // 自定義條目由群發手動建立、無課堂掛鉤，允許在待發送欄直接刪除（其他類型由系統管理，不提供刪除）
             const delBtn = e.type === 'CUSTOM'
                 ? `<button onclick="sendDeleteEntry('${e.key}')" class="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg font-semibold" title="刪除此自定義條目"><i class="fa-solid fa-trash-can"></i></button>`
-                : '';
+                : (DERIVED_TYPES.has(e.type)
+                    ? `<button onclick="sendDismissDerived('${e.key}')" class="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg font-semibold" title="這次不用發（刪除此條目；該學生此月不會再自動建立）"><i class="fa-solid fa-ban"></i> 不用發</button>`
+                    : '');
             const actions = sent
                 ? `<button onclick="sendMarkUnsent('${e.key}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold" title="移回待發送（發錯了想重發）"><i class="fa-solid fa-rotate-left"></i> 移回待發</button>`
                 : `<button onclick="sendCopy('${e.key}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold"><i class="fa-solid fa-copy"></i> 複製</button>
@@ -2479,6 +2540,7 @@
         function renderPaymentTab() {
             const body = document.getElementById('paymentTableBody');
             if (!body) return;
+            syncDerivedEntries();
             const monthKey = paymentMonth();
             const tSel = document.getElementById('payTutorFilter');
             const prevT = (tSel && tSel.value) || 'ALL';
@@ -2522,6 +2584,14 @@
                 : st === 'partial' ? '<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[10px]">部分</span>'
                 : '<span class="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-bold text-[10px]">未繳</span>';
             const methodSel = payMethodSelectHtml(e, 'px-1.5 py-1 border border-slate-300 rounded-lg bg-white text-[11px]');
+            const rm = sendLog[GACSendlog.remindKey(e.studentId, e.month)];
+            const remindNote = !rm ? '' : (rm.status === 'SENT'
+                ? `<div class="text-[10px] text-slate-500" title="催繳已於 ${String(rm.sentAt || '').slice(0, 10)} 發出">催繳已發</div>`
+                : '<div class="text-[10px] text-rose-600 font-semibold" title="催繳訊息已在發送中心「待發送」">催繳待發</div>');
+            const rc = sendLog[GACSendlog.receiptKey(e.studentId, e.month)];
+            const receiptNote = !rc ? '' : (rc.status === 'SENT'
+                ? '<div class="text-[10px] text-slate-500" title="收款確認訊息已發出">確認已發</div>'
+                : '<div class="text-[10px] text-amber-600 font-semibold" title="收款確認訊息已在發送中心「待發送」">確認待發</div>');
             const phone = sendEntryPhone(e);
             const waBtn = phone && !sent
                 ? `<button onclick="sendWhatsApp('${k}'); renderPaymentTab()" class="ml-1 px-1.5 py-0.5 bg-green-100 hover:bg-green-200 text-green-800 rounded font-semibold" title="開 WhatsApp 預填學費單（發完請勾已發送）"><i class="fa-brands fa-whatsapp"></i></button>`
@@ -2533,12 +2603,12 @@
                 <td class="p-2.5 text-center whitespace-nowrap">${attCell}</td>
                 <td class="p-2.5 text-right font-bold whitespace-nowrap">${tuitionMoney(e.amount)}${e.amountEdited ? ' <i class="fa-solid fa-pen text-amber-500" title="金額已手改（發送中心可改）"></i>' : ''}</td>
                 <td class="p-2.5 text-center"><input type="checkbox" ${e.checked ? 'checked' : ''} onchange="payUpdate('${k}', { checked: this.checked })" class="w-4 h-4 accent-slate-600" title="已核對金額"></td>
-                <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${sent ? 'checked' : ''} onchange="paySetSent('${k}', this.checked)" class="w-4 h-4 accent-emerald-600" title="學費單已發送（與發送中心同步；勾＝手動已發，取消＝移回待發）">${waBtn}</td>
+                <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${sent ? 'checked' : ''} onchange="paySetSent('${k}', this.checked)" class="w-4 h-4 accent-emerald-600" title="學費單已發送（與發送中心同步；勾＝手動已發，取消＝移回待發）">${waBtn}${remindNote}</td>
                 <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${e.paid ? 'checked' : ''} onchange="payUpdate('${k}', { paid: this.checked })" class="w-4 h-4 accent-emerald-600" title="勾＝已繳（預設整額、今天）"> ${badge}</td>
                 <td class="p-2.5 text-right"><input type="number" min="0" value="${Number(e.paidAmount) || 0}" onchange="payUpdate('${k}', { paidAmount: this.value })" class="w-20 px-1.5 py-1 border border-slate-300 rounded-lg text-right" title="實收金額（改動即更新已繳狀態）"></td>
                 <td class="p-2.5">${methodSel}</td>
                 <td class="p-2.5"><input type="date" value="${e.payDate || ''}" onchange="payUpdate('${k}', { payDate: this.value })" class="px-1.5 py-1 border border-slate-300 rounded-lg text-[11px]"></td>
-                <td class="p-2.5 text-center"><input type="checkbox" ${e.receipt ? 'checked' : ''} onchange="payUpdate('${k}', { receipt: this.checked })" class="w-4 h-4 accent-sky-600" title="已發收據"></td>
+                <td class="p-2.5 text-center"><input type="checkbox" ${e.receipt ? 'checked' : ''} onchange="payUpdate('${k}', { receipt: this.checked })" class="w-4 h-4 accent-sky-600" title="已發收據">${receiptNote}</td>
                 <td class="p-2.5 text-right whitespace-nowrap"><button onclick="payPreview('${k}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold" title="查看／複製學費單"><i class="fa-solid fa-file-invoice"></i></button></td>
             </tr>`;
         }
@@ -2589,6 +2659,7 @@
             const todoList = document.getElementById('sendTodoList');
             const sentList = document.getElementById('sendSentList');
             if (!todoList || !sentList) return;
+            syncDerivedEntries();
             const cols = GACSendlog.listByMonth(sendLog, sendCenterMonth());
             const typeFilter = rebuildSendTypeOptions(cols.todo.concat(cols.sent));
             const byType = e => {
@@ -3018,6 +3089,17 @@
             document.getElementById('setFeeNotice').value = appSettings.feeNotice || '';
             const pm = appSettings.payMethods || GACStorage.DEFAULT_SETTINGS.payMethods;
             [1, 2, 3].forEach(i => { document.getElementById('setPayMethod' + i).value = pm[i - 1] || ''; });
+            const c = derivedCfg();
+            document.getElementById('setRemindAuto').checked = c.remindAuto;
+            document.getElementById('setRemindDays').value = c.remindDays;
+            document.getElementById('setRemindMsg').value = c.remindMsg;
+            document.getElementById('setReceiptAuto').checked = c.receiptAuto;
+            document.getElementById('setReceiptMsg').value = c.receiptMsg;
+        }
+
+        function resetMsgTemplate(which) {
+            const el = document.getElementById(which === 'receipt' ? 'setReceiptMsg' : 'setRemindMsg');
+            if (el) el.value = GACStorage.DEFAULT_SETTINGS[which === 'receipt' ? 'receiptMsg' : 'remindMsg'];
         }
 
         function saveSettingsForm() {
@@ -3030,8 +3112,14 @@
             appSettings.infoUrl = document.getElementById('setInfoUrl').value.trim();
             appSettings.feeNotice = document.getElementById('setFeeNotice').value.trim();
             appSettings.payMethods = [1, 2, 3].map(i => document.getElementById('setPayMethod' + i).value.trim() || GACStorage.DEFAULT_SETTINGS.payMethods[i - 1]);
+            appSettings.remindAuto = !!document.getElementById('setRemindAuto').checked;
+            appSettings.remindDays = Math.max(1, parseInt(document.getElementById('setRemindDays').value, 10) || GACStorage.DEFAULT_SETTINGS.remindDays);
+            appSettings.remindMsg = document.getElementById('setRemindMsg').value.trim() || GACStorage.DEFAULT_SETTINGS.remindMsg;
+            appSettings.receiptAuto = !!document.getElementById('setReceiptAuto').checked;
+            appSettings.receiptMsg = document.getElementById('setReceiptMsg').value.trim() || GACStorage.DEFAULT_SETTINGS.receiptMsg;
             gacStore.saveSettings(appSettings);
             renderPaymentTab();
+            renderSendCenter(); // 催繳／收款確認的自動開關與天數改了要重新同步
             const hint = document.getElementById('settingsSavedHint');
             if (hint) {
                 hint.classList.remove('hidden');

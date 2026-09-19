@@ -2,7 +2,7 @@
 
 - 參考檔：`zz_requests/Guitaristic_Academy_System_v3.2_santize.html`（**只留本地，已加入 .gitignore，不進 GitHub**）
 - 版本控制：`v2-dev` 凍結於 tag `v2.0`（commit f71883c）；本文所述整合全部在 `v3-dev` 分支進行。
-- 進度：Stage 1 出席與繳費 ✅（e384569）／Stage 2 數據分析 ✅（83ba068）／Stage 3 歷史記錄與撤銷 ✅（03873b9）／Stage 4 導師與收費設定 ✅（本 commit）
+- 進度：Stage 1 出席與繳費 ✅（e384569）／Stage 2 數據分析 ✅（83ba068）／Stage 3 歷史記錄與撤銷 ✅（03873b9）／Stage 4 導師與收費設定 ✅（1d938b9）／Stage 5 發送中心 × 繳費整合 ✅（878f621 + 本 commit）
 - 目標：把參考檔的「出席與繳費」「數據分析」「歷史記錄／撤銷」「導師與收費設定」整合進 v2 架構——**移植的是函數與資料流，不是殼**；凡 v2 已有更完整實作的（狀態機、課節模型、費率連動）沿用 v2。
 
 ---
@@ -109,3 +109,12 @@ v2 現況：出席是完整狀態機（已上課／請假 L·SL·TL／缺席／�
 ### Stage 4 — 導師與收費設定
 - 導師名單 `gac_tutors_v2 [{name, tier}]`：設定頁新增／改等級／刪除（使用中警示）；學生弹窗、小組弹窗、總課表篩選的導師下拉都由名單產生；選導師時「導師級別」自動帶入其等級（仍可個別覆寫）。
 - 費率覆寫 `gac_rate_overrides_v2`：設定頁按等級＋課程列表改價，載入時套回 `rateTable`；備份／還原包含兩者。
+
+### Stage 5 — 發送中心 × 繳費整合（用戶提問「發送中心可不可以和繳費結合」後的方案 A＋B）
+- **A. 學費卡片走完整個流程**（878f621）：待發送卡片「核對」勾選；已發送卡片折疊式繳費小表單（已繳／實收／方式／日期／收據，未繳清預設展開、已繳清收起→「修改繳費」）；已發送欄標題「N 筆學費未繳清」；「類別」多「學費 · 未繳清／已繳清」。資料仍是同一條 `TUITION` 條目，繳費表不變。
+- **B. 繳費狀態反向驅動發送隊列**（本 commit）：兩個派生條目類型，每次渲染 `syncDerived` 幂等同步——
+  - `PAY_REMIND:<生>:<月>` 催繳：學費單 SENT 滿 `remindDays`（預設 7，用戶指定「自動、一週」）且未繳清 → 建 TODO；繳清／移回待發／略過／自動關閉 → TODO 刪除，SENT 保留且不建第二筆（要再催就「移回待發」）。
+  - `RECEIPT:<生>:<月>` 收款確認：繳清即建（不要求學費單已發）；`markSent` 回寫學費條目 `receipt=true`；取消已繳 → TODO 刪除。
+  - 「不用發」＝`dismissDerived`：刪條目＋學費條目 `remindSkipped`／`receiptSkipped`；學費單 `markUnsent` 重置前者、`setPayment({paid:false})` 重置後者。
+  - 訊息不快照：`fillTemplate(模板, paymentVars(學費條目))`，佔位符 {name} {month} {amount} {paid} {outstanding} {method} {date} {payinfo} {fps}；模板與開關在設定 `remindAuto/remindDays/remindMsg/receiptAuto/receiptMsg`。
+  - 未做（可後續）：同一月第二次催繳、逾期天數 KPI。

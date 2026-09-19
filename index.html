@@ -392,7 +392,7 @@
                         <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
                             <i class="fa-solid fa-paper-plane text-teal-500"></i> 發送中心
                         </h2>
-                        <p class="text-xs text-slate-500 mt-0.5">學費、請假確認、補堂確認訊息集中處理。學費卡片：待發送時可核對金額，發出後可直接登記繳費（與「出席與繳費」同一筆紀錄），「類別」可篩「學費 · 未繳清」。預設：開 WhatsApp 只會標記「已開啟」、切回本頁時詢問是否已發（可在「設定」改為自動移欄或只標記）。</p>
+                        <p class="text-xs text-slate-500 mt-0.5">學費、請假確認、補堂確認、催繳、收款確認訊息集中處理。學費卡片：待發送時可核對金額，發出後可直接登記繳費（與「出席與繳費」同一筆紀錄），「類別」可篩「學費 · 未繳清」。預設：開 WhatsApp 只會標記「已開啟」、切回本頁時詢問是否已發（可在「設定」改為自動移欄或只標記）。</p>
                     </div>
                     <div class="flex items-center gap-2 text-xs">
                         <button onclick="openBroadcastModal()" title="自訂訊息內容（支持 {name}／{id} 佔位符），按導師篩選、勾選學生後批量加入「待發送」欄，如調整學費通知" class="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
@@ -620,6 +620,26 @@
                         <div><label class="block text-xs font-bold text-slate-600 mb-1">付款方式 1</label><input type="text" id="setPayMethod1" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"></div>
                         <div><label class="block text-xs font-bold text-slate-600 mb-1">付款方式 2</label><input type="text" id="setPayMethod2" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"></div>
                         <div><label class="block text-xs font-bold text-slate-600 mb-1">付款方式 3</label><input type="text" id="setPayMethod3" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"></div>
+                    </div>
+                    <!-- 催繳／收款確認：由學費條目的繳費狀態自動派生到發送中心（lib/sendlog.js syncDerived） -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                        <div class="space-y-1.5">
+                            <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600 flex-wrap">
+                                <input type="checkbox" id="setRemindAuto" class="accent-rose-600 rounded"> 自動催繳：學費單發出後
+                                <input type="number" id="setRemindDays" min="1" max="60" class="w-14 px-2 py-1 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none"> 天仍未繳清 → 加入「待發送」
+                            </label>
+                            <textarea id="setRemindMsg" rows="3" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"></textarea>
+                            <p class="text-[11px] text-slate-400">每生每月一筆，部分繳交照催（未繳金額即時更新）；卡片「不用發」可略過。佔位符：{name} {month} {amount}應收 {paid}已收 {outstanding}未繳 {fps}（填了 FPS ID 才有內容）
+                                <button type="button" onclick="resetMsgTemplate('remind')" class="underline hover:text-slate-600">還原預設文案</button></p>
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                                <input type="checkbox" id="setReceiptAuto" class="accent-teal-600 rounded"> 繳清時自動建立「收款確認」訊息（發出後自動勾上「收據」）
+                            </label>
+                            <textarea id="setReceiptMsg" rows="3" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"></textarea>
+                            <p class="text-[11px] text-slate-400">佔位符：{name} {month} {paid}實收 {method}付款方式 {date}日期 {payinfo}＝（方式，日期）
+                                <button type="button" onclick="resetMsgTemplate('receipt')" class="underline hover:text-slate-600">還原預設文案</button></p>
+                        </div>
                     </div>
                 </div>
                 <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
