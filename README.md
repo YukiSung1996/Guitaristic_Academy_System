@@ -4,7 +4,9 @@
 
 ## 運行
 
-- **雙擊 `serve.cmd`**（推薦）：用倉庫附帶的便攜 Node 起本地伺服器並自動開瀏覽器 `http://127.0.0.1:5500/`。
+- **Windows：雙擊 `serve.cmd`**（推薦）：用倉庫附帶的便攜 Node 起本地伺服器並自動開瀏覽器 `http://127.0.0.1:5500/`。
+- **macOS：雙擊 `serve.command`**：有 Node 用 `serve.js`，否則用系統 `python3`（首次可能提示安裝命令列工具）；被 Gatekeeper 擋下時右鍵 → 打開。
+- **多人／多裝置使用：把整個資料夾放上靜態網站託管**（GitHub Pages、Cloudflare Pages 等，免費含 HTTPS），把該網址加入 GCP 的 Authorized JavaScript origins，之後任何電腦或手機開網址即可，不需本地伺服器。資料仍是各裝置瀏覽器各自一份，換裝置用「全量備份／還原」搬。
 - 或 VS Code 開啟本資料夾 → 右下角「Go Live」（Live Server 擴充，同為 5500 埠）。
 - 直接雙擊 `index.html`（`file://`）也能用本地功能，但 **Google OAuth 不支援 file://**，GCal 三個 API 按鈕會用不了；且 `file://` 與 `http://127.0.0.1:5500` 是不同 origin、`localStorage` 資料各自獨立——請固定用同一種方式開啟。
 
