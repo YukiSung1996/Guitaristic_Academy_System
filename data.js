@@ -5,26 +5,26 @@
 // 模型：學生＝人（一行）；個別課掛在學生記錄上（最多一個）；小組課是獨立實體，學生經 memberIds 加入（可多個）。
 // 學費按人合計（各報讀項目按各自費率）；薪酬每個報讀項目一行；「導師節數」按小組同時段合併為 1 節。
 const defaultStudents = [
-            { id: "S001", name: "Student 001", phone: "00000000", email: "student001@example.com", type: "一對一", program: "Pop Guitar", level: "Intermediate 中級", duration: 45, tutor: "Instructor A", weekday: 1, time: "21:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
-            { id: "S002", name: "Student 002", phone: "00000000", email: "student002@example.com", type: "一對一", program: "Hymns Guitar", level: "Intermediate 中級", duration: 45, tutor: "Instructor A", weekday: 3, time: "12:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
-            { id: "S003", name: "Student 003", phone: "00000000", email: "student003@example.com", type: "2人小組", program: "Pop Guitar", level: "Elementary 初級", duration: 60, tutor: "Instructor A", weekday: 3, time: "21:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
-            { id: "S004", name: "Student 004", phone: "00000000", email: "student004@example.com", type: "2人小組", program: "Pop Guitar", level: "Elementary 初級", duration: 60, tutor: "Instructor A", weekday: 3, time: "21:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
-            { id: "S005", name: "Student 005", phone: "00000000", email: "student005@example.com", type: "一對一", program: "Acoustic Guitar", level: "Grade 5", duration: 45, tutor: "Instructor A", weekday: 2, time: "14:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
-            { id: "S006", name: "Student 006", phone: "00000000", email: "student006@example.com", type: "一對一", program: "Hymns Guitar", level: "Intermediate 中級", duration: 45, tutor: "Instructor A", weekday: 3, time: "13:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
-            { id: "S020", name: "Student 020", phone: "00000000", email: "student020@example.com", type: "一對一", program: "Pop Guitar", level: "Intermediate 中級", duration: 60, tutor: "Instructor B", weekday: 3, time: "18:00", effectiveMonth: "", futureWeekday: null, futureTime: "" },
-            { id: "S021", name: "Student 021", phone: "00000000", email: "student021@example.com", type: "一對一", program: "Fingerstyle Guitar", level: "Intermediate 中級", duration: 60, tutor: "Instructor B", weekday: 2, time: "15:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
-            { id: "S022", name: "Student 022", phone: "00000000", email: "student022@example.com", type: "一對一", program: "Pop Guitar", level: "Elementary 初級", duration: 45, tutor: "Instructor B", weekday: 2, time: "19:00", effectiveMonth: "", futureWeekday: null, futureTime: "" },
-            { id: "S023", name: "Student 023", phone: "00000000", email: "student023@example.com", type: "一對一", program: "Classical Guitar", level: "Grade 2", duration: 45, tutor: "Instructor B", weekday: 2, time: "19:45", effectiveMonth: "", futureWeekday: null, futureTime: "" },
-            { id: "S024", name: "Student 024", phone: "00000000", email: "student024@example.com", type: "一對一", program: "Pop Guitar", level: "Elementary 初級", duration: 45, tutor: "Instructor B", weekday: 2, time: "13:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
+            { id: "S001", name: "Student 001", phone: "00000000", email: "student001@example.com", type: "一對一", program: "Pop Guitar", level: "Intermediate 中級", duration: 45, tutor: "Instructor A", tutorLevel: "普通導師", weekday: 1, time: "21:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
+            { id: "S002", name: "Student 002", phone: "00000000", email: "student002@example.com", type: "一對一", program: "Hymns Guitar", level: "Intermediate 中級", duration: 45, tutor: "Instructor A", tutorLevel: "普通導師", weekday: 3, time: "12:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
+            { id: "S003", name: "Student 003", phone: "00000000", email: "student003@example.com", type: "2人小組", program: "Pop Guitar", level: "Elementary 初級", duration: 60, tutor: "Instructor A", tutorLevel: "普通導師", weekday: 3, time: "21:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
+            { id: "S004", name: "Student 004", phone: "00000000", email: "student004@example.com", type: "2人小組", program: "Pop Guitar", level: "Elementary 初級", duration: 60, tutor: "Instructor A", tutorLevel: "普通導師", weekday: 3, time: "21:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
+            { id: "S005", name: "Student 005", phone: "00000000", email: "student005@example.com", type: "一對一", program: "Acoustic Guitar", level: "Grade 5", duration: 45, tutor: "Instructor A", tutorLevel: "普通導師", weekday: 2, time: "14:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
+            { id: "S006", name: "Student 006", phone: "00000000", email: "student006@example.com", type: "一對一", program: "Hymns Guitar", level: "Intermediate 中級", duration: 45, tutor: "Instructor A", tutorLevel: "普通導師", weekday: 3, time: "13:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
+            { id: "S020", name: "Student 020", phone: "00000000", email: "student020@example.com", type: "一對一", program: "Pop Guitar", level: "Intermediate 中級", duration: 60, tutor: "Instructor B", tutorLevel: "資深導師", weekday: 3, time: "18:00", effectiveMonth: "", futureWeekday: null, futureTime: "" },
+            { id: "S021", name: "Student 021", phone: "00000000", email: "student021@example.com", type: "一對一", program: "Fingerstyle Guitar", level: "Intermediate 中級", duration: 60, tutor: "Instructor B", tutorLevel: "資深導師", weekday: 2, time: "15:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
+            { id: "S022", name: "Student 022", phone: "00000000", email: "student022@example.com", type: "一對一", program: "Pop Guitar", level: "Elementary 初級", duration: 45, tutor: "Instructor B", tutorLevel: "資深導師", weekday: 2, time: "19:00", effectiveMonth: "", futureWeekday: null, futureTime: "" },
+            { id: "S023", name: "Student 023", phone: "00000000", email: "student023@example.com", type: "一對一", program: "Classical Guitar", level: "Grade 2", duration: 45, tutor: "Instructor B", tutorLevel: "資深導師", weekday: 2, time: "19:45", effectiveMonth: "", futureWeekday: null, futureTime: "" },
+            { id: "S024", name: "Student 024", phone: "00000000", email: "student024@example.com", type: "一對一", program: "Pop Guitar", level: "Elementary 初級", duration: 45, tutor: "Instructor B", tutorLevel: "資深導師", weekday: 2, time: "13:30", effectiveMonth: "", futureWeekday: null, futureTime: "" },
             // ↓ 只上小組課的學生：沒有個別課（weekday null），靠 defaultGroups 的 memberIds 排課
-            { id: "S030", name: "Student 030", phone: "00000000", email: "student030@example.com", type: "一對一", program: "Music Theory", level: "Grade 5", duration: 60, tutor: "Instructor B", weekday: null, time: "", effectiveMonth: "", futureWeekday: null, futureTime: "" },
-            { id: "S031", name: "Student 031", phone: "00000000", email: "student031@example.com", type: "一對一", program: "Music Theory", level: "Grade 5", duration: 60, tutor: "Instructor B", weekday: null, time: "", effectiveMonth: "", futureWeekday: null, futureTime: "" },
-            { id: "S032", name: "Student 032", phone: "00000000", email: "student032@example.com", type: "一對一", program: "Music Theory", level: "Grade 5", duration: 60, tutor: "Instructor B", weekday: null, time: "", effectiveMonth: "", futureWeekday: null, futureTime: "" }
+            { id: "S030", name: "Student 030", phone: "00000000", email: "student030@example.com", type: "一對一", program: "Music Theory", level: "Grade 5", duration: 60, tutor: "Instructor B", tutorLevel: "資深導師", weekday: null, time: "", effectiveMonth: "", futureWeekday: null, futureTime: "" },
+            { id: "S031", name: "Student 031", phone: "00000000", email: "student031@example.com", type: "一對一", program: "Music Theory", level: "Grade 5", duration: 60, tutor: "Instructor B", tutorLevel: "資深導師", weekday: null, time: "", effectiveMonth: "", futureWeekday: null, futureTime: "" },
+            { id: "S032", name: "Student 032", phone: "00000000", email: "student032@example.com", type: "一對一", program: "Music Theory", level: "Grade 5", duration: 60, tutor: "Instructor B", tutorLevel: "資深導師", weekday: null, time: "", effectiveMonth: "", futureWeekday: null, futureTime: "" }
         ];
 
         // 小組班：一個時段一堂課、多個學生（成員可同時有自己的個別課）
         const defaultGroups = [
-            { id: "G01", name: "樂理 Grade 5 小組", program: "Music Theory", level: "Grade 5", duration: 60, tutor: "Instructor B", weekday: 6, time: "15:00", memberIds: ["S020", "S021", "S030", "S031", "S032"] }
+            { id: "G01", name: "樂理 Grade 5 小組", program: "Music Theory", level: "Grade 5", duration: 60, tutor: "Instructor B", tutorLevel: "資深導師", weekday: 6, time: "15:00", memberIds: ["S020", "S021", "S030", "S031", "S032"] }
         ];
 
         const groupCourses = [
@@ -35,7 +35,7 @@ const defaultStudents = [
                 program: "Pop Guitar Beginner",
                 level: "入門班 (每期 8 堂)",
                 duration: 75,
-                tutor: "Instructor A",
+                tutor: "Instructor A", tutorLevel: "普通導師",
                 weekday: 1,
                 time: "19:00",
                 totalLessons: 8,
@@ -50,7 +50,7 @@ const defaultStudents = [
                 program: "Grade 5 Theory Intensive",
                 level: "精讀班 (每期 12 堂)",
                 duration: 90,
-                tutor: "Instructor A",
+                tutor: "Instructor A", tutorLevel: "普通導師",
                 weekday: 6,
                 time: "15:00",
                 totalLessons: 12,

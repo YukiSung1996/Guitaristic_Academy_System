@@ -523,27 +523,36 @@
                     <input type="email" id="modalEmail" placeholder="student@example.com" class="w-full p-2 border border-slate-300 rounded-lg">
                 </div>
                 <div>
-                    <label class="block font-bold text-slate-600 mb-1">授課形式</label>
-                    <select id="modalType" class="w-full p-2 border border-slate-300 rounded-lg bg-white">
-                        <option value="一對一">一對個別授課 Individual</option>
-                        <option value="2人小組">2人小組授課</option>
-                        <option value="3人小組">3人小組授課</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block font-bold text-slate-600 mb-1">課程類別 (Program)</label>
-                    <input type="text" id="modalProgram" placeholder="Pop Guitar" class="w-full p-2 border border-slate-300 rounded-lg">
-                </div>
-                <div>
-                    <label class="block font-bold text-slate-600 mb-1">級別 (Level)</label>
-                    <input type="text" id="modalLevel" placeholder="Grade 3 / 初級" class="w-full p-2 border border-slate-300 rounded-lg">
-                </div>
-                <div>
                     <label class="block font-bold text-slate-600 mb-1">負責導師</label>
                     <select id="modalTutor" class="w-full p-2 border border-slate-300 rounded-lg bg-white">
                         <option value="Instructor A">Instructor A</option>
                         <option value="Instructor B">Instructor B</option>
                     </select>
+                </div>
+                <!-- 費率連動：導師級別 → 課程 → 級別 → 上課形式 → 時長，只列費率表（art-rate-data.js）有定價的組合；每堂學費唯讀自動帶出 -->
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">導師級別</label>
+                    <select id="modalTutorLevel" onchange="renderStudentFeeSelects()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">課程類別 (Program)</label>
+                    <select id="modalProgram" onchange="renderStudentFeeSelects()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">級別 (Level)</label>
+                    <select id="modalLevel" onchange="renderStudentFeeSelects()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">授課形式</label>
+                    <select id="modalType" onchange="renderStudentFeeSelects()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">課堂時長</label>
+                    <select id="modalDuration" onchange="renderStudentFeeSelects()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="block font-bold text-slate-600 mb-1">每堂學費（依費率表自動帶出，不可修改）</label>
+                    <div id="modalRate" class="w-full p-2 bg-slate-100 border border-slate-200 rounded-lg font-bold text-emerald-700">—</div>
                 </div>
                 <div>
                     <label class="block font-bold text-slate-600 mb-1">常規星期</label>
@@ -563,11 +572,7 @@
                     <input type="time" id="modalTime" value="16:00" class="w-full p-2 border border-slate-300 rounded-lg">
                 </div>
                 <div class="sm:col-span-2">
-                    <label class="block font-bold text-slate-600 mb-1">課堂時長 (分鐘)</label>
-                    <input type="number" id="modalDuration" value="45" class="w-full p-2 border border-slate-300 rounded-lg">
-                </div>
-                <div class="sm:col-span-2">
-                    <label class="block font-bold text-slate-600 mb-1">所屬小組（可多選；小組本身在總課表「新增小組」建立）</label>
+                    <label class="block font-bold text-slate-600 mb-1">所屬小組（可多選；小組本身在本頁「+ 新增小組」建立）</label>
                     <div id="modalGroups" class="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg min-h-[2.2rem]"></div>
                 </div>
             </div>
@@ -603,6 +608,13 @@
                 <div>
                     <label class="block font-bold text-slate-600 mb-1">負責導師</label>
                     <select id="gmTutor" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
+                </div>
+                <div>
+                    <label class="block font-bold text-slate-600 mb-1">導師級別（計費用）</label>
+                    <select id="gmTutorLevel" class="w-full p-2 border border-slate-300 rounded-lg bg-white">
+                        <option value="資深導師">資深導師</option>
+                        <option value="普通導師">普通導師</option>
+                    </select>
                 </div>
                 <div>
                     <label class="block font-bold text-slate-600 mb-1">課堂時長 (分鐘)</label>
@@ -735,8 +747,8 @@
                     <input type="time" id="qeTime" onchange="renderQuickEditPreview()" class="w-full p-2 border border-slate-300 rounded-lg">
                 </div>
                 <div>
-                    <label class="block font-bold text-slate-600 mb-1">課堂時長（分鐘）</label>
-                    <input type="number" id="qeDuration" min="15" onchange="renderQuickEditPreview()" class="w-full p-2 border border-slate-300 rounded-lg">
+                    <label class="block font-bold text-slate-600 mb-1">課堂時長</label>
+                    <select id="qeDuration" onchange="onQuickEditFeeChange()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
                 </div>
                 <div>
                     <label class="block font-bold text-slate-600 mb-1">新時間生效月份</label>
@@ -744,8 +756,9 @@
                     <p class="text-[10px] text-slate-400 mt-0.5">此月前維持舊時間（保留歷史），由此月起套用新時間。</p>
                 </div>
                 <div class="col-span-2">
-                    <label class="block font-bold text-slate-600 mb-1">級別（升班在此修改，如 Elementary 初級 → Intermediate 中級）</label>
-                    <input type="text" id="qeLevel" class="w-full p-2 border border-slate-300 rounded-lg">
+                    <label class="block font-bold text-slate-600 mb-1">級別（升班在此修改；只列費率表有定價的級別，時長選項隨之調整）</label>
+                    <select id="qeLevel" onchange="onQuickEditFeeChange()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
+                    <p id="qeRate" class="text-[11px] text-emerald-700 font-bold mt-1">每堂學費：—</p>
                 </div>
             </div>
             <div id="qePreview" class="text-xs space-y-1 max-h-52 overflow-y-auto"></div>
@@ -806,6 +819,7 @@
     <script src="lib/sendlog.js"></script>
     <script src="lib/storage.js"></script>
     <script src="lib/gcal.js"></script>
+    <script src="lib/rates.js"></script>
     <script src="state.js"></script>
     <script src="app.js"></script>
     <script src="gcal-ui.js"></script>

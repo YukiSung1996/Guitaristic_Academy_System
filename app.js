@@ -283,6 +283,7 @@
             document.getElementById('gmProgram').value = g ? (g.program || '') : '';
             document.getElementById('gmLevel').value = g ? (g.level || '') : '';
             document.getElementById('gmTutor').value = g ? g.tutor : tutors[0] || '';
+            document.getElementById('gmTutorLevel').value = g ? (g.tutorLevel || advancedTutor({ tutor: g.tutor })) : '普通導師';
             document.getElementById('gmDuration').value = g ? (g.duration || 60) : 60;
             document.getElementById('gmWeekday').value = g ? g.weekday : 6;
             document.getElementById('gmTime').value = g ? g.time : '15:00';
@@ -368,6 +369,7 @@
                 program: document.getElementById('gmProgram').value.trim(),
                 level: document.getElementById('gmLevel').value.trim(),
                 tutor: document.getElementById('gmTutor').value,
+                tutorLevel: document.getElementById('gmTutorLevel').value,
                 duration: parseInt(document.getElementById('gmDuration').value) || 60,
                 weekday: weekday, time: time,
                 memberIds: [...groupModalMembers]
@@ -412,10 +414,38 @@
             document.getElementById('qeTime').value = sched.time;
             document.getElementById('qeDuration').value = s.duration || 45;
             document.getElementById('qeLevel').value = s.level || '';
+            renderQuickEditFeeSelects();
             document.getElementById('qeEffMonth').value = monthKey;
             renderQuickEditPreview();
             document.getElementById('quickEditModal').classList.remove('hidden');
             markModalOpened('quickEditModal');
+        }
+
+        // 快速編輯的級別／時長：以學生的導師級別／課程／形式為前提，只列費率表有定價的級別與時長；舊資料組合不在表內則保留現值
+        function renderQuickEditFeeSelects() {
+            const s = studentDatabase[quickEditIdx];
+            if (!s) return;
+            const base = { tutorLevel: s.tutorLevel || advancedTutor(s), program: s.program, type: s.type };
+            const levelEl = document.getElementById('qeLevel');
+            const durEl = document.getElementById('qeDuration');
+            const curLevel = levelEl.value || s.level;
+            let levels = GACRates.optionsFor(rateTable, base, 'level');
+            if (!levels.length) levels = [s.level || ''];
+            const level = levels.indexOf(curLevel) !== -1 ? curLevel : (levels.indexOf(s.level) !== -1 ? s.level : levels[0]);
+            fillSelect(levelEl, levels, level);
+            const curDur = Number(durEl.value) || Number(s.duration);
+            let durs = GACRates.optionsFor(rateTable, Object.assign({ level }, base), 'duration');
+            if (!durs.length) durs = [Number(s.duration) || 45];
+            const duration = durs.indexOf(curDur) !== -1 ? curDur : (durs.indexOf(Number(s.duration)) !== -1 ? Number(s.duration) : durs[0]);
+            fillSelect(durEl, durs, duration, v => `${v} 分鐘`);
+            const rate = GACRates.findRate(rateTable, Object.assign({ level, duration }, base));
+            const rateEl = document.getElementById('qeRate');
+            if (rateEl) rateEl.textContent = rate !== null ? `每堂學費：$${rate.toLocaleString('en-US')}（依費率表）` : '每堂學費：—（費率表無此組合）';
+        }
+
+        function onQuickEditFeeChange() {
+            renderQuickEditFeeSelects();
+            renderQuickEditPreview();
         }
 
         function renderQuickEditInfo(s) {
@@ -1649,13 +1679,11 @@
                 document.getElementById('modalName').value = s.name;
                 document.getElementById('modalPhone').value = s.phone || '';
                 document.getElementById('modalEmail').value = s.email || '';
-                document.getElementById('modalType').value = s.type || '一對一';
-                document.getElementById('modalProgram').value = s.program || '';
-                document.getElementById('modalLevel').value = s.level || '';
                 document.getElementById('modalTutor').value = s.tutor || 'Instructor A';
                 document.getElementById('modalWeekday').value = hasIndividualSlot(s) ? s.weekday : '';
                 document.getElementById('modalTime').value = s.time || '';
-                document.getElementById('modalDuration').value = s.duration || 45;
+                // 費率欄位：舊資料的組合不在費率表時會被修正成第一個可選（儲存後即為修正值）
+                renderStudentFeeSelects({ tutorLevel: s.tutorLevel || advancedTutor(s), program: s.program, level: s.level, type: s.type, duration: s.duration });
                 renderModalGroups(s.id);
             } else {
                 title.innerHTML = `<i class="fa-solid fa-user-plus text-emerald-500"></i> 新增學生資料`;
@@ -1663,13 +1691,10 @@
                 document.getElementById('modalName').value = '';
                 document.getElementById('modalPhone').value = '';
                 document.getElementById('modalEmail').value = '';
-                document.getElementById('modalType').value = '一對一';
-                document.getElementById('modalProgram').value = '';
-                document.getElementById('modalLevel').value = '';
                 document.getElementById('modalTutor').value = 'Instructor A';
                 document.getElementById('modalWeekday').value = 1;
                 document.getElementById('modalTime').value = '16:00';
-                document.getElementById('modalDuration').value = 45;
+                renderStudentFeeSelects({ tutorLevel: '普通導師', program: 'Pop Guitar', level: 'Elementary 初級', type: '一對一', duration: 45 });
                 renderModalGroups(null);
             }
 
@@ -1687,6 +1712,38 @@
                 || '<span class="text-slate-400 italic text-[11px]">尚無小組班（本頁右上「+ 新增小組」）</span>';
         }
 
+        // ===== 學生表單費率連動：導師級別 → 課程 → 級別 → 上課形式 → 時長，只能選費率表有定價的組合；每堂學費唯讀自動帶出 =====
+        // 資料來源 art-rate-data.js rateTable；查價／連動邏輯在 lib/rates.js（GACRates）。價格不落學生記錄，每次按組合查表。
+        const FEE_SELECT_IDS = { tutorLevel: 'modalTutorLevel', program: 'modalProgram', level: 'modalLevel', type: 'modalType', duration: 'modalDuration' };
+
+        function fillSelect(el, values, current, labelFn) {
+            el.innerHTML = values.map(v => `<option value="${escapeHtml(String(v))}">${escapeHtml(labelFn ? labelFn(v) : String(v))}</option>`).join('');
+            el.value = String(current);
+        }
+
+        function readFeeSelection() {
+            const sel = {};
+            Object.keys(FEE_SELECT_IDS).forEach(k => {
+                const el = document.getElementById(FEE_SELECT_IDS[k]);
+                sel[k] = el ? el.value : '';
+            });
+            return sel;
+        }
+
+        // initial 省略時讀取目前下拉值（onchange 路徑）；上游改變後下游自動修正為合法值
+        function renderStudentFeeSelects(initial) {
+            const res = GACRates.resolve(rateTable, initial || readFeeSelection());
+            Object.keys(FEE_SELECT_IDS).forEach(k => {
+                const el = document.getElementById(FEE_SELECT_IDS[k]);
+                if (!el) return;
+                const labelFn = k === 'type' ? GACRates.studentTypeToClassType : (k === 'duration' ? (v => `${v} 分鐘`) : null);
+                fillSelect(el, res.options[k], res.sel[k], labelFn);
+            });
+            const rateEl = document.getElementById('modalRate');
+            if (rateEl) rateEl.textContent = res.rate !== null ? `$${Number(res.rate).toLocaleString('en-US')} / 堂` : '—（費率表無此組合）';
+            return res;
+        }
+
         function closeStudentModal() {
             document.getElementById('studentModal').classList.add('hidden');
         }
@@ -1701,6 +1758,7 @@
             const program = document.getElementById('modalProgram').value.trim();
             const level = document.getElementById('modalLevel').value.trim();
             const tutor = document.getElementById('modalTutor').value;
+            const tutorLevel = document.getElementById('modalTutorLevel').value;
             const weekdayRaw = document.getElementById('modalWeekday').value;
             const weekday = weekdayRaw === '' ? null : parseInt(weekdayRaw); // null＝無個別課（只上小組）
             const time = weekday === null ? '' : document.getElementById('modalTime').value;
@@ -1715,6 +1773,10 @@
                 alert('請填寫上課時間，或把常規星期選為「無個別課（只上小組）」！');
                 return;
             }
+            if (GACRates.findRate(rateTable, { tutorLevel, program, level, type, duration }) === null) {
+                alert('費率表沒有這個組合（導師級別／課程／級別／授課形式／時長）的定價，請重新選擇。');
+                return;
+            }
 
             if (editIdx >= 0) {
                 // Update Existing Student
@@ -1727,6 +1789,7 @@
                 student.program = program;
                 student.level = level;
                 student.tutor = tutor;
+                student.tutorLevel = tutorLevel;
                 student.weekday = weekday;
                 student.time = time;
                 student.duration = duration;
@@ -1735,7 +1798,7 @@
             } else {
                 // Add New Student
                 studentDatabase.push({
-                    id, name, phone, email, type, program, level, duration, tutor, weekday, time,
+                    id, name, phone, email, type, program, level, duration, tutor, tutorLevel, weekday, time,
                     effectiveMonth: "", futureWeekday: null, futureTime: ""
                 });
 

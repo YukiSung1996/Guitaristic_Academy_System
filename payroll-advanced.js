@@ -6,8 +6,10 @@ const advancedPayrollState = {
   events: []
 };
 
+// 導師級別（計費用）：學生／小組／課堂記錄自帶 tutorLevel；缺少時回退示範對應（Instructor B＝資深）
 function advancedTutor(student) {
-  return student.tutor === 'Instructor B' ? '資深導師' : '普通導師';
+  if (student && student.tutorLevel) return student.tutorLevel;
+  return student && student.tutor === 'Instructor B' ? '資深導師' : '普通導師';
 }
 
 function advancedGrade(student) {
@@ -16,8 +18,7 @@ function advancedGrade(student) {
 }
 
 function advancedClassType(student) {
-  if (student.type === '一對一') return '一對一個別授課 Individual';
-  return /[3-9]人/.test(String(student.type || '')) ? '3-4人小組授課' : '2人小組授課';
+  return GACRates.studentTypeToClassType(student.type);
 }
 
 function advancedRate(student) {
@@ -30,7 +31,7 @@ function advancedRate(student) {
 
 // 單堂費率：按該堂課自身的 program/level/形式/時長/導師查表（小組課與個別課各自的價）
 function rateForLesson(l) {
-  return advancedRate({ program: l.program, level: l.level, type: l.classType, duration: l.duration, tutor: l.tutor });
+  return advancedRate({ program: l.program, level: l.level, type: l.classType, duration: l.duration, tutor: l.tutor, tutorLevel: l.tutorLevel });
 }
 
 function advancedMoney(value) {
@@ -110,7 +111,7 @@ function advancedImportStudents() {
     rows.push({id: student.id, name: student.name, tutor: student.tutor, rate: advancedRate(student), lessons: n});
   });
   (typeof groupClasses !== 'undefined' ? groupClasses : []).forEach(g => {
-    const gRate = advancedRate({ program: g.program, level: g.level, type: (g.memberIds || []).length + '人小組', duration: g.duration, tutor: g.tutor });
+    const gRate = advancedRate({ program: g.program, level: g.level, type: (g.memberIds || []).length + '人小組', duration: g.duration, tutor: g.tutor, tutorLevel: g.tutorLevel });
     (g.memberIds || []).forEach(sid => {
       const stu = studentDatabase.find(s => s.id === sid);
       if (!stu) return;
