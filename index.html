@@ -142,9 +142,18 @@
                     <i class="fa-solid fa-chart-line text-rose-500"></i>
                     <span>數據分析</span>
                 </button>
+                <button onclick="switchTab('historyTab')" id="tab_historyTab" class="tab-btn py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-clock-rotate-left text-slate-500"></i>
+                    <span>歷史記錄</span>
+                </button>
                 <button onclick="switchTab('settingsTab')" id="tab_settingsTab" class="tab-btn py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
                     <i class="fa-solid fa-gear text-slate-500"></i>
                     <span>設定</span>
+                </button>
+                <!-- 撤銷上一步：回到最近一次操作之前的狀態（學生／小組／課表／發送紀錄），詳見「歷史記錄」 -->
+                <button onclick="undoLastAction()" id="undoBtn" disabled title="沒有可撤銷的操作" class="ml-auto self-center shrink-0 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap">
+                    <i class="fa-solid fa-rotate-left"></i> 撤銷
+                    <span id="undoCount" class="hidden min-w-[18px] h-[18px] px-1 rounded-full bg-sky-500 text-white text-[10px] font-bold flex items-center justify-center">0</span>
                 </button>
             </div>
         </div>
@@ -530,6 +539,25 @@
                         <tbody id="anaTutorTable" class="divide-y divide-slate-100"></tbody>
                     </table>
                 </div>
+            </div>
+        </section>
+
+        <!-- TAB: 歷史記錄與撤銷（每個會改資料的操作前自動拍快照；lib/history.js） -->
+        <section id="historyTab" class="tab-content hidden space-y-6">
+            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                            <i class="fa-solid fa-clock-rotate-left text-slate-500"></i> 操作歷史記錄與還原
+                        </h2>
+                        <p class="text-xs text-slate-500 mt-0.5">每次新增／編輯／刪除學生與小組、生成課表、出席／請假／補堂／改期、批量確認、繳費與發送紀錄變更、清月／清場、同步 GCal 套用之前，系統自動保存一份快照（學生／小組／課表／發送紀錄；設定與薪酬調整不含）。「還原至此之前」會先把現狀備份一筆，因此還原本身也可撤銷。頂欄「撤銷」＝回到最新一筆之前。</p>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs">
+                        <span id="historySize" class="text-slate-500"></span>
+                        <button onclick="clearHistory()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition">清空記錄</button>
+                    </div>
+                </div>
+                <div id="historyList" class="space-y-2 max-h-[600px] overflow-y-auto pr-1"></div>
             </div>
         </section>
 
@@ -963,6 +991,7 @@
     <script src="lib/analytics.js"></script>
     <script src="lib/sendlog.js"></script>
     <script src="lib/storage.js"></script>
+    <script src="lib/history.js"></script>
     <script src="lib/gcal.js"></script>
     <script src="lib/rates.js"></script>
     <script src="state.js"></script>

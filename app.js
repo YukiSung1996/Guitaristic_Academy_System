@@ -6,6 +6,7 @@
             lessonsByMonth = gacStore.loadLessons();
             sendLog = gacStore.loadSendlog();
             appSettings = gacStore.loadSettings();
+            actionHistory = gacStore.loadHistory();
             if (gacStore.errors.length) {
                 alert('⚠️ 部分本機資料載入失敗（已回退預設值）：\n' + gacStore.errors.join('\n'));
             }
@@ -26,6 +27,7 @@
             renderStudentTable();
             rebuildMonthContext();
             renderAll();
+            renderHistoryUI();
             installModalClose();
         };
 
@@ -116,6 +118,97 @@
             gacStore.saveSendlog(sendLog);
         }
 
+        // ===== 操作歷史與撤銷：每個會改資料的操作「之前」拍快照（學生／小組／課表／發送紀錄），最新在前、上限 20 筆 =====
+        // 設定、薪酬調整、GCal token 不入快照。操作在拍照後失敗／取消時呼叫 dropLastHistory() 把那筆丟掉。
+        // 還原前會先自動備份現狀，因此還原本身也能撤銷。
+        const HISTORY_CAP = 20;
+        const STATUS_LABEL = { SCHEDULED: '已排課', ATTENDED: '已上課', LEAVE: '請假', NOSHOW: '缺席' };
+
+        function historyState() {
+            return { students: studentDatabase, groups: groupClasses, lessons: lessonsByMonth, sendlog: sendLog };
+        }
+
+        function pushHistory(description) {
+            const snap = GACHistory.makeSnapshot(historyState(), description, new Date().toISOString());
+            actionHistory = GACHistory.push(actionHistory, snap, HISTORY_CAP);
+            const kept = gacStore.saveHistory(actionHistory);
+            if (kept < actionHistory.length) actionHistory = actionHistory.slice(0, kept); // 配額不足：只留寫得進去的最新幾筆
+            renderHistoryUI();
+        }
+
+        function dropLastHistory() {
+            actionHistory = actionHistory.slice(1);
+            gacStore.saveHistory(actionHistory);
+            renderHistoryUI();
+        }
+
+        function applySnapshot(snap) {
+            const st = GACHistory.restore(snap);
+            if (st.students) studentDatabase = st.students;
+            if (st.groups) groupClasses = st.groups;
+            if (st.lessons) lessonsByMonth = st.lessons;
+            if (st.sendlog) sendLog = st.sendlog;
+            gacStore.saveStudents(studentDatabase);
+            persistGroups();
+            gacStore.saveLessons(lessonsByMonth);
+            persistSendlog();
+            renderBatchCheckboxes();
+            renderStudentTable();
+            rebuildMonthContext();
+            renderAll();
+        }
+
+        function undoLastAction() {
+            if (!actionHistory.length) { showToast('ℹ️ 沒有可撤銷的操作'); return; }
+            const snap = actionHistory[0];
+            if (!confirm(`撤銷上一步「${snap.description}」？\n會回到該操作之前的狀態（學生／小組／課表／發送紀錄）。`)) return;
+            actionHistory = actionHistory.slice(1);
+            gacStore.saveHistory(actionHistory);
+            applySnapshot(snap);
+            renderHistoryUI();
+            showToast(`↶ 已撤銷：${snap.description}`);
+        }
+
+        function restoreSnapshot(id) {
+            const snap = actionHistory.find(h => h.id === id);
+            if (!snap) return;
+            if (!confirm(`還原到「${snap.description}」之前的狀態？\n目前狀態會先自動備份一筆，可再撤銷。`)) return;
+            pushHistory(`還原前自動備份（還原至：${snap.description}）`);
+            applySnapshot(snap);
+            showToast(`✅ 已還原至「${snap.description}」之前`);
+        }
+
+        function clearHistory() {
+            if (!actionHistory.length) return;
+            if (!confirm('清空全部歷史快照？之後將無法撤銷此前的操作。')) return;
+            actionHistory = [];
+            gacStore.saveHistory(actionHistory);
+            renderHistoryUI();
+        }
+
+        function renderHistoryUI() {
+            const btn = document.getElementById('undoBtn');
+            if (btn) {
+                btn.disabled = !actionHistory.length;
+                btn.title = actionHistory.length ? `撤銷上一步：${actionHistory[0].description}` : '沒有可撤銷的操作';
+            }
+            const cnt = document.getElementById('undoCount');
+            if (cnt) { cnt.textContent = String(actionHistory.length); cnt.classList.toggle('hidden', !actionHistory.length); }
+            const list = document.getElementById('historyList');
+            if (!list) return;
+            const sizeEl = document.getElementById('historySize');
+            if (sizeEl) sizeEl.textContent = `${actionHistory.length} 筆 · ${GACHistory.formatSize(GACHistory.totalSize(actionHistory))}（上限 ${HISTORY_CAP} 筆）`;
+            list.innerHTML = actionHistory.length ? actionHistory.map((h, i) => `
+                <div class="flex items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                    <div class="min-w-0">
+                        <div class="font-bold text-slate-800 truncate">${i === 0 ? '<span class="text-[10px] px-1 py-0.5 rounded bg-sky-100 text-sky-700 mr-1">最新</span>' : ''}${escapeHtml(h.description)}</div>
+                        <div class="text-slate-400 text-[11px]">${String(h.timestamp).replace('T', ' ').slice(0, 16)} · ${GACHistory.formatSize(h.size)}</div>
+                    </div>
+                    <button onclick="restoreSnapshot('${h.id}')" class="shrink-0 px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg font-bold flex items-center gap-1.5" title="回到這個操作之前的狀態（現狀先自動備份）"><i class="fa-solid fa-clock-rotate-left"></i> 還原至此之前</button>
+                </div>`).join('')
+                : '<div class="text-center py-8 text-slate-400 text-xs">📭 尚無歷史快照。新增／編輯／刪除學生與小組、生成課表、出席／請假／補堂、繳費與發送紀錄變更前都會自動保存一筆。</div>';
+        }
+
         // 課堂變更後同步發送紀錄（persistLessons 每次自動呼叫，任何路徑的取消/還原都被涵蓋）：
         // 1) 孤兒清理：課已刪除（如補堂被取消）的 TODO 條目移除；SENT 保留作歷史
         // 2) 失效清理：請假已被還原 → 其 TODO 請假確認不應再發（SENT 同樣保留）
@@ -175,6 +268,8 @@
                 renderPaymentTab();
             } else if (tabId === 'analyticsTab') {
                 renderAnalytics();
+            } else if (tabId === 'historyTab') {
+                renderHistoryUI();
             } else if (tabId === 'settingsTab') {
                 loadSettingsForm();
             }
@@ -380,6 +475,7 @@
                 weekday: weekday, time: time,
                 memberIds: [...groupModalMembers]
             };
+            pushHistory(`${gid ? '編輯' : '新增'}小組：${name}`);
             let g = gid ? findGroup(gid) : null;
             if (g) Object.assign(g, data);
             else { g = Object.assign({ id: nextGroupId() }, data); groupClasses.push(g); }
@@ -397,6 +493,7 @@
             const g = findGroup(gid);
             if (!g) return;
             if (!confirm(`刪除小組「${g.name}」？\n成員的學生資料不受影響；已生成的小組課下次「生成」時仍為「已排課」者會被移除，已有狀態的課保留。`)) return;
+            pushHistory(`刪除小組：${g.name}`);
             groupClasses = groupClasses.filter(x => x.id !== gid);
             persistGroups();
             renderBatchCheckboxes();
@@ -500,6 +597,7 @@
             const s = studentDatabase[quickEditIdx];
             if (!s || !s.effectiveMonth) return;
             if (!confirm(`清除「由 ${s.effectiveMonth} 起改為 逢 ${getWeekdayName(s.futureWeekday)} ${s.futureTime}」的排定變更？\n（基準時間 逢 ${getWeekdayName(s.weekday)} ${s.time} 不變；已生成的課表需重新生成才會倒回）`)) return;
+            pushHistory(`清除排定變更：${s.name}`);
             s.effectiveMonth = '';
             s.futureWeekday = null;
             s.futureTime = '';
@@ -525,6 +623,7 @@
             const timeChanged = weekday !== Number(cur.weekday) || time !== cur.time;
             const levelChanged = level && level !== s.level;
             const oldLevel = s.level;
+            if (timeChanged || levelChanged || Number(s.duration) !== duration) pushHistory(`快速編輯：${s.name}`);
             const changes = [];
             if (timeChanged) {
                 // 二次變更且舊變更生效得更早 → 舊 future 晉升為基準，保住 [舊生效月, 新生效月) 的正確時間。
@@ -593,6 +692,7 @@
 
             const selectedStudents = [...checkboxes].map(chk => studentDatabase[parseInt(chk.value)]).filter(Boolean);
             const selectedGroups = [...groupBoxes].map(chk => findGroup(chk.value)).filter(Boolean);
+            pushHistory(`生成課表：${monthKey}（${selectedStudents.length} 位學生、${selectedGroups.length} 個小組）`);
             const generated = [];
             selectedStudents.forEach(s => generated.push(...GACSchedule.generateMonthLessons(s, monthKey)));
             selectedGroups.forEach(g => {
@@ -1078,6 +1178,7 @@
             const ids = String(idsCsv || '').split(',').filter(Boolean);
             if (!ids.length) return;
             const label = to === 'ATTENDED' ? '已上課' : to;
+            pushHistory(`全組標記「${label}」（${ids.length} 位）`);
             let n = 0;
             ids.forEach(id => { const r = GACLessonState.markStatus(lessonsByMonth, id, to); if (r.ok) n++; });
             persistLessons();
@@ -1093,6 +1194,7 @@
             if (!first) return;
             const names = ids.map(id => { const f = GACLessonState.findLesson(lessonsByMonth, id); return f ? f.lesson.studentName : id; }).join('、');
             if (!confirm(`導師請假（TL）：${first.lesson.date} ${first.lesson.time} 全組 ${ids.length} 位成員一併標記請假？\n${names}`)) return;
+            pushHistory(`全組導師請假 TL：${first.lesson.date} ${first.lesson.time}（${ids.length} 位）`);
             const done = [];
             ids.forEach(id => {
                 const r = GACLessonState.markStatus(lessonsByMonth, id, 'LEAVE', { leaveType: 'TL' });
@@ -1101,7 +1203,7 @@
                     done.push(id);
                 }
             });
-            if (!done.length) return;
+            if (!done.length) { dropLastHistory(); return; }
             persistLessons();
             renderAll();
             openMsgModal('leave', done);
@@ -1189,17 +1291,19 @@
 
         // 狀態機操作（lib/lessonState.js）：所有非法轉換由狀態機攔截並提示
         function markLessonStatus(lessonId, to) {
+            const f0 = GACLessonState.findLesson(lessonsByMonth, lessonId);
+            pushHistory(`課堂 → ${STATUS_LABEL[to] || to}：${f0 ? f0.lesson.studentName + ' ' + f0.lesson.date : lessonId}`);
             let res = GACLessonState.markStatus(lessonsByMonth, lessonId, to);
             if (!res.ok && res.code === 'HAS_MAKEUP') {
                 // 一鍵倒回：還原「已排補堂的請假」時級聯取消補堂（原本硬攔截，補堂在別的月份很難找）
                 const mk = GACLessonState.findLesson(lessonsByMonth, res.makeupLessonId);
                 const mkInfo = mk ? `${mk.lesson.date} ${mk.lesson.time}` : res.makeupLessonId;
-                if (!confirm(`此請假已排補堂（${mkInfo}）。\n要「一併取消該補堂」並還原為已排課嗎？`)) return;
+                if (!confirm(`此請假已排補堂（${mkInfo}）。\n要「一併取消該補堂」並還原為已排課嗎？`)) { dropLastHistory(); return; }
                 const c = GACLessonState.cancelMakeup(lessonsByMonth, res.makeupLessonId);
-                if (!c.ok) { alert('⚠️ ' + c.error); return; }
+                if (!c.ok) { dropLastHistory(); alert('⚠️ ' + c.error); return; }
                 res = GACLessonState.markStatus(lessonsByMonth, lessonId, to);
             }
-            if (!res.ok) { alert('⚠️ ' + res.error); return; }
+            if (!res.ok) { dropLastHistory(); alert('⚠️ ' + res.error); return; }
             persistLessons();
             renderAll();
         }
@@ -1219,6 +1323,7 @@
             const nameList = targets.map(t => `${t.studentName} (${t.studentId})`).join('、');
             const groupNote = targets.length > 1 ? `\n\n※ 小組課：導師請假對全組生效，將同時為以上 ${targets.length} 位學生請假。` : '';
             if (!confirm(`確定請假？\n學生：${nameList}\n課堂：${me.date} ${me.time}\n假別：${getLeaveText(leaveType)}${groupNote}`)) return;
+            pushHistory(`請假 ${leaveType}：${nameList} ${me.date}`);
             const done = [];
             targets.forEach(t => {
                 const res = GACLessonState.markStatus(lessonsByMonth, t.lessonId, 'LEAVE', { leaveType });
@@ -1227,7 +1332,7 @@
                     done.push(t.lessonId);
                 } else alert(`⚠️ ${t.studentName}：${res.error}`);
             });
-            if (!done.length) return;
+            if (!done.length) { dropLastHistory(); return; }
             persistLessons();
             renderAll();
             openMsgModal('leave', done);
@@ -1257,15 +1362,16 @@
                     if (!confirm(`⚠️ 小組補堂時段不一致：\n${lines}\n\n導師請假（TL）的小組補堂通常應排在同一時段。\n仍要把 ${origin.studentName} 排在 ${date} ${time} 嗎？\n（建議按「取消」，改排成同一時段）`)) return;
                 }
             }
+            pushHistory(`安排補堂：${origin.studentName} ${date} ${time}`);
             let res = GACLessonState.scheduleMakeup(lessonsByMonth, lessonId, { date, time });
             if (!res.ok && res.code === 'DUPLICATE_MAKEUP') {
                 // 防重複：已有補堂 → 顯示現有補堂資訊，讓用戶選擇保留或取消重排
                 const ex = res.existingMakeup;
                 const info = ex ? `${ex.date} ${ex.time}` : '（資料缺失）';
-                if (!confirm(`此請假已排過補堂：${info}\n\n確定要「取消原補堂並重排」到 ${date} ${time} 嗎？\n（按「取消」則保留原補堂，放棄本次操作）`)) return;
+                if (!confirm(`此請假已排過補堂：${info}\n\n確定要「取消原補堂並重排」到 ${date} ${time} 嗎？\n（按「取消」則保留原補堂，放棄本次操作）`)) { dropLastHistory(); return; }
                 res = GACLessonState.scheduleMakeup(lessonsByMonth, lessonId, { date, time }, { replaceExisting: true });
             }
-            if (!res.ok) { alert('⚠️ ' + res.error); return; }
+            if (!res.ok) { dropLastHistory(); alert('⚠️ ' + res.error); return; }
             const scheduledIds = [res.makeup.lessonId];
             GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', res.makeup, new Date().toISOString());
             if (!manualMode) {
@@ -1305,8 +1411,9 @@
                 }
             }
             if (!confirm('確定要取消此補堂？其對應的請假課將回到待補堂池。' + extra)) return;
+            pushHistory(`取消補堂：${f ? f.lesson.studentName + ' ' + f.lesson.date : makeupLessonId}`);
             const res = GACLessonState.cancelMakeup(lessonsByMonth, makeupLessonId);
-            if (!res.ok) { alert('⚠️ ' + res.error); return; }
+            if (!res.ok) { dropLastHistory(); alert('⚠️ ' + res.error); return; }
             persistLessons();
             renderAll();
         }
@@ -1333,16 +1440,17 @@
             const leaveType = v.indexOf('LEAVE') === 0 ? v.split('_')[1] : '';
             const label = (sel.options && sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].text) || v;
             const l = found.lesson;
+            pushHistory(`手動改狀態：${l.studentName} ${l.date} → ${label}`);
             let res = GACLessonState.forceStatus(lessonsByMonth, lessonId, to, { leaveType });
             if (!res.ok && res.code === 'HAS_MAKEUP') {
                 const mk = GACLessonState.findLesson(lessonsByMonth, res.makeupLessonId);
                 const mkInfo = mk ? `${mk.lesson.date} ${mk.lesson.time}` : res.makeupLessonId;
-                if (!confirm(`此請假已排補堂（${mkInfo}）。\n要「一併取消該補堂」再改狀態嗎？`)) return;
+                if (!confirm(`此請假已排補堂（${mkInfo}）。\n要「一併取消該補堂」再改狀態嗎？`)) { dropLastHistory(); return; }
                 const c = GACLessonState.cancelMakeup(lessonsByMonth, res.makeupLessonId);
-                if (!c.ok) { alert('⚠️ ' + c.error); return; }
+                if (!c.ok) { dropLastHistory(); alert('⚠️ ' + c.error); return; }
                 res = GACLessonState.forceStatus(lessonsByMonth, lessonId, to, { leaveType });
             }
-            if (!res.ok) { alert('⚠️ ' + res.error); return; }
+            if (!res.ok) { dropLastHistory(); alert('⚠️ ' + res.error); return; }
             persistLessons();
             renderAll();
         }
@@ -1461,6 +1569,7 @@
                     if (!confirm(`⚠️ 改期後小組補堂時段將不一致：\n${lines}\n\n仍要繼續嗎？`)) return;
                 }
             }
+            pushHistory(`補堂改期：${origin.studentName} → ${date} ${time}`);
             const moved = [];
             targets.forEach(t => {
                 const r = GACLessonState.scheduleMakeup(lessonsByMonth, t.lessonId, { date, time }, { replaceExisting: true });
@@ -1470,7 +1579,7 @@
                     moved.push(r.makeup.lessonId);
                 } else alert(`⚠️ ${t.studentName}：${r.error}`);
             });
-            if (!moved.length) return;
+            if (!moved.length) { dropLastHistory(); return; }
             closeMoveModal();
             persistLessons();
             renderAll();
@@ -1519,6 +1628,7 @@
             const f = scheduleFilterValues();
             const fLabel = scheduleFilterLabel();
             if (!confirm(`將${label}（${from} ~ ${to}）${fLabel ? '、' + fLabel : ''}範圍內、今天（含）以前仍是「已排課」的課堂全部標記為「已上課」？`)) return;
+            pushHistory(`批量確認出席：${label}${fLabel ? '、' + fLabel : ''}`);
             const res = GACLessonState.confirmScheduledInRange(lessonsByMonth, from, to, { maxDate: today, filter: l => lessonMatchesScheduleFilters(l, f) });
             persistLessons();
             renderAll();
@@ -1665,6 +1775,7 @@
         function deleteStudentFromDb(index) {
             const s = studentDatabase[index];
             if (confirm(`確定要刪除學生「${s.name} (${s.id})」嗎？`)) {
+                pushHistory(`刪除學生：${s.name}（${s.id}）`);
                 studentDatabase.splice(index, 1);
                 groupClasses.forEach(g => { g.memberIds = (g.memberIds || []).filter(m => m !== s.id); });
                 persistGroups();
@@ -1788,6 +1899,7 @@
                 return;
             }
 
+            pushHistory(`${editIdx >= 0 ? '編輯' : '新增'}學生：${name}（${id}）`);
             if (editIdx >= 0) {
                 // Update Existing Student
                 const student = studentDatabase[editIdx];
@@ -1920,10 +2032,12 @@
         function applyImportedPayload(res) {
             if (res.legacy) {
                 if (!confirm('偵測到舊版備份（僅含學生名單）。\n將取代現有學生名單；課表／發送紀錄／設定不受影響。繼續？')) return false;
+                pushHistory('還原備份：舊版學生名單');
                 studentDatabase = res.students;
                 gacStore.saveStudents(studentDatabase);
             } else {
                 if (!confirm('全量還原將「覆蓋」現有的：學生名單、課表（含狀態與補堂鏈）、發送紀錄、設定。\n建議先按「全量備份」保存現狀。確定還原？')) return false;
+                pushHistory('還原備份：全量');
                 studentDatabase = res.students;
                 groupClasses = res.groups || [];
                 lessonsByMonth = res.lessons;
@@ -1960,6 +2074,7 @@
 
         function resetToDefaultData() {
             if (confirm('確定要恢復預設學生名單（含預設小組班）嗎？')) {
+                pushHistory('恢復預設學生名單與小組班');
                 studentDatabase = [...defaultStudents];
                 groupClasses = (typeof defaultGroups !== 'undefined' ? defaultGroups : []).map(g => Object.assign({}, g, { memberIds: (g.memberIds || []).slice() }));
                 persistGroups();
@@ -2362,6 +2477,9 @@
         }
 
         function payUpdate(key, fields) {
+            const e0 = sendLog[key];
+            if (!e0) return;
+            pushHistory(`繳費記錄：${e0.studentName || e0.studentId} ${e0.month}`);
             GACSendlog.setPayment(sendLog, key, fields, localDateStr(new Date()));
             persistSendlog();
             renderPaymentTab();
@@ -2370,6 +2488,9 @@
 
         // 「已發送」勾選＝發送中心的手動已發；取消＝移回待發（同一條目，兩頁同步）
         function paySetSent(key, on) {
+            const e0 = sendLog[key];
+            if (!e0) return;
+            pushHistory(`學費單${on ? '標記已發' : '移回待發'}：${e0.studentName || e0.studentId} ${e0.month}`);
             if (on) GACSendlog.markSent(sendLog, key, 'manual', new Date().toISOString());
             else GACSendlog.markUnsent(sendLog, key);
             persistSendlog();
@@ -2449,18 +2570,27 @@
         }
 
         function sendSetAmount(key, value) {
+            const e0 = sendLog[key];
+            if (!e0) return;
+            pushHistory(`手改學費金額：${e0.studentName || e0.studentId} ${e0.month} → $${value}`);
             GACSendlog.setAmount(sendLog, key, value);
             persistSendlog();
             renderSendCenter();
         }
 
         function sendMarkSent(key, method) {
+            const e0 = sendLog[key];
+            if (!e0) return;
+            pushHistory(`標記已發：${e0.studentName || e0.studentId}（${(SEND_TYPE_META[e0.type] || { label: e0.type }).label}）`);
             GACSendlog.markSent(sendLog, key, method, new Date().toISOString());
             persistSendlog();
             renderSendCenter();
         }
 
         function sendMarkUnsent(key) {
+            const e0 = sendLog[key];
+            if (!e0) return;
+            pushHistory(`移回待發：${e0.studentName || e0.studentId}（${(SEND_TYPE_META[e0.type] || { label: e0.type }).label}）`);
             GACSendlog.markUnsent(sendLog, key);
             persistSendlog();
             renderSendCenter();
@@ -2482,6 +2612,7 @@
             //   confirm（預設）＝標記已開啟＋切回頁面時詢問；badge＝只標記；auto＝點開即移已發送（可移回撤銷）
             const mode = appSettings.waSentMode || 'confirm';
             if (mode === 'auto') {
+                pushHistory(`標記已發（WhatsApp 自動）：${e.studentName || e.studentId}`);
                 GACSendlog.markSent(sendLog, key, 'wa_link', new Date().toISOString());
             } else {
                 GACSendlog.markWaOpened(sendLog, key, new Date().toISOString());
@@ -2508,6 +2639,7 @@
             if (!confirm(`批量刪除${what}：共 ${hits.length} 筆` +
                 (sentCount ? `（含 ${sentCount} 筆已發送的紀錄）` : '') +
                 `。\n只刪發送中心的條目，不影響課表或其他資料。不可還原，確定刪除？`)) return;
+            pushHistory(`批量刪除自定義：${what}（${hits.length} 筆）`);
             hits.forEach(e => { delete sendLog[e.key]; });
             persistSendlog();
             renderSendCenter();
@@ -2519,6 +2651,7 @@
             const e = sendLog[key];
             if (!e || e.type !== 'CUSTOM') return;
             if (!confirm(`刪除 ${e.studentName || e.studentId} 的自定義條目？\n（只刪除此發送紀錄，不影響其他資料）`)) return;
+            pushHistory(`刪除自定義條目：${e.studentName || e.studentId}`);
             delete sendLog[key];
             persistSendlog();
             renderSendCenter();
@@ -2573,6 +2706,7 @@
                 .filter(Boolean);
             if (!chosen.length) { alert('請至少勾選一位學生！'); return; }
             // batchId 用建立時刻，同月多次群發互不覆蓋；{name}/{id} 在此按學生解析定稿
+            pushHistory(`建立群發：${title}（${chosen.length} 位）`);
             const now = new Date();
             const batchId = now.toISOString().replace(/\D/g, '').slice(0, 14);
             chosen.forEach(s => {
@@ -2607,6 +2741,7 @@
                 if (!e || e.status !== 'TODO') return;
                 const meta = SEND_TYPE_META[e.type] || { label: e.type };
                 if (confirm(`剛才開啟的 WhatsApp——${e.studentName || e.studentId} 的「${meta.label}」訊息——已經發出了嗎？\n\n確定＝移到「已發送」\n取消＝留在待發送（條目已標記「已開啟」，可稍後手動標記）`)) {
+                    pushHistory(`標記已發（WhatsApp 確認）：${e.studentName || e.studentId}`);
                     GACSendlog.markSent(sendLog, key, 'wa_link', new Date().toISOString());
                     changed = true;
                 }

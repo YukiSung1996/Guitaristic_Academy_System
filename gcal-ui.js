@@ -329,6 +329,7 @@ function applyGcalSyncInner() {
     const done = [];
     const errs = [];
     const nowIso = new Date().toISOString();
+    pushHistory('同步 GCal：套用勾選項目'); // 本地側變更前拍快照（遠端 GCal 變更不在快照內）
 
     // —— 本地側（同步執行，逐項套用；小組節對全體成員生效）——
     const membersOf = (item) => item.lessons || (item.cell && item.cell.lessons) || [item.lesson];
@@ -476,6 +477,7 @@ function clearCurrentMonthData() {
         `3) 發送中心：清掉歸屬 ${monthKey} 的全部條目（含已發送）\n\n` +
         '其他月份、學生名單、設定與薪酬資料不受影響。建議先按「全量備份 (JSON)」。\n\n確定清空本月？')) return;
 
+    pushHistory(`清空本月：${monthKey}`);
     const wipeMonthLocal = () => {
         const res = GACLessonState.clearMonth(lessonsByMonth, monthKey);
         GACSendlog.purgeMonth(sendLog, monthKey, res.removed.map(l => l.lessonId));
@@ -551,6 +553,7 @@ function resetAllScheduleData() {
         `2) 本地：清空全部課堂（${months.length ? months.join('、') : '目前無資料'}）與發送紀錄——不可還原！\n\n` +
         '學生名單與設定會保留。建議先按頂部「全量備份 (JSON)」保存現狀。\n\n確定清場？')) return;
 
+    pushHistory('全部清場');
     const wipeLocal = () => {
         lessonsByMonth = {};
         Object.keys(sendLog).forEach(k => delete sendLog[k]);
