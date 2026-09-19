@@ -1414,6 +1414,32 @@
                 `;
                 tbody.appendChild(tr);
             });
+            renderGroupTable();
+        }
+
+        // 學生名單庫下方的小組班清單（建立／編輯在 groupModal）
+        function renderGroupTable() {
+            const tbody = document.getElementById('groupTableBody');
+            if (!tbody) return;
+            const cnt = document.getElementById('groupCount');
+            if (cnt) cnt.textContent = groupClasses.length;
+            tbody.innerHTML = groupClasses.map(g => {
+                const members = (g.memberIds || []).map(id => {
+                    const s = studentDatabase.find(x => x.id === id);
+                    return s ? `${s.name}` : `<span class="text-rose-500" title="學生資料已不存在">${id}</span>`;
+                });
+                return `<tr class="hover:bg-slate-50 transition">
+                    <td class="p-3 font-bold text-slate-800">${g.id}</td>
+                    <td class="p-3 font-semibold text-indigo-800"><i class="fa-solid fa-user-group text-indigo-400 mr-1"></i>${escapeHtml(g.name)}</td>
+                    <td class="p-3">${escapeHtml(g.program || '')} ${g.level ? '- ' + escapeHtml(g.level) : ''}</td>
+                    <td class="p-3 font-medium text-sky-700">${g.tutor}</td>
+                    <td class="p-3 font-medium">逢 ${getWeekdayName(g.weekday)} ${g.time}（${g.duration || 60} 分鐘）</td>
+                    <td class="p-3"><span class="font-bold">${members.length}</span> 人：${members.join('、') || '<span class="text-amber-600">尚無成員</span>'}</td>
+                    <td class="p-3 text-right whitespace-nowrap">
+                        <button onclick="openGroupModal('${g.id}')" class="text-amber-600 hover:text-amber-800 px-2 py-1 font-semibold hover:bg-amber-50 rounded-lg transition" title="編輯成員／時段／導師"><i class="fa-solid fa-pen-to-square"></i> 編輯</button>
+                    </td>
+                </tr>`;
+            }).join('') || '<tr><td colspan="7" class="p-3 text-slate-400 italic">尚無小組班，按上方「+ 新增小組」建立。</td></tr>';
         }
 
         // 原「前往單獨排堂」跳第二頁籤；頁籤合併後直接開快速編輯彈窗

@@ -191,7 +191,6 @@
                     </div>
 
                     <div class="flex items-center gap-2">
-                        <button onclick="openGroupModal(null)" class="px-3 py-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-xl text-xs font-bold transition flex items-center gap-1" title="新增小組班：一個時段一堂課、多位學生（成員可同時有自己的個別課）"><i class="fa-solid fa-user-group"></i> 新增小組</button>
                         <button onclick="selectAllStudents(true)" class="flex-1 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition">全選</button>
                         <button onclick="selectAllStudents(false)" class="flex-1 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition">全不選</button>
                         <button onclick="generateMasterSchedule()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition shadow-md flex items-center justify-center gap-1">
@@ -283,9 +282,14 @@
                         <p class="text-xs text-slate-500">即時新增、編輯、搜尋電話與電郵，並直接辦理排堂。</p>
                     </div>
 
-                    <button onclick="openStudentModal()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
-                        <i class="fa-solid fa-user-plus"></i> + 新增學生
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button onclick="openGroupModal(null)" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5" title="新增小組班：一個時段一堂課、多位學生（成員可同時有自己的個別課）">
+                            <i class="fa-solid fa-user-group"></i> + 新增小組
+                        </button>
+                        <button onclick="openStudentModal()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
+                            <i class="fa-solid fa-user-plus"></i> + 新增學生
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Database Search Input -->
@@ -314,6 +318,22 @@
                             <!-- Table rows rendered via JS -->
                         </tbody>
                     </table>
+                </div>
+
+                <!-- 小組班清單：一個時段一堂課多位學生；成員在弹窗勾選 -->
+                <div class="pt-3 border-t border-slate-100 space-y-2">
+                    <h3 class="text-sm font-bold text-slate-700 flex items-center gap-2">
+                        <i class="fa-solid fa-user-group text-indigo-500"></i> 小組班（<span id="groupCount">0</span>）
+                        <span class="text-xs font-normal text-slate-400">學生可同時有個別課並屬多個小組；勾選成員、改時段在「編輯」裡</span>
+                    </h3>
+                    <div class="overflow-x-auto rounded-xl border border-slate-200">
+                        <table class="w-full text-left text-xs text-slate-700">
+                            <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider">
+                                <tr><th class="p-3">小組 ID</th><th class="p-3">名稱</th><th class="p-3">課程 / 級別</th><th class="p-3">導師</th><th class="p-3">常規時段</th><th class="p-3">成員</th><th class="p-3 text-right">操作</th></tr>
+                            </thead>
+                            <tbody id="groupTableBody" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </section>
@@ -467,7 +487,7 @@
 
     <!-- Add / Edit Student Modal Dialog -->
     <div id="studentModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in duration-150">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto overscroll-contain animate-in fade-in zoom-in duration-150">
             <div class="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h3 id="modalTitle" class="font-bold text-slate-800 text-base flex items-center gap-2">
                     <i class="fa-solid fa-user-plus text-emerald-500"></i> 新增學生資料
