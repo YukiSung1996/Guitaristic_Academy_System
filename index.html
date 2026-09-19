@@ -6,6 +6,8 @@
     <title>Demo Music Academy - 排堂與學生管理系統 v2.1 Pro</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 數據分析圖表；離線或被擋時頁面退回文字長條，不影響其他功能 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Google Fonts Inter -->
@@ -135,6 +137,10 @@
                 <button onclick="switchTab('paymentTab')" id="tab_paymentTab" class="tab-btn py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
                     <i class="fa-solid fa-sack-dollar text-purple-600"></i>
                     <span>出席與繳費</span>
+                </button>
+                <button onclick="switchTab('analyticsTab')" id="tab_analyticsTab" class="tab-btn py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
+                    <i class="fa-solid fa-chart-line text-rose-500"></i>
+                    <span>數據分析</span>
                 </button>
                 <button onclick="switchTab('settingsTab')" id="tab_settingsTab" class="tab-btn py-3.5 px-3 border-b-2 border-transparent transition flex items-center gap-2 whitespace-nowrap">
                     <i class="fa-solid fa-gear text-slate-500"></i>
@@ -461,6 +467,67 @@
                             </tr>
                         </thead>
                         <tbody id="paymentTableBody" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB: 數據分析（純計算 lib/analytics.js；圖表 Chart.js，離線退回文字長條） -->
+        <section id="analyticsTab" class="tab-content hidden space-y-6">
+            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                            <i class="fa-solid fa-chart-line text-rose-500"></i> 數據分析
+                        </h2>
+                        <p class="text-xs text-slate-500 mt-0.5">以該月已生成的課堂為準。「已上課課值」與「導師節數」口徑同高級薪酬（可計薪＝已上課＋缺席視設定；小組同時段算一節）；學費應收／已收來自出席與繳費。</p>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs">
+                        <input type="month" id="anaMonth" onchange="renderAnalytics()" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:outline-none">
+                        <button onclick="renderAnalytics()" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-bold transition flex items-center gap-1.5"><i class="fa-solid fa-rotate"></i> 重新整理</button>
+                    </div>
+                </div>
+                <div id="anaEmpty" class="hidden p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500">📭 此月尚未生成課表。到「全校時間表」選月份、勾學生後按「生成」，再回來看數據。</div>
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80" title="出席與繳費頁該月學費條目合計"><div class="text-[11px] text-slate-500 font-semibold">學費應收</div><div id="anaKpiTuitionDue" class="text-lg font-bold text-purple-700">—</div></div>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80"><div class="text-[11px] text-slate-500 font-semibold">學費已收</div><div id="anaKpiTuitionPaid" class="text-lg font-bold text-emerald-700">—</div></div>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80" title="可計薪堂 Σ 每堂學費（與薪酬課程總額同口徑）"><div class="text-[11px] text-slate-500 font-semibold">已上課課值</div><div id="anaKpiRevenue" class="text-lg font-bold text-amber-700">—</div></div>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80" title="小組同時段算一節"><div class="text-[11px] text-slate-500 font-semibold">導師節數</div><div id="anaKpiSessions" class="text-lg font-bold text-sky-700">—</div></div>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80"><div class="text-[11px] text-slate-500 font-semibold">導師工時（小時）</div><div id="anaKpiHours" class="text-lg font-bold text-sky-700">—</div></div>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80" title="已上課 ÷（已上課＋缺席）"><div class="text-[11px] text-slate-500 font-semibold">出席率</div><div id="anaKpiAttendance" class="text-lg font-bold text-emerald-700">—</div></div>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80" title="缺席 ÷（已上課＋缺席）"><div class="text-[11px] text-slate-500 font-semibold">缺席率</div><div id="anaKpiNoShow" class="text-lg font-bold text-purple-700">—</div></div>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80" title="請假 ÷ 常規堂數"><div class="text-[11px] text-slate-500 font-semibold">請假率</div><div id="anaKpiLeave" class="text-lg font-bold text-rose-700">—</div></div>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80" title="已請假未排補堂"><div class="text-[11px] text-slate-500 font-semibold">待補堂</div><div id="anaKpiPending" class="text-lg font-bold text-amber-700">—</div></div>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80"><div class="text-[11px] text-slate-500 font-semibold">未確認（仍為已排課）</div><div id="anaKpiUnconfirmed" class="text-lg font-bold text-slate-700">—</div></div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div class="bg-white border border-slate-200 rounded-xl p-4">
+                            <h4 class="text-xs font-bold text-slate-600 mb-2">各導師節數</h4>
+                            <canvas id="chartSessionsByTutor" height="220"></canvas>
+                            <div id="chartSessionsByTutorFallback" class="hidden text-xs space-y-1"></div>
+                        </div>
+                        <div class="bg-white border border-slate-200 rounded-xl p-4">
+                            <h4 class="text-xs font-bold text-slate-600 mb-2">各導師已上課課值</h4>
+                            <canvas id="chartRevenueByTutor" height="220"></canvas>
+                            <div id="chartRevenueByTutorFallback" class="hidden text-xs space-y-1"></div>
+                        </div>
+                        <div class="bg-white border border-slate-200 rounded-xl p-4">
+                            <h4 class="text-xs font-bold text-slate-600 mb-2">課堂狀態分佈</h4>
+                            <canvas id="chartStatus" height="220"></canvas>
+                            <div id="chartStatusFallback" class="hidden text-xs space-y-1"></div>
+                        </div>
+                        <div class="bg-white border border-slate-200 rounded-xl p-4">
+                            <h4 class="text-xs font-bold text-slate-600 mb-2">各課程堂數</h4>
+                            <canvas id="chartByProgram" height="220"></canvas>
+                            <div id="chartByProgramFallback" class="hidden text-xs space-y-1"></div>
+                        </div>
+                </div>
+                <div class="overflow-x-auto rounded-xl border border-slate-200">
+                    <table class="w-full text-left text-xs text-slate-700">
+                        <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
+                            <tr><th class="p-2">導師</th><th class="p-2 text-center">節數</th><th class="p-2 text-center">工時（小時）</th><th class="p-2 text-center">人次</th><th class="p-2 text-center">學生數</th><th class="p-2 text-right">已上課課值</th></tr>
+                        </thead>
+                        <tbody id="anaTutorTable" class="divide-y divide-slate-100"></tbody>
                     </table>
                 </div>
             </div>
@@ -893,6 +960,7 @@
     <script src="lib/schedule.js"></script>
     <script src="lib/lessonState.js"></script>
     <script src="lib/payroll.js"></script>
+    <script src="lib/analytics.js"></script>
     <script src="lib/sendlog.js"></script>
     <script src="lib/storage.js"></script>
     <script src="lib/gcal.js"></script>

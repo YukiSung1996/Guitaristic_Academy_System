@@ -14,6 +14,7 @@
             document.getElementById('batchMonth').value = monthStr;
             document.getElementById('sendMonth').value = monthStr;
             document.getElementById('payMonth').value = monthStr;
+            document.getElementById('anaMonth').value = monthStr;
 
             // 切回頁面時詢問 WhatsApp 是否已發（waSentMode='confirm'）；focus 與 visibilitychange
             // 皆註冊，處理器以清空佇列保證幂等
@@ -172,6 +173,8 @@
                 renderSendCenter();
             } else if (tabId === 'paymentTab') {
                 renderPaymentTab();
+            } else if (tabId === 'analyticsTab') {
+                renderAnalytics();
             } else if (tabId === 'settingsTab') {
                 loadSettingsForm();
             }
@@ -664,6 +667,9 @@
             renderMasterCalendarView();
             renderSendCenter();
             renderPaymentTab();
+            // 數據分析只在頁籤可見時重算（圖表重建有成本）
+            const anaTab = document.getElementById('analyticsTab');
+            if (anaTab && !anaTab.classList.contains('hidden')) renderAnalytics();
         }
 
         // 兩種視圖：清單（操作）＋月曆（總覽）。原「週曆」已移除——清單按週次過濾＋月曆已完全覆蓋其用途。
@@ -2167,6 +2173,83 @@
                     <div class="bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-700 whitespace-pre-wrap">${msg}</div>
                     <div class="flex items-center gap-1.5 flex-wrap">${actions}</div>
                 </div>`;
+        }
+
+        // ===== 數據分析：月份 KPI／各導師／各課程／狀態分佈（純計算 lib/analytics.js；Chart.js 圖表，離線退回文字長條）=====
+        let analyticsCharts = {};
+
+        function analyticsMonth() {
+            const el = document.getElementById('anaMonth');
+            return (el && el.value) || currentMonthKey() || localDateStr(new Date()).slice(0, 7);
+        }
+
+        function renderAnalytics() {
+            const table = document.getElementById('anaTutorTable');
+            if (!table) return;
+            const monthKey = analyticsMonth();
+            const st = GACAnalytics.monthStats(lessonsByMonth, monthKey, {
+                rateFn: rateForLesson,
+                payNoShow: !appSettings || appSettings.payNoShow !== false,
+                tuitionEntries: GACSendlog.tuitionByMonth(sendLog, monthKey)
+            });
+            const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            const pctText = v => (v === null ? '—' : v + '%');
+            setText('anaKpiTuitionDue', tuitionMoney(st.tuitionDue));
+            setText('anaKpiTuitionPaid', tuitionMoney(st.tuitionPaid));
+            setText('anaKpiRevenue', tuitionMoney(st.revenue));
+            setText('anaKpiSessions', String(st.sessions));
+            setText('anaKpiHours', String(st.tutorHours));
+            setText('anaKpiAttendance', pctText(st.attendanceRate));
+            setText('anaKpiNoShow', pctText(st.noShowRate));
+            setText('anaKpiLeave', pctText(st.leaveRate));
+            setText('anaKpiPending', String(st.pendingMakeups));
+            setText('anaKpiUnconfirmed', String(st.unconfirmed));
+            const empty = document.getElementById('anaEmpty');
+            if (empty) empty.classList.toggle('hidden', st.lessons > 0);
+            table.innerHTML = st.byTutor.length
+                ? st.byTutor.map(t => `<tr><td class="p-2 font-bold">${escapeHtml(t.tutor)}</td><td class="p-2 text-center">${t.sessions}</td><td class="p-2 text-center">${t.hours}</td><td class="p-2 text-center">${t.lessons}</td><td class="p-2 text-center">${t.students}</td><td class="p-2 text-right font-semibold">${tuitionMoney(t.revenue)}</td></tr>`).join('')
+                : '<tr><td colspan="6" class="p-4 text-center text-slate-400">此月沒有課堂</td></tr>';
+            renderAnalyticsCharts(st);
+            return st;
+        }
+
+        function renderAnalyticsCharts(st) {
+            const tutors = st.byTutor.map(t => t.tutor);
+            const specs = [
+                { id: 'chartSessionsByTutor', type: 'bar', labels: tutors, data: st.byTutor.map(t => t.sessions), label: '節數', colors: '#0ea5e9' },
+                { id: 'chartRevenueByTutor', type: 'bar', labels: tutors, data: st.byTutor.map(t => t.revenue), label: '課值', colors: '#f59e0b' },
+                { id: 'chartStatus', type: 'doughnut', labels: ['已上課', '已排課', '請假', '缺席'],
+                  data: [st.status.ATTENDED, st.status.SCHEDULED, st.status.LEAVE, st.status.NOSHOW], colors: ['#10b981', '#0ea5e9', '#f43f5e', '#a855f7'] },
+                { id: 'chartByProgram', type: 'bar', labels: st.byProgram.map(p => p.program), data: st.byProgram.map(p => p.lessons), label: '堂數', colors: '#8b5cf6' }
+            ];
+            const hasChart = typeof Chart !== 'undefined';
+            specs.forEach(spec => {
+                const canvas = document.getElementById(spec.id);
+                const fallback = document.getElementById(spec.id + 'Fallback');
+                if (!canvas) return;
+                if (!hasChart) {
+                    // CDN 未載入（離線／被擋）：文字長條
+                    canvas.classList.add('hidden');
+                    if (!fallback) return;
+                    fallback.classList.remove('hidden');
+                    const max = Math.max(1, ...spec.data);
+                    fallback.innerHTML = spec.labels.map((lb, i) => {
+                        const color = Array.isArray(spec.colors) ? spec.colors[i % spec.colors.length] : spec.colors;
+                        return `<div class="flex items-center gap-2"><span class="w-28 truncate text-slate-600">${escapeHtml(String(lb))}</span><div class="flex-1 bg-slate-100 rounded h-3"><div class="h-3 rounded" style="width:${Math.round(spec.data[i] / max * 100)}%;background:${color}"></div></div><span class="w-16 text-right font-semibold">${spec.data[i]}</span></div>`;
+                    }).join('') || '<div class="text-slate-400">—</div>';
+                    return;
+                }
+                canvas.classList.remove('hidden');
+                if (fallback) fallback.classList.add('hidden');
+                if (analyticsCharts[spec.id]) analyticsCharts[spec.id].destroy();
+                analyticsCharts[spec.id] = new Chart(canvas, {
+                    type: spec.type,
+                    data: { labels: spec.labels, datasets: [{ label: spec.label || '', data: spec.data, backgroundColor: spec.colors }] },
+                    options: spec.type === 'doughnut'
+                        ? { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } } }
+                        : { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+                });
+            });
         }
 
         // ===== 出席與繳費：每位學生一行（本月堂數／出席／應收／學費單已發／繳費記錄）=====
