@@ -719,6 +719,24 @@
             renderMasterCalendarView();
         }
 
+        // ===== 月曆 → 清單：點色塊跳到該節卡片（切到含該日的週次、切清單視圖、捲動並高亮 2 秒）=====
+        // 卡片 id 由課節 key 轉成安全字元（小組 key 含「|」與中文）；一對一的 key 就是 lessonId
+        function cardDomId(key) { return 'card_' + String(key).replace(/[^A-Za-z0-9_-]/g, '_'); }
+
+        function jumpToLessonCard(cardId, dateStr) {
+            const weekSelect = document.getElementById('weekSelect');
+            if (weekSelect && dateStr && monthWeeksData) {
+                const idx = monthWeeksData.findIndex(w => w.some(d => d && d.dateString === dateStr));
+                weekSelect.value = idx >= 0 ? String(idx) : 'ALL';
+            }
+            switchView('list');
+            const el = document.getElementById(cardId);
+            if (!el) return;
+            if (el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('ring-2', 'ring-sky-400');
+            setTimeout(() => el.classList.remove('ring-2', 'ring-sky-400'), 2000);
+        }
+
         function buildMonthWeeksData(year, month) {
             monthWeeksData = [];
             const firstDayIndex = new Date(year, month - 1, 1).getDay();
@@ -918,7 +936,7 @@
             if (isClash) bgClass = "bg-amber-50 border-l-4 border-amber-500 ring-1 ring-amber-300";
 
             return `
-                <div class="${bgClass} p-3 rounded-r-xl border-y border-r border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                <div id="${cardDomId(lesson.lessonId)}" class="${bgClass} p-3 rounded-r-xl border-y border-r border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
                     <div class="space-y-1 flex-1">
                         <div class="flex items-center gap-1.5 flex-wrap">
                             ${lessonBadges(lesson, isClash)}
@@ -967,7 +985,7 @@
                     <div class="flex items-center gap-1.5 flex-wrap self-end md:self-center md:justify-end">${lessonButtons(l)}</div>
                 </div>`).join('');
             return `
-                <div class="${bgClass} p-3 rounded-r-xl border-y border-r border-slate-200 text-xs space-y-1">
+                <div id="${cardDomId(cell.key)}" class="${bgClass} p-3 rounded-r-xl border-y border-r border-slate-200 text-xs space-y-1">
                     <div class="flex flex-col md:flex-row md:items-center justify-between gap-2">
                         <div class="flex items-center gap-1.5 flex-wrap">
                             <span class="bg-indigo-600 text-white font-bold px-1.5 py-0.5 rounded text-[10px]"><i class="fa-solid fa-user-group"></i> 小組課 ×${n}</span>
@@ -1070,13 +1088,13 @@
                     if (cell.isGroup) {
                         const names = cell.lessons.map(l => l.studentName).join('、');
                         gridHtml += `
-                        <div class="${pillStyle} text-[10px] p-1 rounded leading-tight truncate" title="${lesson.time} ${lesson.program} 小組 ×${cell.lessons.length}（${lesson.tutor}）：${names}">
+                        <div onclick="jumpToLessonCard('${cardDomId(cell.key)}', '${lesson.date}')" class="${pillStyle} text-[10px] p-1 rounded leading-tight truncate cursor-pointer hover:ring-2 hover:ring-sky-400" title="點擊到清單操作 — ${lesson.time} ${lesson.program} 小組 ×${cell.lessons.length}（${lesson.tutor}）：${names}">
                             <strong>${lesson.time}</strong> 👥 ${lesson.program} ×${cell.lessons.length}
                         </div>`;
                         return;
                     }
                     gridHtml += `
-                        <div class="${pillStyle} text-[10px] p-1 rounded leading-tight truncate" title="${lesson.time} ${lesson.studentName} (${lesson.tutor}) | Phone: ${lesson.phone}">
+                        <div onclick="jumpToLessonCard('${cardDomId(cell.key)}', '${lesson.date}')" class="${pillStyle} text-[10px] p-1 rounded leading-tight truncate cursor-pointer hover:ring-2 hover:ring-sky-400" title="點擊到清單操作 — ${lesson.time} ${lesson.studentName} (${lesson.tutor}) | Phone: ${lesson.phone}">
                             <strong>${lesson.time}</strong> ${lesson.isMakeup ? 'MU ' : ''}${lesson.studentName}
                         </div>
                     `;
