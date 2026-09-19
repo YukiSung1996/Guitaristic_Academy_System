@@ -9,3 +9,6 @@ Thumbs.db
 # Local runtime exports
 *.ics
 *.json
+
+# Local-only reference material (never pushed)
+zz_requests/
