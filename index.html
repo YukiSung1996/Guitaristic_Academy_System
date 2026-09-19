@@ -238,12 +238,21 @@
                     </div>
 
                     <!-- Week Filter Dropdown (Visible for List & Week views) -->
-                    <div id="weekSelectContainer" class="flex items-center gap-2 text-xs">
-                        <span class="text-slate-500 font-medium">選擇週次：</span>
+                    <div id="weekSelectContainer" class="flex flex-wrap items-center gap-2 text-xs">
+                        <!-- 導師／學生（小組班）篩選：清單與月曆同時套用；批量確認出席亦以此範圍為準 -->
+                        <span class="text-slate-500 font-medium">導師：</span>
+                        <select id="schedTutorFilter" onchange="onScheduleFilterChange()" class="px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
+                            <option value="ALL">所有導師</option>
+                        </select>
+                        <span class="text-slate-500 font-medium">學生：</span>
+                        <select id="schedStudentFilter" onchange="onScheduleFilterChange()" class="px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium max-w-[13rem]">
+                            <option value="ALL">所有學生</option>
+                        </select>
+                        <span class="text-slate-500 font-medium">週次：</span>
                         <select id="weekSelect" onchange="onWeekSelectChange()" class="px-2.5 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
                             <option value="ALL">所有週次 (全月)</option>
                         </select>
-                        <button onclick="batchConfirmWeek()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold transition flex items-center gap-1" title="把所選週次（或全月）內、今天（含）以前仍是「已排課」的課堂批量標記為已上課">
+                        <button onclick="batchConfirmWeek()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold transition flex items-center gap-1" title="把所選週次（或全月）、導師／學生篩選範圍內，今天（含）以前仍是「已排課」的課堂批量標記為已上課">
                             <i class="fa-solid fa-check-double"></i> 批量確認出席
                         </button>
                         <button id="manualModeBtn" onclick="toggleManualMode()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-bold transition flex items-center gap-1" title="手動模式：每行出現直接改狀態控件（跳過流程限制、不觸發小組聯動），用於修正誤操作。每次載入預設關閉。">

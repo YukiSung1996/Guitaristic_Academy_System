@@ -316,3 +316,14 @@ test('清空整月 clearMonth：整桶刪除、跨月補堂級聯、鏈式補堂
     // 12 月不受影響
     assert.strictEqual(buckets['2026-12'].length, decCount);
 });
+
+test('B-filter: confirmScheduledInRange 的 filter 述詞只確認符合者（UI 導師／學生篩選範圍）', () => {
+    const mk = (id, sid, tutor, date) => ({ lessonId: id, studentId: sid, tutor, date, status: 'SCHEDULED', leaveType: '' });
+    const buckets = { '2026-09': [mk('a', 'S001', 'A', '2026-09-01'), mk('b', 'S002', 'B', '2026-09-01'), mk('c', 'S003', 'A', '2026-09-02')] };
+    const res = LS.confirmScheduledInRange(buckets, '2026-09-01', '2026-09-30', { maxDate: '2026-09-15', filter: l => l.tutor === 'A' });
+    assert.strictEqual(res.count, 2);
+    assert.strictEqual(buckets['2026-09'][1].status, 'SCHEDULED', '導師 B 的課不動');
+    assert.strictEqual(buckets['2026-09'][0].status, 'ATTENDED');
+    const none = LS.confirmScheduledInRange(buckets, '2026-09-01', '2026-09-30', { maxDate: '2026-09-15', filter: () => false });
+    assert.strictEqual(none.count, 0);
+});

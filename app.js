@@ -622,6 +622,7 @@
         }
 
         function renderAll() {
+            rebuildScheduleFilters();
             updateDashboardKPIs();
             renderGroupWarnings();
             renderPendingPool();
@@ -653,6 +654,69 @@
 
         function onWeekSelectChange() {
             if (currentViewMode === 'list') renderMasterScheduleList();
+        }
+
+        // ===== 總課表篩選：導師／學生（或小組班）——清單與月曆同時套用；批量確認出席亦以此範圍為準 =====
+        function rebuildScheduleFilters() {
+            const tSel = document.getElementById('schedTutorFilter');
+            const sSel = document.getElementById('schedStudentFilter');
+            if (!tSel || !sSel) return;
+            const prevT = tSel.value || 'ALL', prevS = sSel.value || 'ALL';
+            const tutors = [...new Set(studentDatabase.map(s => s.tutor).concat(groupClasses.map(g => g.tutor)))].filter(Boolean).sort();
+            tSel.innerHTML = '<option value="ALL">所有導師</option>' +
+                tutors.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+            tSel.value = tutors.includes(prevT) ? prevT : 'ALL';
+            const students = studentDatabase.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+            sSel.innerHTML = '<option value="ALL">所有學生</option>' +
+                students.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.id)} ${escapeHtml(s.name)}</option>`).join('') +
+                (groupClasses.length
+                    ? '<optgroup label="小組班">' + groupClasses.map(g => `<option value="G:${escapeHtml(g.id)}">👥 ${escapeHtml(g.name)}</option>`).join('') + '</optgroup>'
+                    : '');
+            const validS = prevS === 'ALL' || students.some(s => s.id === prevS)
+                || (prevS.startsWith('G:') && groupClasses.some(g => 'G:' + g.id === prevS));
+            sSel.value = validS ? prevS : 'ALL';
+        }
+
+        function scheduleFilterValues() {
+            const t = document.getElementById('schedTutorFilter');
+            const s = document.getElementById('schedStudentFilter');
+            return { tutor: (t && t.value) || 'ALL', student: (s && s.value) || 'ALL' };
+        }
+
+        // 單堂是否落在篩選範圍（批量確認用：選某學生只算該生自己的課；選小組班算該組全體）
+        function lessonMatchesScheduleFilters(l, f) {
+            f = f || scheduleFilterValues();
+            if (f.tutor !== 'ALL' && l.tutor !== f.tutor) return false;
+            if (f.student === 'ALL') return true;
+            return f.student.startsWith('G:') ? l.groupId === f.student.slice(2) : l.studentId === f.student;
+        }
+
+        // 課節是否落在篩選範圍（清單／月曆用：選某學生時整節小組卡保留，看得到同組其他成員）
+        function filterCellsByScheduleFilters(cells) {
+            const f = scheduleFilterValues();
+            if (f.tutor === 'ALL' && f.student === 'ALL') return cells;
+            return cells.filter(cell => cell.lessons.some(l => lessonMatchesScheduleFilters(l, f)));
+        }
+
+        function scheduleFilterLabel() {
+            const f = scheduleFilterValues();
+            const parts = [];
+            if (f.tutor !== 'ALL') parts.push(`導師 ${f.tutor}`);
+            if (f.student !== 'ALL') {
+                if (f.student.startsWith('G:')) {
+                    const g = findGroup(f.student.slice(2));
+                    parts.push(`小組 ${g ? g.name : f.student.slice(2)}`);
+                } else {
+                    const s = studentDatabase.find(x => x.id === f.student);
+                    parts.push(`學生 ${s ? s.name : f.student}`);
+                }
+            }
+            return parts.join('、');
+        }
+
+        function onScheduleFilterChange() {
+            renderMasterScheduleList();
+            renderMasterCalendarView();
         }
 
         function buildMonthWeeksData(year, month) {
@@ -708,15 +772,16 @@
                 filtered = filtered.filter(l => l.date >= startDateStr && l.date <= endDateStr);
             }
 
-            if (filtered.length === 0) {
+            // 按課節渲染：小組課同時段一張卡（成員列在卡內）；一對一每堂一張卡；再套導師／學生篩選
+            const cells = filterCellsByScheduleFilters(GACSchedule.groupByCell(filtered));
+            if (cells.length === 0) {
                 listContainer.innerHTML = allLessons.length === 0
                     ? `<div class="text-center py-8 text-slate-400 text-xs">📭 ${monthKey} 尚未生成課表。勾選學生後按「生成」；重複生成採 merge 模式，不會覆蓋已有狀態。</div>`
                     : `<div class="text-center py-8 text-slate-400 text-xs">⚠️ 所選範圍內無排定課堂。</div>`;
                 return;
             }
 
-            // 按課節渲染：小組課同時段一張卡（成員列在卡內）；一對一每堂一張卡
-            listContainer.innerHTML = GACSchedule.groupByCell(filtered).map(cell =>
+            listContainer.innerHTML = cells.map(cell =>
                 cell.isGroup ? renderGroupCard(cell, clashIds) : renderLessonRow(cell.lessons[0], clashIds.has(cell.lessons[0].lessonId))
             ).join('');
         }
@@ -998,7 +1063,7 @@
                 `;
 
                 // 小組課一個時段一個色塊（×人數，成員列在 title）
-                GACSchedule.groupByCell(dayLessons).forEach(cell => {
+                filterCellsByScheduleFilters(GACSchedule.groupByCell(dayLessons)).forEach(cell => {
                     const lesson = cell.lessons[0];
                     const anyClash = cell.lessons.some(l => clashIds.has(l.lessonId));
                     const pillStyle = lessonPillClass(lesson, anyClash);
@@ -1362,8 +1427,10 @@
                 label = `第 ${parseInt(weekVal) + 1} 週`;
             }
             const today = localDateStr(new Date());
-            if (!confirm(`將${label}（${from} ~ ${to}）內、今天（含）以前仍是「已排課」的課堂全部標記為「已上課」？`)) return;
-            const res = GACLessonState.confirmScheduledInRange(lessonsByMonth, from, to, { maxDate: today });
+            const f = scheduleFilterValues();
+            const fLabel = scheduleFilterLabel();
+            if (!confirm(`將${label}（${from} ~ ${to}）${fLabel ? '、' + fLabel : ''}範圍內、今天（含）以前仍是「已排課」的課堂全部標記為「已上課」？`)) return;
+            const res = GACLessonState.confirmScheduledInRange(lessonsByMonth, from, to, { maxDate: today, filter: l => lessonMatchesScheduleFilters(l, f) });
             persistLessons();
             renderAll();
             showToast(res.count > 0
