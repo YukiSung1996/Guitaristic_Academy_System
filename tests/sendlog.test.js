@@ -139,3 +139,45 @@ test('WhatsApp 開啟標記：markWaOpened 只記時間不改狀態；移回待�
     assert.strictEqual(log[e.key].waOpenedAt, null, '移回待發 → 重發流程從頭開始');
     assert.strictEqual(SL.markWaOpened(log, 'NOPE'), null);
 });
+
+test('C9: tuitionItems 按報讀項目分組（個別一項＋每小組一項）；時段一致給星期/起訖/每堂費用；upsert 存明細', () => {
+    const mk = (id, date, time, extra) => Object.assign({ lessonId: id, studentId: 'S020', date, time, duration: 60,
+        program: 'Pop Guitar', level: 'Intermediate 中級', classType: '一對一', tutor: 'Instructor B' }, extra || {});
+    const grp = { groupId: 'G01', groupName: '樂理 Grade 5 小組', program: 'Music Theory', level: 'Grade 5', classType: '5人小組' };
+    const lessons = [
+        mk('c', '2026-12-05', '15:00', grp), mk('a', '2026-12-02', '18:00'),
+        mk('d', '2026-12-12', '15:00', grp), mk('b', '2026-12-09', '18:00')
+    ];
+    const items = SL.tuitionItems(lessons, l => (l.groupId ? 180 : 450));
+    assert.strictEqual(items.length, 2, '個別一項＋小組一項');
+    assert.strictEqual(items[0].groupId, null, '個別課排前');
+    assert.deepStrictEqual(items[0].dates, ['2026-12-02', '2026-12-09'], '日期已排序');
+    assert.strictEqual(items[0].weekday, 3);
+    assert.strictEqual(items[0].time, '18:00');
+    assert.strictEqual(items[0].endTime, '19:00');
+    assert.strictEqual(items[0].rate, 450);
+    assert.strictEqual(items[0].subtotal, 900);
+    assert.strictEqual(items[1].groupId, 'G01');
+    assert.strictEqual(items[1].groupName, '樂理 Grade 5 小組');
+    assert.strictEqual(items[1].weekday, 6);
+    assert.strictEqual(items[1].classType, '5人小組');
+    assert.strictEqual(items[1].subtotal, 360);
+    // 時段不一（其中一堂改時）→ weekday/time 留空、times 逐堂保留
+    const moved = SL.tuitionItems([mk('a', '2026-12-02', '18:00'), mk('b', '2026-12-10', '20:00')], () => 450);
+    assert.strictEqual(moved[0].weekday, null);
+    assert.strictEqual(moved[0].time, '');
+    assert.deepStrictEqual(moved[0].times, ['18:00', '20:00']);
+    // 跨午夜起訖不爆
+    assert.strictEqual(SL.tuitionItems([mk('z', '2026-12-02', '23:30')], () => 1)[0].endTime, '00:30');
+    // upsertTuition：建立存明細；TODO 隨生成刷新；缺省 items 保留既有；SENT 不動
+    const log = {};
+    SL.upsertTuition(log, Object.assign(params(), { items }));
+    assert.strictEqual(log['TUITION:S001:2026-09'].items.length, 2);
+    SL.upsertTuition(log, params());
+    assert.strictEqual(log['TUITION:S001:2026-09'].items.length, 2, '未傳 items → 保留');
+    SL.upsertTuition(log, Object.assign(params(), { items: items.slice(0, 1) }));
+    assert.strictEqual(log['TUITION:S001:2026-09'].items.length, 1, 'TODO 條目明細隨生成刷新');
+    SL.markSent(log, 'TUITION:S001:2026-09', 'manual');
+    SL.upsertTuition(log, Object.assign(params(), { items }));
+    assert.strictEqual(log['TUITION:S001:2026-09'].items.length, 1, 'SENT 不改');
+});

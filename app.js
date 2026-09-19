@@ -589,7 +589,8 @@
                 GACSendlog.upsertTuition(sendLog, {
                     studentId: s.id, studentName: s.name, phone: s.phone, monthKey: monthKey,
                     amount: mine.reduce((sum, l) => sum + rateForLesson(l), 0), count: mine.length,
-                    dates: mine.map(l => l.date).sort(), now: tuitionNow
+                    dates: mine.map(l => l.date).sort(), now: tuitionNow,
+                    items: GACSendlog.tuitionItems(mine, rateForLesson)
                 });
             });
             persistLessons();
@@ -1790,22 +1791,68 @@
             return `已確認 ${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 (${getWeekdayName(d.getDay())}) ${lesson.time} 進行補課。`;
         }
 
-        // 學費訊息模板（文案常量，方便修改）
-        const TUITION_MSG_TEMPLATE = '【{month} 學費】{name} 同學本月共 {n} 堂課（{dates}），學費共 {amount}。請於月內繳付，謝謝！';
+        // 學費訊息模板（文案常量，方便修改；{month}=yyyy年m月、{m}=月份數字、{name}=學生）
+        // 每個報讀項目（個別課／各小組）一段明細：日期 逢星期／時間起訖／級別／上課形式／導師／每堂學費／堂數／合共；
+        // 多於一項時最後加「總額」。金額以條目的 amount 為準（手改過的金額照樣反映在訊息裡）。
+        const TUITION_MSG = {
+            header: '【學費】\n你好，以下是 {month} 的學費單：\n\n【{m}月份上堂詳情及學費】\n學生：{name}',
+            total: '總額：{amount}',
+            footer: '＊以上收費均以每位學生計算'
+        };
+
+        function tuitionMoney(n) { return '$' + Number(n || 0).toLocaleString('en-US'); }
+
+        // 上課形式顯示名：學生資料的「一對一」「2人小組」／小組課的「5人小組」→ 學費單用語
+        function tuitionClassTypeLabel(t) {
+            const s = String(t || '');
+            if (/Individual|一對一/.test(s)) return '一對一個別授課 Individual';
+            const m = /^(\d+(?:-\d+)?)人小組/.exec(s);
+            return m ? `${m[1]}人小組授課` : s;
+        }
+
+        function tuitionItemLines(it, subtotal) {
+            const lines = [];
+            const dayOf = d => String(Number(String(d).split('-')[2]));
+            if (it.weekday !== null && it.weekday !== undefined && it.time) {
+                lines.push(`日期：${(it.dates || []).map(dayOf).join(', ')} 逢${getWeekdayName(it.weekday)}`);
+                lines.push(`時間：${it.time}-${it.endTime}（${it.duration} mins）`);
+            } else {
+                // 同一項目內時段不一（如某堂經 Calendar 改時）或舊條目無明細：逐堂列「月/日 時間」
+                lines.push('日期：' + (it.dates || []).map((d, i) => {
+                    const p = String(d).split('-');
+                    return `${Number(p[1])}/${Number(p[2])} ${(it.times || [])[i] || ''}`.trim();
+                }).join('、'));
+            }
+            if (it.program || it.level) lines.push(`級別：${[it.program, it.level].filter(Boolean).join(' ')}`);
+            if (it.classType) lines.push(`上課形式：${tuitionClassTypeLabel(it.classType)}${it.groupName ? `（${it.groupName}）` : ''}`);
+            if (it.tutor) lines.push(`導師：${it.tutor}`);
+            if (it.rate !== null && it.rate !== undefined) lines.push(`每堂學費：${tuitionMoney(it.rate)}`);
+            lines.push(`堂數：${it.count} 堂`);
+            lines.push(`合共：${tuitionMoney(subtotal)}`);
+            return lines.join('\n');
+        }
 
         function tuitionMsgFor(entry) {
             const parts = String(entry.month || '').split('-').map(Number);
             const monthLabel = parts.length === 2 ? `${parts[0]}年${parts[1]}月` : entry.month;
-            const dates = (entry.dates || []).map(d => {
-                const p = String(d).split('-');
-                return `${Number(p[1])}/${Number(p[2])}`;
-            }).join('、');
-            return TUITION_MSG_TEMPLATE
-                .replace('{month}', monthLabel)
-                .replace('{name}', entry.studentName || entry.studentId)
-                .replace('{n}', entry.count)
-                .replace('{dates}', dates)
-                .replace('{amount}', 'HK$ ' + Number(entry.amount || 0).toLocaleString('en-US'));
+            const m = parts.length === 2 ? String(parts[1]) : String(entry.month || '');
+            // 舊條目（生成時尚無明細）：以日期／堂數／金額組一段
+            const items = (entry.items && entry.items.length) ? entry.items
+                : [{ dates: entry.dates || [], count: entry.count, subtotal: entry.amount, weekday: null, rate: null }];
+            const single = items.length === 1;
+            const blocks = items.map(it => tuitionItemLines(it, single ? entry.amount : it.subtotal));
+            const out = [TUITION_MSG.header.replace('{month}', monthLabel).replace('{m}', m).replace('{name}', entry.studentName || entry.studentId)];
+            out.push(blocks.join('\n\n'));
+            if (!single) out.push(TUITION_MSG.total.replace('{amount}', tuitionMoney(entry.amount)));
+            out.push(TUITION_MSG.footer);
+            return out.join('\n\n');
+        }
+
+        // 發送中心卡片的堂數標籤：多個報讀項目時逐項列（個別課 4 堂＋樂理 Grade 5 小組 4 堂）
+        function tuitionCountLabel(e) {
+            return (e.items && e.items.length > 1)
+                ? e.items.map(it => `${it.groupName || '個別課'} ${it.count} 堂`).join('＋')
+                : `${e.count} 堂`;
         }
 
         // 發送中心條目 → 訊息文字（學費按模板；自定義用建立時定稿的快照；請假/補堂重用課堂訊息）
@@ -1890,7 +1937,7 @@
                        <input type="number" min="0" value="${e.amount}" ${sent ? 'disabled' : ''}
                            onchange="sendSetAmount('${e.key}', this.value)"
                            class="w-24 px-2 py-1 border border-slate-300 rounded-lg ${sent ? 'bg-slate-100 text-slate-400' : ''}">
-                       <span class="text-slate-400">（${e.count} 堂）</span>
+                       <span class="text-slate-400">（${tuitionCountLabel(e)}）</span>
                        ${e.amountEdited ? '<span class="text-amber-600 font-semibold" title="金額已手改，重新生成課表不會覆蓋"><i class="fa-solid fa-pen"></i> 已手改</span>' : ''}
                    </div>`
                 : '';
