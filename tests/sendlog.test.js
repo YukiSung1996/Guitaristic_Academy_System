@@ -181,3 +181,42 @@ test('C9: tuitionItems 按報讀項目分組（個別一項＋每小組一項）
     SL.upsertTuition(log, Object.assign(params(), { items }));
     assert.strictEqual(log['TUITION:S001:2026-09'].items.length, 1, 'SENT 不改');
 });
+
+test('C10: 繳費紀錄——勾已繳預設整額＋今天；實收改動推導狀態；非學費條目拒絕；tuitionByMonth／paymentTotals', () => {
+    const log = {};
+    SL.upsertTuition(log, params()); // amount 1500
+    const key = 'TUITION:S001:2026-09';
+    assert.strictEqual(SL.paymentStatus(log[key]), 'unpaid');
+    assert.strictEqual(log[key].paid, false);
+    SL.setPayment(log, key, { paid: true }, '2026-09-19');
+    assert.strictEqual(log[key].paidAmount, 1500, '勾已繳 → 整額');
+    assert.strictEqual(log[key].payDate, '2026-09-19', '勾已繳 → 今天');
+    assert.strictEqual(SL.paymentStatus(log[key]), 'paid');
+    SL.setPayment(log, key, { paidAmount: 500, payMethod: '2', receipt: true, checked: true });
+    assert.strictEqual(SL.paymentStatus(log[key]), 'partial');
+    assert.strictEqual(log[key].paid, true);
+    assert.strictEqual(log[key].payMethod, '2');
+    assert.strictEqual(log[key].receipt, true);
+    assert.strictEqual(log[key].checked, true);
+    SL.setPayment(log, key, { paid: false });
+    assert.strictEqual(log[key].paidAmount, 0, '取消已繳 → 實收歸零');
+    assert.strictEqual(SL.paymentStatus(log[key]), 'unpaid');
+    SL.setPayment(log, key, { paidAmount: '1500' });
+    assert.strictEqual(log[key].paid, true, '實收 > 0 → 已繳');
+    assert.strictEqual(SL.paymentStatus(log[key]), 'paid');
+    SL.setPayment(log, key, { paidAmount: 0 });
+    assert.strictEqual(log[key].paid, false, '實收 0 → 未繳');
+    assert.strictEqual(SL.setPayment(log, 'LEAVE_CONFIRM:x', { paid: true }), null, '非學費條目');
+    // 重新生成不會洗掉繳費欄位（TODO 條目只刷新堂數／日期／金額）
+    SL.setPayment(log, key, { paid: true, payMethod: '1' }, '2026-09-19');
+    SL.upsertTuition(log, Object.assign(params(), { amount: 1800, count: 6 }));
+    assert.strictEqual(log[key].paid, true);
+    assert.strictEqual(log[key].payMethod, '1');
+    assert.strictEqual(log[key].amount, 1800);
+    assert.strictEqual(SL.paymentStatus(log[key]), 'partial', '應收升到 1800、實收仍 1500 → 部分');
+    SL.upsertTuition(log, Object.assign(params(), { studentId: 'S002', amount: 1000 }));
+    const list = SL.tuitionByMonth(log, '2026-09');
+    assert.deepStrictEqual(list.map(e => e.studentId), ['S001', 'S002']);
+    assert.deepStrictEqual(SL.paymentTotals(list), { due: 2800, paid: 1500, outstanding: 1300 });
+    assert.deepStrictEqual(SL.tuitionByMonth(log, '2026-10'), []);
+});

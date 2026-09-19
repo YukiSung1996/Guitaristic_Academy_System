@@ -13,6 +13,7 @@
             const monthStr = localDateStr(new Date()).slice(0, 7);
             document.getElementById('batchMonth').value = monthStr;
             document.getElementById('sendMonth').value = monthStr;
+            document.getElementById('payMonth').value = monthStr;
 
             // 切回頁面時詢問 WhatsApp 是否已發（waSentMode='confirm'）；focus 與 visibilitychange
             // 皆註冊，處理器以清空佇列保證幂等
@@ -169,6 +170,8 @@
                 renderStudentTable();
             } else if (tabId === 'sendTab') {
                 renderSendCenter();
+            } else if (tabId === 'paymentTab') {
+                renderPaymentTab();
             } else if (tabId === 'settingsTab') {
                 loadSettingsForm();
             }
@@ -660,6 +663,7 @@
             renderMasterScheduleList();
             renderMasterCalendarView();
             renderSendCenter();
+            renderPaymentTab();
         }
 
         // 兩種視圖：清單（操作）＋月曆（總覽）。原「週曆」已移除——清單按週次過濾＋月曆已完全覆蓋其用途。
@@ -2024,6 +2028,13 @@
             out.push(blocks.join('\n\n'));
             if (!single) out.push(TUITION_MSG.total.replace('{amount}', tuitionMoney(entry.amount)));
             out.push(TUITION_MSG.footer);
+            // 尾段（設定頁）：FPS ID／附註／學員守則連結，填了才出現
+            const cfg = (typeof appSettings !== 'undefined' && appSettings) || {};
+            const tail = [];
+            if (cfg.fpsId) tail.push(`FPS 轉數快 ID：${cfg.fpsId}`);
+            if (cfg.feeNotice) tail.push(cfg.feeNotice);
+            if (cfg.infoUrl) tail.push(`學員守則及請假須知，請瀏覽：${cfg.infoUrl}`);
+            if (tail.length) out.push(tail.join('\n'));
             return out.join('\n\n');
         }
 
@@ -2118,6 +2129,7 @@
                            class="w-24 px-2 py-1 border border-slate-300 rounded-lg ${sent ? 'bg-slate-100 text-slate-400' : ''}">
                        <span class="text-slate-400">（${tuitionCountLabel(e)}）</span>
                        ${e.amountEdited ? '<span class="text-amber-600 font-semibold" title="金額已手改，重新生成課表不會覆蓋"><i class="fa-solid fa-pen"></i> 已手改</span>' : ''}
+                       ${paymentBadge(e)}
                    </div>`
                 : '';
             const waBtn = phone
@@ -2155,6 +2167,151 @@
                     <div class="bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-700 whitespace-pre-wrap">${msg}</div>
                     <div class="flex items-center gap-1.5 flex-wrap">${actions}</div>
                 </div>`;
+        }
+
+        // ===== 出席與繳費：每位學生一行（本月堂數／出席／應收／學費單已發／繳費記錄）=====
+        // 資料源：發送中心的 TUITION 條目（單一事實來源，繳費欄位掛在條目上）＋當月課堂狀態。
+        function paymentMonth() {
+            const el = document.getElementById('payMonth');
+            return (el && el.value) || currentMonthKey() || localDateStr(new Date()).slice(0, 7);
+        }
+
+        function payMethodNames() {
+            return (appSettings && appSettings.payMethods) || GACStorage.DEFAULT_SETTINGS.payMethods;
+        }
+
+        function paymentBadge(e) {
+            const st = GACSendlog.paymentStatus(e);
+            if (st === 'unpaid') return '<span class="px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-700 font-semibold text-[10px]">未繳</span>';
+            const names = payMethodNames();
+            const m = parseInt(e.payMethod, 10);
+            const how = m >= 1 && m <= names.length ? ` · ${names[m - 1]}` : '';
+            const cls = st === 'paid' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-800';
+            return `<span class="px-1.5 py-0.5 rounded border ${cls} font-semibold text-[10px]">${st === 'paid' ? '已繳清' : '部分繳交'} ${tuitionMoney(e.paidAmount)}${how}${e.payDate ? ' · ' + e.payDate : ''}</span>`;
+        }
+
+        function paymentRowsFor(monthKey) {
+            const lessons = lessonsByMonth[monthKey] || [];
+            const byStudent = new Map(GACSendlog.tuitionByMonth(sendLog, monthKey).map(e => [e.studentId, e]));
+            const ids = new Set([...byStudent.keys()].concat(lessons.map(l => l.studentId)));
+            const rows = [];
+            studentDatabase.forEach(s => {
+                if (!ids.has(s.id)) return;
+                const mine = lessons.filter(l => l.studentId === s.id);
+                const stat = k => mine.filter(l => l.status === k).length;
+                const entry = byStudent.get(s.id) || null;
+                rows.push({
+                    student: s, entry: entry, count: mine.filter(l => !l.isMakeup).length,
+                    attended: stat('ATTENDED'), leave: stat('LEAVE'), noshow: stat('NOSHOW'),
+                    rates: entry ? (entry.items || []).map(it => it.rate).filter(r => r !== null && r !== undefined) : []
+                });
+            });
+            return rows;
+        }
+
+        function renderPaymentTab() {
+            const body = document.getElementById('paymentTableBody');
+            if (!body) return;
+            const monthKey = paymentMonth();
+            const tSel = document.getElementById('payTutorFilter');
+            const prevT = (tSel && tSel.value) || 'ALL';
+            const tutors = [...new Set(studentDatabase.map(s => s.tutor).concat(groupClasses.map(g => g.tutor)))].filter(Boolean).sort();
+            if (tSel) {
+                tSel.innerHTML = '<option value="ALL">所有導師</option>' + tutors.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+                tSel.value = tutors.includes(prevT) ? prevT : 'ALL';
+            }
+            const tutorF = (tSel && tSel.value) || 'ALL';
+            const qEl = document.getElementById('paySearch');
+            const q = ((qEl && qEl.value) || '').toLowerCase().trim();
+            let rows = paymentRowsFor(monthKey);
+            if (tutorF !== 'ALL') rows = rows.filter(r => r.student.tutor === tutorF || (r.entry && (r.entry.items || []).some(it => it.tutor === tutorF)));
+            if (q) rows = rows.filter(r => String(r.student.id).toLowerCase().includes(q) || String(r.student.name).toLowerCase().includes(q));
+            const entries = rows.map(r => r.entry).filter(Boolean);
+            const totals = GACSendlog.paymentTotals(entries);
+            const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            setText('payKpiDue', tuitionMoney(totals.due));
+            setText('payKpiPaid', tuitionMoney(totals.paid));
+            setText('payKpiOutstanding', tuitionMoney(totals.outstanding));
+            setText('payKpiUnsent', String(entries.filter(e => e.status !== 'SENT').length));
+            setText('payKpiAbsent', String(rows.reduce((s, r) => s + r.noshow, 0)));
+            if (!rows.length) {
+                body.innerHTML = `<tr><td colspan="14" class="p-6 text-center text-slate-400 text-xs">📭 ${monthKey} 尚未生成課表，或沒有符合篩選的學生。到「總課表」生成後，學費條目會出現在這裡。</td></tr>`;
+                return;
+            }
+            body.innerHTML = rows.map(paymentRowHtml).join('');
+        }
+
+        function paymentRowHtml(r) {
+            const s = r.student, e = r.entry;
+            const who = `<td class="p-2.5 whitespace-nowrap"><b>${escapeHtml(s.id)}</b> ${escapeHtml(s.name)}</td><td class="p-2.5 text-slate-600">${escapeHtml(s.tutor)}</td>`;
+            const attCell = `<span class="text-emerald-700 font-semibold">${r.attended}</span> / <span class="text-rose-600 font-semibold">${r.leave}</span> / <span class="text-purple-700 font-semibold">${r.noshow}</span>`;
+            if (!e) {
+                return `<tr class="hover:bg-slate-50">${who}<td class="p-2.5 text-right text-slate-400">—</td><td class="p-2.5 text-center">${r.count}</td><td class="p-2.5 text-center whitespace-nowrap">${attCell}</td><td class="p-2.5 text-slate-400 italic" colspan="9">此月尚無學費條目（到總課表按「生成」）</td></tr>`;
+            }
+            const k = e.key;
+            const sent = e.status === 'SENT';
+            const st = GACSendlog.paymentStatus(e);
+            const badge = st === 'paid' ? '<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold text-[10px]">已繳清</span>'
+                : st === 'partial' ? '<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[10px]">部分</span>'
+                : '<span class="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-bold text-[10px]">未繳</span>';
+            const names = payMethodNames();
+            const methodSel = `<select onchange="payUpdate('${k}', { payMethod: this.value })" class="px-1.5 py-1 border border-slate-300 rounded-lg bg-white text-[11px]"><option value="">—</option>` +
+                names.map((m, i) => `<option value="${i + 1}" ${String(e.payMethod || '') === String(i + 1) ? 'selected' : ''}>${i + 1}. ${escapeHtml(m)}</option>`).join('') + '</select>';
+            const phone = sendEntryPhone(e);
+            const waBtn = phone && !sent
+                ? `<button onclick="sendWhatsApp('${k}'); renderPaymentTab()" class="ml-1 px-1.5 py-0.5 bg-green-100 hover:bg-green-200 text-green-800 rounded font-semibold" title="開 WhatsApp 預填學費單（發完請勾已發送）"><i class="fa-brands fa-whatsapp"></i></button>`
+                : '';
+            return `<tr class="hover:bg-slate-50 ${st === 'paid' ? 'bg-emerald-50/30' : ''}">
+                ${who}
+                <td class="p-2.5 text-right whitespace-nowrap">${r.rates.length ? r.rates.map(x => tuitionMoney(x)).join('<br>') : '—'}</td>
+                <td class="p-2.5 text-center" title="${escapeHtml(tuitionCountLabel(e))}">${e.count}</td>
+                <td class="p-2.5 text-center whitespace-nowrap">${attCell}</td>
+                <td class="p-2.5 text-right font-bold whitespace-nowrap">${tuitionMoney(e.amount)}${e.amountEdited ? ' <i class="fa-solid fa-pen text-amber-500" title="金額已手改（發送中心可改）"></i>' : ''}</td>
+                <td class="p-2.5 text-center"><input type="checkbox" ${e.checked ? 'checked' : ''} onchange="payUpdate('${k}', { checked: this.checked })" class="w-4 h-4 accent-slate-600" title="已核對金額"></td>
+                <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${sent ? 'checked' : ''} onchange="paySetSent('${k}', this.checked)" class="w-4 h-4 accent-emerald-600" title="學費單已發送（與發送中心同步；勾＝手動已發，取消＝移回待發）">${waBtn}</td>
+                <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${e.paid ? 'checked' : ''} onchange="payUpdate('${k}', { paid: this.checked })" class="w-4 h-4 accent-emerald-600" title="勾＝已繳（預設整額、今天）"> ${badge}</td>
+                <td class="p-2.5 text-right"><input type="number" min="0" value="${Number(e.paidAmount) || 0}" onchange="payUpdate('${k}', { paidAmount: this.value })" class="w-20 px-1.5 py-1 border border-slate-300 rounded-lg text-right" title="實收金額（改動即更新已繳狀態）"></td>
+                <td class="p-2.5">${methodSel}</td>
+                <td class="p-2.5"><input type="date" value="${e.payDate || ''}" onchange="payUpdate('${k}', { payDate: this.value })" class="px-1.5 py-1 border border-slate-300 rounded-lg text-[11px]"></td>
+                <td class="p-2.5 text-center"><input type="checkbox" ${e.receipt ? 'checked' : ''} onchange="payUpdate('${k}', { receipt: this.checked })" class="w-4 h-4 accent-sky-600" title="已發收據"></td>
+                <td class="p-2.5 text-right whitespace-nowrap"><button onclick="payPreview('${k}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold" title="查看／複製學費單"><i class="fa-solid fa-file-invoice"></i></button></td>
+            </tr>`;
+        }
+
+        function payUpdate(key, fields) {
+            GACSendlog.setPayment(sendLog, key, fields, localDateStr(new Date()));
+            persistSendlog();
+            renderPaymentTab();
+            renderSendCenter();
+        }
+
+        // 「已發送」勾選＝發送中心的手動已發；取消＝移回待發（同一條目，兩頁同步）
+        function paySetSent(key, on) {
+            if (on) GACSendlog.markSent(sendLog, key, 'manual', new Date().toISOString());
+            else GACSendlog.markUnsent(sendLog, key);
+            persistSendlog();
+            renderPaymentTab();
+            renderSendCenter();
+        }
+
+        // 學費單預覽：借用訊息弹窗，附複製／WhatsApp
+        function payPreview(key) {
+            const e = sendLog[key];
+            const modal = document.getElementById('msgModal');
+            const body = document.getElementById('msgModalBody');
+            if (!e || !modal || !body) return;
+            const phone = sendEntryPhone(e);
+            document.getElementById('msgModalTitle').textContent = `📩 學費單 — ${e.studentName || e.studentId}（${e.month}）`;
+            body.innerHTML = `
+                <div class="bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-700 whitespace-pre-wrap">${escapeHtml(sendlogMsgFor(e))}</div>
+                <div class="flex items-center gap-1.5">
+                    <button onclick="sendCopy('${key}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold"><i class="fa-solid fa-copy"></i> 複製</button>
+                    ${phone
+                        ? `<button onclick="sendWhatsApp('${key}'); closeMsgModal(); renderPaymentTab()" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`
+                        : '<span class="text-slate-400 italic">無電話，僅可複製</span>'}
+                    ${e.status === 'SENT' ? '<span class="ml-auto text-[10px] text-emerald-700 font-semibold">已發送</span>' : `<button onclick="paySetSent('${key}', true); closeMsgModal()" class="ml-auto px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold"><i class="fa-solid fa-check"></i> 標記已發</button>`}
+                </div>`;
+            modal.classList.remove('hidden');
         }
 
         function renderSendCenter() {
@@ -2386,6 +2543,11 @@
             document.getElementById('setPublicIcsUrl').value = appSettings.publicIcsUrl || '';
             document.getElementById('setGcalClientId').value = appSettings.gcalClientId || '';
             document.getElementById('setGcalCalendarId').value = appSettings.gcalCalendarId || 'primary';
+            document.getElementById('setFpsId').value = appSettings.fpsId || '';
+            document.getElementById('setInfoUrl').value = appSettings.infoUrl || '';
+            document.getElementById('setFeeNotice').value = appSettings.feeNotice || '';
+            const pm = appSettings.payMethods || GACStorage.DEFAULT_SETTINGS.payMethods;
+            [1, 2, 3].forEach(i => { document.getElementById('setPayMethod' + i).value = pm[i - 1] || ''; });
         }
 
         function saveSettingsForm() {
@@ -2394,7 +2556,12 @@
             appSettings.publicIcsUrl = document.getElementById('setPublicIcsUrl').value.trim();
             appSettings.gcalClientId = document.getElementById('setGcalClientId').value.trim();
             appSettings.gcalCalendarId = document.getElementById('setGcalCalendarId').value.trim() || 'primary';
+            appSettings.fpsId = document.getElementById('setFpsId').value.trim();
+            appSettings.infoUrl = document.getElementById('setInfoUrl').value.trim();
+            appSettings.feeNotice = document.getElementById('setFeeNotice').value.trim();
+            appSettings.payMethods = [1, 2, 3].map(i => document.getElementById('setPayMethod' + i).value.trim() || GACStorage.DEFAULT_SETTINGS.payMethods[i - 1]);
             gacStore.saveSettings(appSettings);
+            renderPaymentTab();
             const hint = document.getElementById('settingsSavedHint');
             if (hint) {
                 hint.classList.remove('hidden');
