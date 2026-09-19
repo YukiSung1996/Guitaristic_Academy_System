@@ -1,5 +1,6 @@
 // System State
         let studentDatabase = [];
+        let groupClasses = [];          // gac_groups_v2：小組班 [{id,name,program,level,duration,tutor,weekday,time,memberIds}]
         let lessonsByMonth = {};        // gac_lessons_v2：{ "2026-09": [lesson, ...] }，v2 課表唯一事實來源
         let sendLog = {};               // gac_sendlog_v2：發送中心紀錄
         let appSettings = {};           // gac_settings_v2：設定

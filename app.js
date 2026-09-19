@@ -2,6 +2,7 @@
             // v2：所有資料經 lib/storage.js 讀寫（新 key；舊 key 兼容讀取自動遷移；損壞 JSON 不白屏）
             gacStore = GACStorage.createStore(window.localStorage);
             studentDatabase = gacStore.loadStudents(defaultStudents);
+            groupClasses = gacStore.loadGroups(typeof defaultGroups !== 'undefined' ? defaultGroups : []);
             lessonsByMonth = gacStore.loadLessons();
             sendLog = gacStore.loadSendlog();
             appSettings = gacStore.loadSettings();
@@ -141,14 +142,15 @@
                 if (!matchSearch) return;
 
                 const sched = getStudentScheduleForMonth(student, batchMonthVal);
+                const hasSlot = hasIndividualSlot(sched);
                 const div = document.createElement('div');
                 div.className = 'flex items-center space-x-2 text-xs bg-white p-2 rounded-lg border border-slate-200 hover:border-sky-300 transition';
 
                 div.innerHTML = `
-                    <input type="checkbox" class="batch-student-chk accent-sky-600 rounded" value="${index}" id="batch_chk_${index}" checked>
+                    <input type="checkbox" class="batch-student-chk accent-sky-600 rounded" value="${index}" id="batch_chk_${index}" ${hasSlot ? 'checked' : 'disabled'}>
                     <label for="batch_chk_${index}" class="cursor-pointer font-medium truncate flex-1">
                         <span class="font-bold text-slate-800">${student.id}</span> ${student.name}
-                        <span class="text-sky-600 font-semibold">(${getWeekdayName(sched.weekday)} ${sched.time})</span>
+                        ${hasSlot ? `<span class="text-sky-600 font-semibold">(${getWeekdayName(sched.weekday)} ${sched.time})</span>` : '<span class="text-slate-400">（只上小組）</span>'}
                     </label>
                     <button onclick="openQuickEdit(${index})" class="shrink-0 px-1.5 py-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition" title="調整常規時間／升班（含撞堂預覽）">
                         <i class="fa-solid fa-pen"></i>
@@ -156,6 +158,167 @@
                 `;
                 grid.appendChild(div);
             });
+
+            // 小組班 chip：勾選＝整組排課；✏️ 編輯成員／時段
+            groupClasses.forEach(g => {
+                if (selectedTutor !== 'ALL' && g.tutor !== selectedTutor) return;
+                const memberNames = (g.memberIds || []).map(id => { const s = studentDatabase.find(x => x.id === id); return s ? s.name : id; });
+                const hay = (g.name + ' ' + g.id + ' ' + memberNames.join(' ')).toLowerCase();
+                if (searchKeyword && !hay.includes(searchKeyword)) return;
+                const div = document.createElement('div');
+                div.className = 'flex items-center space-x-2 text-xs bg-indigo-50 p-2 rounded-lg border border-indigo-200 hover:border-indigo-400 transition';
+                div.innerHTML = `
+                    <input type="checkbox" class="batch-group-chk accent-indigo-600 rounded" value="${g.id}" id="batch_grp_${g.id}" checked>
+                    <label for="batch_grp_${g.id}" class="cursor-pointer font-medium truncate flex-1" title="${memberNames.join('、')}">
+                        <span class="font-bold text-indigo-800"><i class="fa-solid fa-user-group"></i> ${g.name}</span>
+                        <span class="text-indigo-600 font-semibold">×${(g.memberIds || []).length}（${getWeekdayName(g.weekday)} ${g.time}）</span>
+                    </label>
+                    <button onclick="openGroupModal('${g.id}')" class="shrink-0 px-1.5 py-1 text-slate-400 hover:text-indigo-700 hover:bg-indigo-100 rounded transition" title="編輯小組：成員／時段／導師">
+                        <i class="fa-solid fa-pen"></i>
+                    </button>`;
+                grid.appendChild(div);
+            });
+        }
+
+        function hasIndividualSlot(sched) {
+            return sched && sched.weekday !== null && sched.weekday !== undefined && sched.weekday !== '' && !!sched.time;
+        }
+
+        // ===== 小組班：一個時段一堂課、多位學生。建立／編輯／刪除＋成員勾選＋時段撞堂預覽 =====
+        function findGroup(id) { return groupClasses.find(g => g.id === id) || null; }
+
+        function groupsOfStudent(studentId) {
+            return groupClasses.filter(g => (g.memberIds || []).indexOf(studentId) !== -1);
+        }
+
+        function nextGroupId() {
+            let n = 1;
+            while (findGroup('G' + String(n).padStart(2, '0'))) n++;
+            return 'G' + String(n).padStart(2, '0');
+        }
+
+        function openGroupModal(id) {
+            const g = id ? findGroup(id) : null;
+            document.getElementById('gmId').value = g ? g.id : '';
+            document.getElementById('gmTitle').innerHTML = g
+                ? `<i class="fa-solid fa-user-group text-indigo-500"></i> 編輯小組班（${g.id}）`
+                : '<i class="fa-solid fa-user-group text-indigo-500"></i> 新增小組班';
+            const tutors = [...new Set(studentDatabase.map(s => s.tutor).concat(groupClasses.map(x => x.tutor)))].filter(Boolean);
+            document.getElementById('gmTutor').innerHTML = tutors.map(t => `<option value="${t}">${t}</option>`).join('');
+            document.getElementById('gmName').value = g ? g.name : '';
+            document.getElementById('gmProgram').value = g ? (g.program || '') : '';
+            document.getElementById('gmLevel').value = g ? (g.level || '') : '';
+            document.getElementById('gmTutor').value = g ? g.tutor : tutors[0] || '';
+            document.getElementById('gmDuration').value = g ? (g.duration || 60) : 60;
+            document.getElementById('gmWeekday').value = g ? g.weekday : 6;
+            document.getElementById('gmTime').value = g ? g.time : '15:00';
+            document.getElementById('gmMemberSearch').value = '';
+            const del = document.getElementById('gmDeleteBtn');
+            if (del) del.classList.toggle('hidden', !g);
+            groupModalMembers = new Set(g ? (g.memberIds || []) : []);
+            renderGroupMemberList();
+            renderGroupPreview();
+            document.getElementById('groupModal').classList.remove('hidden');
+        }
+
+        let groupModalMembers = new Set(); // 彈窗內暫存的成員勾選（搜尋過濾時不丟失）
+
+        function renderGroupMemberList() {
+            const box = document.getElementById('gmMembers');
+            if (!box) return;
+            const q = (document.getElementById('gmMemberSearch')?.value || '').trim().toLowerCase();
+            const rows = [];
+            studentDatabase.forEach(s => {
+                const hay = (s.id + ' ' + s.name).toLowerCase();
+                if (q && !hay.includes(q)) return;
+                const own = hasIndividualSlot(s) ? `個別 ${getWeekdayName(s.weekday)} ${s.time}` : '只上小組';
+                rows.push(`<label class="flex items-center gap-2 bg-white p-1.5 rounded-lg border border-slate-200 cursor-pointer hover:border-indigo-300">
+                    <input type="checkbox" value="${s.id}" ${groupModalMembers.has(s.id) ? 'checked' : ''} onchange="toggleGroupMember(this)" class="accent-indigo-600 rounded">
+                    <span class="truncate"><b>${s.id}</b> ${s.name} <span class="text-slate-400">· ${own}</span></span>
+                </label>`);
+            });
+            box.innerHTML = rows.join('') || '<span class="text-slate-400 italic">沒有符合的學生。</span>';
+            const cnt = document.getElementById('gmMemberCount');
+            if (cnt) cnt.textContent = `已選 ${groupModalMembers.size} 位成員`;
+        }
+
+        function toggleGroupMember(chk) {
+            if (chk.checked) groupModalMembers.add(chk.value); else groupModalMembers.delete(chk.value);
+            const cnt = document.getElementById('gmMemberCount');
+            if (cnt) cnt.textContent = `已選 ${groupModalMembers.size} 位成員`;
+            renderGroupPreview();
+        }
+
+        // 撞堂預覽：以檢視月份計，池子排除本小組自己的課（否則改回同時段會自擋）
+        function renderGroupPreview() {
+            const box = document.getElementById('gmPreview');
+            if (!box) return;
+            const gid = document.getElementById('gmId').value || null;
+            const weekday = parseInt(document.getElementById('gmWeekday').value);
+            const time = document.getElementById('gmTime').value;
+            const duration = parseInt(document.getElementById('gmDuration').value) || 60;
+            const tutor = document.getElementById('gmTutor').value;
+            const monthKey = currentMonthKey() || localDateStr(new Date()).slice(0, 7);
+            if (!time || isNaN(weekday) || !tutor) { box.innerHTML = ''; return; }
+            const pseudo = { id: gid || '(new-group)', tutor: tutor, type: groupModalMembers.size + '人小組',
+                program: document.getElementById('gmProgram').value.trim(), duration: duration };
+            const existing = (lessonsByMonth[monthKey] || []).filter(l => !gid || l.groupId !== gid);
+            const rows = GACSchedule.previewTimeChange(pseudo, studentDatabase, existing, monthKey, { weekday, time, duration, tutor });
+            const clashDays = rows.filter(r => r.clashes.length);
+            box.innerHTML = (clashDays.length
+                ? `<div class="p-2 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 font-bold">⚠️ ${monthKey} 逢 ${getWeekdayName(weekday)} ${time}：${rows.length} 節中有 ${clashDays.length} 節與 ${tutor} 的其他課重疊</div>`
+                : `<div class="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 font-bold">✓ ${monthKey} 逢 ${getWeekdayName(weekday)} ${time}：${rows.length} 節均無時間衝突</div>`) +
+                clashDays.map(r => `<div class="text-amber-800">⚠️ ${r.date} 與 ${r.clashes.map(c => `${c.studentName || c.studentId}（${c.time}）`).join('、')} 撞堂</div>`).join('') +
+                '<div class="text-[10px] text-slate-400 mt-1">預覽依總課表目前檢視的月份計（已生成的課＋其他學生的個別課常規時間）。儲存後請到該月按「生成」套用。</div>';
+        }
+
+        function closeGroupModal() {
+            document.getElementById('groupModal').classList.add('hidden');
+        }
+
+        function persistGroups() {
+            gacStore.saveGroups(groupClasses);
+        }
+
+        function saveGroupModal() {
+            const gid = document.getElementById('gmId').value || null;
+            const name = document.getElementById('gmName').value.trim();
+            const weekday = parseInt(document.getElementById('gmWeekday').value);
+            const time = document.getElementById('gmTime').value;
+            if (!name) { alert('請填寫小組名稱！'); return; }
+            if (!time || isNaN(weekday)) { alert('請選擇常規星期與上課時間！'); return; }
+            if (!groupModalMembers.size && !confirm('這個小組還沒有成員，仍要儲存嗎？')) return;
+            const data = {
+                name: name,
+                program: document.getElementById('gmProgram').value.trim(),
+                level: document.getElementById('gmLevel').value.trim(),
+                tutor: document.getElementById('gmTutor').value,
+                duration: parseInt(document.getElementById('gmDuration').value) || 60,
+                weekday: weekday, time: time,
+                memberIds: [...groupModalMembers]
+            };
+            let g = gid ? findGroup(gid) : null;
+            if (g) Object.assign(g, data);
+            else { g = Object.assign({ id: nextGroupId() }, data); groupClasses.push(g); }
+            persistGroups();
+            renderBatchCheckboxes();
+            renderStudentTable();
+            closeGroupModal();
+            const genMonths = Object.keys(lessonsByMonth).sort();
+            alert(`✅ 已儲存小組「${g.name}」（${g.memberIds.length} 位成員，逢${getWeekdayName(g.weekday)} ${g.time}）。` +
+                (genMonths.length ? `\n\n提醒：課表要重新按「生成」才會套用（勾選這個小組即可；已生成月份：${genMonths.join('、')}）。` : ''));
+        }
+
+        function deleteGroupFromModal() {
+            const gid = document.getElementById('gmId').value;
+            const g = findGroup(gid);
+            if (!g) return;
+            if (!confirm(`刪除小組「${g.name}」？\n成員的學生資料不受影響；已生成的小組課下次「生成」時仍為「已排課」者會被移除，已有狀態的課保留。`)) return;
+            groupClasses = groupClasses.filter(x => x.id !== gid);
+            persistGroups();
+            renderBatchCheckboxes();
+            renderStudentTable();
+            closeGroupModal();
         }
 
         // ===== 快速編輯（原「單一學生」頁籤已合併到此）：改常規時間（保留歷史）／升班，即時撞堂預覽 =====
@@ -287,7 +450,8 @@
         }
 
         function selectAllStudents(checked) {
-            document.querySelectorAll('.batch-student-chk').forEach(chk => chk.checked = checked);
+            document.querySelectorAll('.batch-student-chk').forEach(chk => { if (!chk.disabled) chk.checked = checked; });
+            document.querySelectorAll('.batch-group-chk').forEach(chk => { chk.checked = checked; });
         }
 
         function getMonthDaysForWeekday(year, month, weekday) {
@@ -309,32 +473,47 @@
             if (!monthKey) return;
 
             const checkboxes = document.querySelectorAll('.batch-student-chk:checked');
-            if (checkboxes.length === 0) {
-                alert('請至少勾選一名常規學生！');
+            const groupBoxes = document.querySelectorAll('.batch-group-chk:checked');
+            if (checkboxes.length === 0 && groupBoxes.length === 0) {
+                alert('請至少勾選一名學生或一個小組！');
                 return;
             }
 
             const selectedStudents = [...checkboxes].map(chk => studentDatabase[parseInt(chk.value)]).filter(Boolean);
+            const selectedGroups = [...groupBoxes].map(chk => findGroup(chk.value)).filter(Boolean);
             const generated = [];
             selectedStudents.forEach(s => generated.push(...GACSchedule.generateMonthLessons(s, monthKey)));
+            selectedGroups.forEach(g => {
+                const members = (g.memberIds || []).map(id => studentDatabase.find(s => s.id === id)).filter(Boolean);
+                generated.push(...GACSchedule.generateGroupMonthLessons(g, members, monthKey));
+            });
 
             const res = GACSchedule.mergeMonthLessons(currentMonthLessons(), generated, {
                 selectedStudentIds: selectedStudents.map(s => s.id),
-                allStudentIds: studentDatabase.map(s => s.id)
+                allStudentIds: studentDatabase.map(s => s.id),
+                selectedGroupIds: selectedGroups.map(g => g.id),
+                allGroupIds: groupClasses.map(g => g.id)
             });
 
             if (res.lessons.length) lessonsByMonth[monthKey] = res.lessons;
             else delete lessonsByMonth[monthKey];
 
-            // 學費條目：每位入選學生 upsert 當月 TUITION（金額＝當月常規堂數×費率）。
+            // 學費條目：每位涉及的學生（勾選的學生 ∪ 勾選小組的成員）upsert 當月 TUITION，
+            // 金額＝該生當月所有常規課（個別＋小組）各按自身費率加總。
             // SENT 的條目絕不改動；金額被手改過（amountEdited）也不覆蓋——由 lib/sendlog.js 保證。
             const tuitionNow = new Date().toISOString();
-            selectedStudents.forEach(s => {
+            const touched = new Map();
+            selectedStudents.forEach(s => touched.set(s.id, s));
+            selectedGroups.forEach(g => (g.memberIds || []).forEach(id => {
+                const s = studentDatabase.find(x => x.id === id);
+                if (s) touched.set(s.id, s);
+            }));
+            touched.forEach(s => {
                 const mine = (lessonsByMonth[monthKey] || []).filter(l => l.studentId === s.id && !l.isMakeup);
                 if (!mine.length) return;
                 GACSendlog.upsertTuition(sendLog, {
                     studentId: s.id, studentName: s.name, phone: s.phone, monthKey: monthKey,
-                    amount: mine.length * advancedRate(s), count: mine.length,
+                    amount: mine.reduce((sum, l) => sum + rateForLesson(l), 0), count: mine.length,
                     dates: mine.map(l => l.date).sort(), now: tuitionNow
                 });
             });
@@ -654,7 +833,7 @@
                             <span class="bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-semibold text-[10px]">${first.tutor}</span>
                             <strong class="text-slate-800">${dateHeading(first)}</strong>
                             <span class="text-sky-700 font-bold">${first.time}</span>
-                            <span class="text-slate-700">${first.program} · ${first.level}（${first.classType}，${first.duration} 分鐘）</span>
+                            <span class="text-slate-700">${first.groupName ? `<b>${first.groupName}</b> · ` : ''}${first.program} · ${first.level}（${first.classType}，${first.duration} 分鐘）</span>
                         </div>
                         <div class="flex items-center gap-1.5 flex-wrap self-end md:self-center">${groupBtns}</div>
                     </div>
@@ -1172,15 +1351,23 @@
             tbody.innerHTML = '';
 
             studentDatabase.forEach((student, index) => {
+                const myGroups = groupsOfStudent(student.id);
                 const matchSearch = !search || 
                     student.name.toLowerCase().includes(search) || 
                     student.id.toLowerCase().includes(search) || 
                     (student.phone && student.phone.includes(search)) ||
                     (student.email && student.email.toLowerCase().includes(search)) ||
                     student.tutor.toLowerCase().includes(search) || 
-                    student.program.toLowerCase().includes(search);
+                    student.program.toLowerCase().includes(search) ||
+                    myGroups.some(g => g.name.toLowerCase().includes(search));
 
                 if (!matchSearch) return;
+                const hasSlot = hasIndividualSlot(student);
+                // 報讀項目：個別課一行＋每個所屬小組一行（一人可同時多項）
+                const enrollments = [];
+                if (hasSlot) enrollments.push(`<div><span class="bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded text-[10px] font-bold">個別</span> ${student.program} · ${student.level}（${student.type}）逢 ${getWeekdayName(student.weekday)} ${student.time} · ${student.tutor}</div>`);
+                myGroups.forEach(g => enrollments.push(`<div><span class="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded text-[10px] font-bold"><i class="fa-solid fa-user-group"></i> 小組</span> <b>${g.name}</b>（×${(g.memberIds || []).length}）逢 ${getWeekdayName(g.weekday)} ${g.time} · ${g.tutor}</div>`));
+                if (!enrollments.length) enrollments.push('<span class="text-amber-600">尚未報讀任何課程</span>');
 
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-slate-50 transition";
@@ -1193,10 +1380,10 @@
                     <td class="p-3 text-slate-600">
                         ${student.email ? `<a href="mailto:${student.email}" class="hover:text-sky-600 flex items-center gap-1"><i class="fa-solid fa-envelope text-slate-400 text-[10px]"></i> ${student.email}</a>` : '<span class="text-slate-300">-</span>'}
                     </td>
-                    <td class="p-3">${student.program} - ${student.level}</td>
-                    <td class="p-3"><span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full text-[11px] font-medium">${student.type}</span></td>
+                    <td class="p-3">${hasSlot ? `${student.program} - ${student.level}` : '<span class="text-slate-400">—</span>'}</td>
+                    <td class="p-3"><span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full text-[11px] font-medium">${hasSlot ? student.type : '只上小組'}</span></td>
                     <td class="p-3 font-medium text-sky-700">${student.tutor}</td>
-                    <td class="p-3 font-medium">逢 ${getWeekdayName(student.weekday)} ${student.time}</td>
+                    <td class="p-3 font-medium space-y-1">${enrollments.join('')}</td>
                     <td class="p-3 text-right whitespace-nowrap">
                         <button onclick="scheduleStudentFromDb(${index})" class="text-sky-600 hover:text-sky-800 px-2 py-1 font-semibold hover:bg-sky-50 rounded-lg transition" title="調整常規時間／升班（含撞堂預覽）">
                             <i class="fa-solid fa-clock"></i> 改時間/升班
@@ -1222,6 +1409,8 @@
             const s = studentDatabase[index];
             if (confirm(`確定要刪除學生「${s.name} (${s.id})」嗎？`)) {
                 studentDatabase.splice(index, 1);
+                groupClasses.forEach(g => { g.memberIds = (g.memberIds || []).filter(m => m !== s.id); });
+                persistGroups();
                 saveToLocalStorage();
                 renderBatchCheckboxes();
                 renderStudentTable();
@@ -1232,6 +1421,9 @@
             const modal = document.getElementById('studentModal');
             const title = document.getElementById('modalTitle');
             document.getElementById('editStudentIndex').value = editIdx;
+            let oldIdEl = document.getElementById('editStudentOldId');
+            if (!oldIdEl) { oldIdEl = document.createElement('input'); oldIdEl.type = 'hidden'; oldIdEl.id = 'editStudentOldId'; modal.appendChild(oldIdEl); }
+            oldIdEl.value = editIdx >= 0 ? studentDatabase[editIdx].id : '';
 
             if (editIdx >= 0) {
                 const s = studentDatabase[editIdx];
@@ -1244,9 +1436,10 @@
                 document.getElementById('modalProgram').value = s.program || '';
                 document.getElementById('modalLevel').value = s.level || '';
                 document.getElementById('modalTutor').value = s.tutor || 'Instructor A';
-                document.getElementById('modalWeekday').value = s.weekday !== undefined ? s.weekday : 1;
-                document.getElementById('modalTime').value = s.time || '16:00';
+                document.getElementById('modalWeekday').value = hasIndividualSlot(s) ? s.weekday : '';
+                document.getElementById('modalTime').value = s.time || '';
                 document.getElementById('modalDuration').value = s.duration || 45;
+                renderModalGroups(s.id);
             } else {
                 title.innerHTML = `<i class="fa-solid fa-user-plus text-emerald-500"></i> 新增學生資料`;
                 document.getElementById('modalId').value = '';
@@ -1260,9 +1453,20 @@
                 document.getElementById('modalWeekday').value = 1;
                 document.getElementById('modalTime').value = '16:00';
                 document.getElementById('modalDuration').value = 45;
+                renderModalGroups(null);
             }
 
             modal.classList.remove('hidden');
+        }
+
+        // 學生弹窗內的「所屬小組」勾選（儲存時同步各小組的 memberIds）
+        function renderModalGroups(studentId) {
+            const box = document.getElementById('modalGroups');
+            if (!box) return;
+            box.innerHTML = groupClasses.map(g => `<label class="flex items-center gap-1.5 bg-white px-2 py-1 rounded-lg border border-slate-200 cursor-pointer">
+                <input type="checkbox" class="modal-group-chk accent-indigo-600" value="${g.id}" ${studentId && (g.memberIds || []).indexOf(studentId) !== -1 ? 'checked' : ''}>
+                <span><b>${g.name}</b> <span class="text-slate-400">${getWeekdayName(g.weekday)} ${g.time}</span></span></label>`).join('')
+                || '<span class="text-slate-400 italic text-[11px]">尚無小組班（總課表 →「新增小組」）</span>';
         }
 
         function closeStudentModal() {
@@ -1279,12 +1483,18 @@
             const program = document.getElementById('modalProgram').value.trim();
             const level = document.getElementById('modalLevel').value.trim();
             const tutor = document.getElementById('modalTutor').value;
-            const weekday = parseInt(document.getElementById('modalWeekday').value);
-            const time = document.getElementById('modalTime').value;
+            const weekdayRaw = document.getElementById('modalWeekday').value;
+            const weekday = weekdayRaw === '' ? null : parseInt(weekdayRaw); // null＝無個別課（只上小組）
+            const time = weekday === null ? '' : document.getElementById('modalTime').value;
             const duration = parseInt(document.getElementById('modalDuration').value);
+            const chosenGroups = [...document.querySelectorAll('.modal-group-chk')].filter(c => c.checked).map(c => c.value);
 
             if (!id || !name) {
                 alert('請完整填寫學生 ID 與姓名！');
+                return;
+            }
+            if (weekday !== null && !time) {
+                alert('請填寫上課時間，或把常規星期選為「無個別課（只上小組）」！');
                 return;
             }
 
@@ -1313,6 +1523,14 @@
 
                 alert(`已新增學生: ${name} (${id})`);
             }
+
+            // 同步小組成員：勾選的小組加入此學生、未勾選的移除（含改 id 的情況）
+            const oldId = editIdx >= 0 ? (document.getElementById('editStudentOldId')?.value || id) : null;
+            groupClasses.forEach(g => {
+                g.memberIds = (g.memberIds || []).filter(m => m !== id && m !== oldId);
+                if (chosenGroups.indexOf(g.id) !== -1) g.memberIds.push(id);
+            });
+            persistGroups();
 
             saveToLocalStorage();
             renderBatchCheckboxes();
@@ -1396,7 +1614,7 @@
         // JSON 備份/還原（v2 全量：students + lessons + sendlog + settings；匯入帶 schema 版本檢查）
         function exportJSONDatabase() {
             const payload = GACStorage.buildExportPayload({
-                students: studentDatabase, lessons: lessonsByMonth, sendlog: sendLog, settings: appSettings
+                students: studentDatabase, groups: groupClasses, lessons: lessonsByMonth, sendlog: sendLog, settings: appSettings
             });
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
             const downloadAnchor = document.createElement('a');
@@ -1416,10 +1634,12 @@
             } else {
                 if (!confirm('全量還原將「覆蓋」現有的：學生名單、課表（含狀態與補堂鏈）、發送紀錄、設定。\n建議先按「全量備份」保存現狀。確定還原？')) return false;
                 studentDatabase = res.students;
+                groupClasses = res.groups || [];
                 lessonsByMonth = res.lessons;
                 sendLog = res.sendlog;
                 appSettings = Object.assign({}, GACStorage.DEFAULT_SETTINGS, res.settings);
                 gacStore.saveStudents(studentDatabase);
+                persistGroups();
                 gacStore.saveLessons(lessonsByMonth);
                 gacStore.saveSendlog(sendLog);
                 gacStore.saveSettings(appSettings);
@@ -1448,8 +1668,10 @@
         }
 
         function resetToDefaultData() {
-            if (confirm('確定要恢復預設學生名單嗎？')) {
+            if (confirm('確定要恢復預設學生名單（含預設小組班）嗎？')) {
                 studentDatabase = [...defaultStudents];
+                groupClasses = (typeof defaultGroups !== 'undefined' ? defaultGroups : []).map(g => Object.assign({}, g, { memberIds: (g.memberIds || []).slice() }));
+                persistGroups();
                 saveToLocalStorage();
                 renderBatchCheckboxes();
                 renderStudentTable();
@@ -1910,6 +2132,7 @@
         }
 
         function getWeekdayName(day) {
-            return ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][day];
+            if (day === null || day === undefined || day === '') return '—';
+            return ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][Number(day)] || '—';
         }
 

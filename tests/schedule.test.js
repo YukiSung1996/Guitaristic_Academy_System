@@ -202,3 +202,37 @@ test('A8b: previewTimeChange — 未生成月份用其他學生常規時間模�
     const gRows = S.previewTimeChange(g1, [g2], [], '2026-10', { weekday: 3, time: '19:00', duration: 60 });
     assert.ok(gRows.every(r => r.clashes.length === 0), '同組小組課同時段應豁免');
 });
+
+test('A10: 小組班 generateGroupMonthLessons——成員各一筆、共享 groupId、同節；merge 範圍按小組圈定', () => {
+    const group = { id: 'G01', name: '樂理 Grade 5 小組', program: 'Music Theory', level: 'Grade 5', duration: 60,
+        tutor: 'Instructor B', weekday: 6, time: '15:00', memberIds: ['S020', 'S030', 'S031'] };
+    const members = [
+        student({ id: 'S020', name: 'Student 020', tutor: 'Instructor B', weekday: 3, time: '18:00' }), // 另有個別課
+        student({ id: 'S030', name: 'Student 030', weekday: null, time: '' }),                            // 只上小組
+        student({ id: 'S031', name: 'Student 031', weekday: null, time: '' })
+    ];
+    const gl = S.generateGroupMonthLessons(group, members, '2026-09'); // 週六 5/12/19/26
+    assert.strictEqual(gl.length, 3 * 4);
+    assert.ok(gl.every(l => l.groupId === 'G01' && l.groupName === '樂理 Grade 5 小組' && l.classType === '3人小組' && l.tutor === 'Instructor B'));
+    assert.strictEqual(gl[0].lessonId, 'S020-20260905-1500');
+    const cells = S.groupByCell(gl);
+    assert.strictEqual(cells.length, 4, '4 個週六 = 4 節');
+    assert.strictEqual(S.cellKey(gl[0]), 'G|G01|2026-09-05|15:00');
+    // 只上小組的學生：個別課生成為空
+    assert.strictEqual(S.generateMonthLessons(members[1], '2026-09').length, 0);
+    // merge 範圍：勾了 S020 的個別課但沒勾小組 → S020 的小組課不能被誤刪
+    const existing = S.generateMonthLessons(members[0], '2026-09').concat(gl);
+    let res = S.mergeMonthLessons(existing, S.generateMonthLessons(members[0], '2026-09'),
+        { selectedStudentIds: ['S020'], allStudentIds: ['S020', 'S030', 'S031'], selectedGroupIds: [], allGroupIds: ['G01'] });
+    assert.strictEqual(res.removed.length, 0, '未勾選的小組課不在範圍內');
+    // 勾了小組且成員 S031 已退出 → 他的 SCHEDULED 小組課被移除，其他成員保留
+    const smaller = Object.assign({}, group, { memberIds: ['S020', 'S030'] });
+    res = S.mergeMonthLessons(existing, S.generateGroupMonthLessons(smaller, members.slice(0, 2), '2026-09'),
+        { selectedStudentIds: [], allStudentIds: ['S020', 'S030', 'S031'], selectedGroupIds: ['G01'], allGroupIds: ['G01'] });
+    assert.strictEqual(res.removed.length, 4);
+    assert.ok(res.removed.every(l => l.studentId === 'S031'));
+    assert.strictEqual(res.lessons.filter(l => l.studentId === 'S020' && !l.groupId).length, 5, 'S020 的個別課（未勾選）原封不動');
+    // 同組 TL 聯動／撞堂豁免以 groupId 為準
+    assert.ok(S.isSameGroupLesson(gl[0], gl[4]), '同組同日同時段');
+    assert.strictEqual(S.detectClashes(gl).size, 0);
+});

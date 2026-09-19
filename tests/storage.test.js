@@ -107,3 +107,25 @@ test('導入兼容：舊版純學生陣列可識別；垃圾輸入被拒絕', ()
     assert.strictEqual(ST.parseImportPayload('not json at all').ok, false);
     assert.strictEqual(ST.parseImportPayload('{"foo": 1}').ok, false, '缺 schemaVersion 拒絕');
 });
+
+test('F6: 小組班持久化與備份——loadGroups 預設落盤、saveGroups、全量備份含 groups、舊 v2 備份缺 groups → 空陣列', () => {
+    const storage = fakeStorage({});
+    const store = ST.createStore(storage);
+    const defaults = [{ id: 'G01', name: '樂理 Grade 5 小組', program: 'Music Theory', level: 'Grade 5', duration: 60,
+        tutor: 'Instructor B', weekday: 6, time: '15:00', memberIds: ['S020', 'S030'] }];
+    const groups = store.loadGroups(defaults);
+    assert.strictEqual(groups.length, 1);
+    assert.ok(storage.getItem('gac_groups_v2'), '首次載入寫入預設');
+    groups[0].memberIds.push('S031');
+    store.saveGroups(groups);
+    assert.deepStrictEqual(JSON.parse(storage.getItem('gac_groups_v2'))[0].memberIds, ['S020', 'S030', 'S031']);
+    // 備份含 groups；解析回來一致
+    const payload = ST.buildExportPayload({ students: demoStudents, groups: groups, lessons: {}, sendlog: {}, settings: {} });
+    const parsed = ST.parseImportPayload(JSON.stringify(payload));
+    assert.strictEqual(parsed.ok, true);
+    assert.strictEqual(parsed.groups.length, 1);
+    assert.deepStrictEqual(parsed.groups[0].memberIds, ['S020', 'S030', 'S031']);
+    // 舊 v2 備份（沒有 groups 鍵）→ 空陣列而非 undefined
+    const old = ST.parseImportPayload(JSON.stringify({ schemaVersion: 2, students: demoStudents, lessons: {}, sendlog: {}, settings: {} }));
+    assert.deepStrictEqual(old.groups, []);
+});

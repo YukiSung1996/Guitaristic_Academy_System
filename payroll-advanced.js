@@ -28,6 +28,11 @@ function advancedRate(student) {
   return Math.round(230 * duration / 45 * levelFactor);
 }
 
+// 單堂費率：按該堂課自身的 program/level/形式/時長/導師查表（小組課與個別課各自的價）
+function rateForLesson(l) {
+  return advancedRate({ program: l.program, level: l.level, type: l.classType, duration: l.duration, tutor: l.tutor });
+}
+
 function advancedMoney(value) {
   return `HK$ ${Number(value || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 }
@@ -96,8 +101,24 @@ function advancedImportStudents() {
   const monthKey = document.getElementById('advancedPayrollMonth')?.value || '';
   if (!monthKey) { alert('請先選擇薪酬月份！'); return; }
   const payNoShow = !appSettings || appSettings.payNoShow !== false;
-  const counts = GACPayroll.countPayableByStudent(lessonsByMonth, monthKey, {payNoShow});
-  advancedPayrollState.rows = studentDatabase.map(student => ({id: student.id, name: student.name, tutor: student.tutor, rate: advancedRate(student), lessons: counts[student.id] || 0}));
+  // 每個「報讀項目」一行：學生的個別課一行（有個別課或有個別可計薪堂數才列）＋ 每個小組的每位成員一行
+  const payable = GACPayroll.payableLessons(lessonsByMonth, monthKey, {payNoShow});
+  const rows = [];
+  studentDatabase.forEach(student => {
+    const n = payable.filter(l => l.studentId === student.id && !l.groupId).length;
+    if (student.weekday === null || student.weekday === undefined || student.weekday === '') { if (!n) return; }
+    rows.push({id: student.id, name: student.name, tutor: student.tutor, rate: advancedRate(student), lessons: n});
+  });
+  (typeof groupClasses !== 'undefined' ? groupClasses : []).forEach(g => {
+    const gRate = advancedRate({ program: g.program, level: g.level, type: (g.memberIds || []).length + '人小組', duration: g.duration, tutor: g.tutor });
+    (g.memberIds || []).forEach(sid => {
+      const stu = studentDatabase.find(s => s.id === sid);
+      if (!stu) return;
+      const n = payable.filter(l => l.studentId === sid && l.groupId === g.id).length;
+      rows.push({id: sid, name: `${stu.name} @ ${g.name}`, tutor: g.tutor, rate: gRate, lessons: n, groupId: g.id});
+    });
+  });
+  advancedPayrollState.rows = rows;
   // 導師節數（小組同時段算 1 節）按課表計算；手改堂數只影響金額，不影響節數
   advancedPayrollState.sessions = GACPayroll.tutorSessions(lessonsByMonth, monthKey, {payNoShow});
   advancedRenderExpiredWarning(monthKey);
