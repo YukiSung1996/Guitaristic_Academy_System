@@ -26,6 +26,24 @@
             renderAll();
         };
 
+        // 成功提示用右下角 toast（3.5 秒淡出，不阻斷操作）；只有需要用戶決定或必須看清的內容才用 alert/confirm
+        let lastToast = '';
+        function showToast(msg) {
+            lastToast = String(msg);
+            let box = document.getElementById('gacToast');
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'gacToast';
+                box.className = 'fixed bottom-5 right-5 z-[60] max-w-sm bg-slate-900 text-white text-xs rounded-xl shadow-2xl px-4 py-3 whitespace-pre-line transition-opacity duration-300';
+                document.body.appendChild(box);
+            }
+            box.textContent = lastToast;
+            box.style.opacity = '1';
+            box.classList.remove('hidden');
+            clearTimeout(box._timer);
+            box._timer = setTimeout(() => { box.style.opacity = '0'; setTimeout(() => box.classList.add('hidden'), 300); }, 3500);
+        }
+
         function saveToLocalStorage() {
             gacStore.saveStudents(studentDatabase);
             updateDashboardKPIs();
@@ -305,8 +323,8 @@
             renderStudentTable();
             closeGroupModal();
             const genMonths = Object.keys(lessonsByMonth).sort();
-            alert(`✅ 已儲存小組「${g.name}」（${g.memberIds.length} 位成員，逢${getWeekdayName(g.weekday)} ${g.time}）。` +
-                (genMonths.length ? `\n\n提醒：課表要重新按「生成」才會套用（勾選這個小組即可；已生成月份：${genMonths.join('、')}）。` : ''));
+            showToast(`✅ 已儲存小組「${g.name}」（${g.memberIds.length} 位成員，逢${getWeekdayName(g.weekday)} ${g.time}）` +
+                (genMonths.length ? `\n記得到 ${genMonths.join('、')} 按「生成」套用` : ''));
         }
 
         function deleteGroupFromModal() {
@@ -444,9 +462,9 @@
             closeQuickEdit();
             const genMonths = Object.keys(lessonsByMonth).filter(k => k >= effMonth).sort();
             const genNote = timeChanged && genMonths.length
-                ? `\n\n⚠️ ${genMonths.join('、')} 已生成課表：請到該月按「生成」重新套用（舊時間中仍是「已排課」的課會移除並補上新時間；已有狀態的課不受影響）。`
+                ? `\n⚠️ ${genMonths.join('、')} 已生成：請到該月按「生成」重新套用`
                 : '';
-            alert(`✅ 已保存「${s.name}」：\n• ${changes.join('\n• ')}${genNote}`);
+            showToast(`✅ 已保存「${s.name}」：${changes.join('；')}${genNote}`);
         }
 
         function selectAllStudents(checked) {
@@ -534,7 +552,8 @@
             if (appSettings.gcalClientId) {
                 msg += `\n\nℹ️ Google Calendar 不會自動更新——需要時請按「同步 GCal」推送。`;
             }
-            alert(msg);
+            // 有需要人工處理的衝突才阻斷式提示；否則右下角 toast 即可
+            if (res.conflicts.length) alert(msg); else showToast(msg);
         }
 
         function rebuildMonthContext() {
@@ -847,12 +866,11 @@
             const ids = String(idsCsv || '').split(',').filter(Boolean);
             if (!ids.length) return;
             const label = to === 'ATTENDED' ? '已上課' : to;
-            if (!confirm(`全組 ${ids.length} 位成員一併標記為「${label}」？`)) return;
             let n = 0;
             ids.forEach(id => { const r = GACLessonState.markStatus(lessonsByMonth, id, to); if (r.ok) n++; });
             persistLessons();
             renderAll();
-            alert(`✅ 已標記 ${n} 位成員為「${label}」。`);
+            showToast(`✅ 已標記 ${n} 位成員為「${label}」`);
         }
 
         // 整組導師請假：全組成員標記 TL（與單人 TL 聯動同義，但直接從卡頭一鍵發起）
@@ -959,7 +977,6 @@
 
         // 狀態機操作（lib/lessonState.js）：所有非法轉換由狀態機攔截並提示
         function markLessonStatus(lessonId, to) {
-            if (to === 'SCHEDULED' && !confirm('確定要撤銷此課堂的狀態、還原為「已排課」嗎？')) return;
             let res = GACLessonState.markStatus(lessonsByMonth, lessonId, to);
             if (!res.ok && res.code === 'HAS_MAKEUP') {
                 // 一鍵倒回：還原「已排補堂的請假」時級聯取消補堂（原本硬攔截，補堂在別的月份很難找）
@@ -1104,7 +1121,6 @@
             const leaveType = v.indexOf('LEAVE') === 0 ? v.split('_')[1] : '';
             const label = (sel.options && sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].text) || v;
             const l = found.lesson;
-            if (!confirm(`手動模式：將 ${l.studentName} 的 ${l.date} ${l.time} 直接設為「${label}」？\n（跳過正常流程限制，不觸發小組聯動）`)) return;
             let res = GACLessonState.forceStatus(lessonsByMonth, lessonId, to, { leaveType });
             if (!res.ok && res.code === 'HAS_MAKEUP') {
                 const mk = GACLessonState.findLesson(lessonsByMonth, res.makeupLessonId);
@@ -1291,9 +1307,9 @@
             const res = GACLessonState.confirmScheduledInRange(lessonsByMonth, from, to, { maxDate: today });
             persistLessons();
             renderAll();
-            alert(res.count > 0
-                ? `✅ 已批量確認 ${res.count} 堂為「已上課」。`
-                : 'ℹ️ 範圍內沒有可確認的課堂（只會確認今天或以前、狀態仍為「已排課」的課）。');
+            showToast(res.count > 0
+                ? `✅ 已批量確認 ${res.count} 堂為「已上課」`
+                : 'ℹ️ 範圍內沒有可確認的課堂（只會確認今天或以前、仍為「已排課」的課）');
         }
 
         // 待補堂池：跨月列出所有「已請假未排補堂」的課，按等待天數降序
@@ -1513,7 +1529,7 @@
                 student.time = time;
                 student.duration = duration;
 
-                alert(`已成功更新學生: ${name} (${id})`);
+                showToast(`✅ 已更新學生 ${name}（${id}）`);
             } else {
                 // Add New Student
                 studentDatabase.push({
@@ -1521,7 +1537,7 @@
                     effectiveMonth: "", futureWeekday: null, futureTime: ""
                 });
 
-                alert(`已新增學生: ${name} (${id})`);
+                showToast(`✅ 已新增學生 ${name}（${id}）`);
             }
 
             // 同步小組成員：勾選的小組加入此學生、未勾選的移除（含改 id 的情況）
@@ -1660,7 +1676,7 @@
                 const res = GACStorage.parseImportPayload(e.target.result);
                 if (!res.ok) { alert('⚠️ ' + res.error); return; }
                 if (applyImportedPayload(res)) {
-                    alert(res.legacy ? '✅ 已匯入學生名單（舊版格式）。' : '✅ 全量還原完成（學生／課表／發送紀錄／設定）。');
+                    showToast(res.legacy ? '✅ 已匯入學生名單（舊版格式）' : '✅ 全量還原完成（學生／小組／課表／發送紀錄／設定）');
                 }
             };
             fileReader.readAsText(file);
@@ -1675,7 +1691,7 @@
                 saveToLocalStorage();
                 renderBatchCheckboxes();
                 renderStudentTable();
-                alert('已恢復預設資料庫！');
+                showToast('✅ 已恢復預設學生名單與小組班');
             }
         }
 
@@ -1944,7 +1960,7 @@
             hits.forEach(e => { delete sendLog[e.key]; });
             persistSendlog();
             renderSendCenter();
-            alert(`✅ 已刪除 ${hits.length} 筆自定義條目。`);
+            showToast(`✅ 已刪除 ${hits.length} 筆自定義條目`);
         }
 
         // 刪除自定義條目（僅 CUSTOM：群發手動建立、無課堂掛鉤；其他類型由系統管理不可刪）
@@ -2004,7 +2020,6 @@
                 .map(chk => studentDatabase[parseInt(chk.value)])
                 .filter(Boolean);
             if (!chosen.length) { alert('請至少勾選一位學生！'); return; }
-            if (!confirm(`將建立群發「${title}」：為 ${chosen.length} 位學生建立待發送條目（歸入 ${monthKey}）。\n之後到「待發送」欄逐一複製／WhatsApp 發送，可用「類別」下拉只看這批。\n\n確定建立？`)) return;
             // batchId 用建立時刻，同月多次群發互不覆蓋；{name}/{id} 在此按學生解析定稿
             const now = new Date();
             const batchId = now.toISOString().replace(/\D/g, '').slice(0, 14);
@@ -2024,7 +2039,7 @@
             if (typeSel) typeSel.value = 'CUSTOM:' + batchId; // 建完直接聚焦到這批（rebuild 會確認有效）
             renderSendCenter();
             closeBroadcastModal();
-            alert(`✅ 已建立群發「${title}」：${chosen.length} 位學生（${monthKey}）。\n「待發送」欄已切到此類別；建錯了可在條目上直接刪除。`);
+            showToast(`✅ 已建立群發「${title}」：${chosen.length} 位學生（${monthKey}）\n待發送欄已切到此類別；建錯可整批刪除`);
         }
 
         // waSentMode='confirm'：從 WhatsApp 分頁切回本頁時，逐條詢問剛才開啟的訊息是否已發出。
@@ -2110,7 +2125,7 @@
 
         function copyToClipboard(text) {
             navigator.clipboard.writeText(text).then(() => {
-                alert(`已複製訊息：\n"${text}"`);
+                showToast('📋 已複製訊息');
             });
         }
 
