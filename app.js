@@ -2205,6 +2205,47 @@
             CUSTOM: { label: '自定義', cls: 'bg-violet-100 text-violet-700' }
         };
 
+        // 已發送欄學費卡片的繳費小表單：未繳清預設展開、已繳清收起；用戶手動切換後以此表為準（key → 開/關）
+        const sendPayFormOpen = new Map();
+
+        function sendPayFormIsOpen(e) {
+            return sendPayFormOpen.has(e.key) ? sendPayFormOpen.get(e.key) : GACSendlog.paymentStatus(e) !== 'paid';
+        }
+
+        function toggleSendPayForm(key) {
+            const e = sendLog[key];
+            if (!e) return;
+            sendPayFormOpen.set(key, !sendPayFormIsOpen(e));
+            renderSendCenter();
+        }
+
+        function sendPayToggleBtn(e) {
+            const open = sendPayFormIsOpen(e);
+            const label = open ? '收起' : (GACSendlog.paymentStatus(e) === 'paid' ? '修改繳費' : '登記繳費');
+            return `<button onclick="toggleSendPayForm('${e.key}')" class="ml-auto px-2 py-0.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-600 text-[10px] font-semibold" title="在此登記繳費（與「出席與繳費」同一筆紀錄）"><i class="fa-solid fa-${open ? 'chevron-up' : 'sack-dollar'}"></i> ${label}</button>`;
+        }
+
+        // 付款方式下拉（發送中心卡片與繳費表共用）
+        function payMethodSelectHtml(e, cls) {
+            const names = payMethodNames();
+            return `<select onchange="payUpdate('${e.key}', { payMethod: this.value })" class="${cls}"><option value="">—</option>` +
+                names.map((m, i) => `<option value="${i + 1}" ${String(e.payMethod || '') === String(i + 1) ? 'selected' : ''}>${i + 1}. ${escapeHtml(m)}</option>`).join('') + '</select>';
+        }
+
+        // 已發送欄學費卡片的繳費小表單：已繳／實收／付款方式／日期／收據，改動即存（同一條目，繳費表同步）
+        function sendPayFormHtml(e) {
+            if (!sendPayFormIsOpen(e)) return '';
+            const k = e.key;
+            const inp = 'px-1.5 py-1 border border-slate-300 rounded-lg bg-white text-[11px]';
+            return `<div class="flex items-center gap-x-3 gap-y-1.5 flex-wrap bg-purple-50/60 border border-purple-100 rounded-lg px-2.5 py-1.5">
+                       <label class="flex items-center gap-1 cursor-pointer font-semibold text-slate-700"><input type="checkbox" ${e.paid ? 'checked' : ''} onchange="payUpdate('${k}', { paid: this.checked })" class="w-3.5 h-3.5 accent-emerald-600" title="勾＝已繳（預設整額、今天）"> 已繳</label>
+                       <label class="flex items-center gap-1 text-slate-600">實收 <input type="number" min="0" value="${Number(e.paidAmount) || 0}" onchange="payUpdate('${k}', { paidAmount: this.value })" class="${inp} w-20 text-right" title="實收金額（改動即更新已繳狀態）"></label>
+                       <label class="flex items-center gap-1 text-slate-600">方式 ${payMethodSelectHtml(e, inp)}</label>
+                       <label class="flex items-center gap-1 text-slate-600">日期 <input type="date" value="${e.payDate || ''}" onchange="payUpdate('${k}', { payDate: this.value })" class="${inp}"></label>
+                       <label class="flex items-center gap-1 cursor-pointer text-slate-600"><input type="checkbox" ${e.receipt ? 'checked' : ''} onchange="payUpdate('${k}', { receipt: this.checked })" class="w-3.5 h-3.5 accent-sky-600" title="已發收據"> 收據</label>
+                   </div>`;
+        }
+
         function sendCenterMonth() {
             const el = document.getElementById('sendMonth');
             return (el && el.value) || currentMonthKey();
@@ -2234,8 +2275,11 @@
                 if (!batches.has(bid)) batches.set(bid, e.title || '未命名群發');
             });
             let html = '<option value="ALL">全部類別</option>';
-            [['TUITION', '學費'], ['LEAVE_CONFIRM', '請假確認'], ['MAKEUP_CONFIRM', '補堂確認']].forEach(([v, label]) => {
-                if (present.has(v)) html += `<option value="${v}">${label}</option>`;
+            // 學費之下多兩個繳費狀態子篩選（未繳清＝未繳＋部分；已繳清），只列本月實際有的
+            const payStates = new Set(entries.filter(e => e.type === 'TUITION').map(e => (GACSendlog.paymentStatus(e) === 'paid' ? 'paid' : 'due')));
+            [['TUITION', '學費'], ['TUITION:due', '學費 · 未繳清'], ['TUITION:paid', '學費 · 已繳清'], ['LEAVE_CONFIRM', '請假確認'], ['MAKEUP_CONFIRM', '補堂確認']].forEach(([v, label]) => {
+                const ok = v.indexOf('TUITION:') === 0 ? payStates.has(v.slice(8)) : present.has(v);
+                if (ok) html += `<option value="${v}">${label}</option>`;
             });
             if (batches.size) {
                 html += '<optgroup label="自定義">';
@@ -2265,15 +2309,18 @@
             const phone = sendEntryPhone(e);
             const msg = sendlogMsgFor(e);
             const amountRow = e.type === 'TUITION'
-                ? `<div class="flex items-center gap-2">
+                ? `<div class="flex items-center gap-2 flex-wrap">
                        <span class="text-slate-500 font-medium">金額 HK$</span>
                        <input type="number" min="0" value="${e.amount}" ${sent ? 'disabled' : ''}
                            onchange="sendSetAmount('${e.key}', this.value)"
                            class="w-24 px-2 py-1 border border-slate-300 rounded-lg ${sent ? 'bg-slate-100 text-slate-400' : ''}">
                        <span class="text-slate-400">（${tuitionCountLabel(e)}）</span>
                        ${e.amountEdited ? '<span class="text-amber-600 font-semibold" title="金額已手改，重新生成課表不會覆蓋"><i class="fa-solid fa-pen"></i> 已手改</span>' : ''}
+                       <label class="flex items-center gap-1 cursor-pointer text-slate-600" title="已核對金額（與「出席與繳費」的核對欄同步）"><input type="checkbox" ${e.checked ? 'checked' : ''} onchange="payUpdate('${e.key}', { checked: this.checked })" class="w-3.5 h-3.5 accent-slate-600"> 核對</label>
                        ${paymentBadge(e)}
-                   </div>`
+                       ${sent ? sendPayToggleBtn(e) : ''}
+                   </div>
+                   ${sent ? sendPayFormHtml(e) : ''}`
                 : '';
             const waBtn = phone
                 ? `<button onclick="sendWhatsApp('${e.key}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold" title="打開 WhatsApp 預填訊息（不會自動移到已發送，發完請點「標記已發」）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`
@@ -2474,9 +2521,7 @@
             const badge = st === 'paid' ? '<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold text-[10px]">已繳清</span>'
                 : st === 'partial' ? '<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[10px]">部分</span>'
                 : '<span class="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-bold text-[10px]">未繳</span>';
-            const names = payMethodNames();
-            const methodSel = `<select onchange="payUpdate('${k}', { payMethod: this.value })" class="px-1.5 py-1 border border-slate-300 rounded-lg bg-white text-[11px]"><option value="">—</option>` +
-                names.map((m, i) => `<option value="${i + 1}" ${String(e.payMethod || '') === String(i + 1) ? 'selected' : ''}>${i + 1}. ${escapeHtml(m)}</option>`).join('') + '</select>';
+            const methodSel = payMethodSelectHtml(e, 'px-1.5 py-1 border border-slate-300 rounded-lg bg-white text-[11px]');
             const phone = sendEntryPhone(e);
             const waBtn = phone && !sent
                 ? `<button onclick="sendWhatsApp('${k}'); renderPaymentTab()" class="ml-1 px-1.5 py-0.5 bg-green-100 hover:bg-green-200 text-green-800 rounded font-semibold" title="開 WhatsApp 預填學費單（發完請勾已發送）"><i class="fa-brands fa-whatsapp"></i></button>`
@@ -2551,6 +2596,11 @@
                 if (typeFilter.indexOf('CUSTOM:') === 0) {
                     return e.type === 'CUSTOM' && customBatchId(e) === typeFilter.slice(7);
                 }
+                if (typeFilter.indexOf('TUITION:') === 0) {
+                    if (e.type !== 'TUITION') return false;
+                    const paid = GACSendlog.paymentStatus(e) === 'paid';
+                    return typeFilter === 'TUITION:paid' ? paid : !paid;
+                }
                 return e.type === typeFilter;
             };
             const todo = cols.todo.filter(byType);
@@ -2561,6 +2611,8 @@
                 filterLabel = '自定義：' + escapeHtml((hit && hit.title) || '未命名群發');
             } else if (typeFilter === 'CUSTOM') {
                 filterLabel = '全部自定義';
+            } else if (typeFilter.indexOf('TUITION:') === 0) {
+                filterLabel = typeFilter === 'TUITION:paid' ? '學費 · 已繳清' : '學費 · 未繳清';
             } else if (typeFilter !== 'ALL') {
                 filterLabel = (SEND_TYPE_META[typeFilter] || { label: typeFilter }).label;
             }
@@ -2582,6 +2634,13 @@
             const sentCountEl = document.getElementById('sendSentCount');
             if (todoCountEl) todoCountEl.textContent = todo.length;
             if (sentCountEl) sentCountEl.textContent = sent.length;
+            // 已發送欄的學費之中未繳清（未繳＋部分）的筆數：「發了但錢未到」
+            const unpaidEl = document.getElementById('sendSentUnpaid');
+            if (unpaidEl) {
+                const due = sent.filter(e => e.type === 'TUITION' && GACSendlog.paymentStatus(e) !== 'paid').length;
+                unpaidEl.textContent = due ? `${due} 筆學費未繳清` : '';
+                unpaidEl.classList.toggle('hidden', due === 0);
+            }
             // 頁籤紅點徽章：所有月份 TODO 總數
             const badge = document.getElementById('sendTabBadge');
             if (badge) {
@@ -2598,6 +2657,7 @@
             GACSendlog.setAmount(sendLog, key, value);
             persistSendlog();
             renderSendCenter();
+            renderPaymentTab();
         }
 
         function sendMarkSent(key, method) {
@@ -2607,6 +2667,7 @@
             GACSendlog.markSent(sendLog, key, method, new Date().toISOString());
             persistSendlog();
             renderSendCenter();
+            renderPaymentTab();
         }
 
         function sendMarkUnsent(key) {
@@ -2616,6 +2677,7 @@
             GACSendlog.markUnsent(sendLog, key);
             persistSendlog();
             renderSendCenter();
+            renderPaymentTab();
         }
 
         function sendCopy(key) {

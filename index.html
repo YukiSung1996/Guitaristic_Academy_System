@@ -392,7 +392,7 @@
                         <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
                             <i class="fa-solid fa-paper-plane text-teal-500"></i> 發送中心
                         </h2>
-                        <p class="text-xs text-slate-500 mt-0.5">學費、請假確認、補堂確認訊息集中處理。預設：開 WhatsApp 只會標記「已開啟」、切回本頁時詢問是否已發（可在「設定」改為自動移欄或只標記）。</p>
+                        <p class="text-xs text-slate-500 mt-0.5">學費、請假確認、補堂確認訊息集中處理。學費卡片：待發送時可核對金額，發出後可直接登記繳費（與「出席與繳費」同一筆紀錄），「類別」可篩「學費 · 未繳清」。預設：開 WhatsApp 只會標記「已開啟」、切回本頁時詢問是否已發（可在「設定」改為自動移欄或只標記）。</p>
                     </div>
                     <div class="flex items-center gap-2 text-xs">
                         <button onclick="openBroadcastModal()" title="自訂訊息內容（支持 {name}／{id} 佔位符），按導師篩選、勾選學生後批量加入「待發送」欄，如調整學費通知" class="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
@@ -421,6 +421,7 @@
                     <div class="space-y-2">
                         <h3 class="text-sm font-bold text-slate-700 flex items-center gap-2">
                             <i class="fa-solid fa-circle-check text-emerald-500"></i> 已發送（<span id="sendSentCount" class="text-emerald-600">0</span> 筆）
+                            <span id="sendSentUnpaid" class="hidden px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-semibold" title="已發出學費單但尚未繳清（未繳＋部分）——可用「類別」篩「學費 · 未繳清」"></span>
                         </h3>
                         <div id="sendSentList" class="space-y-2"></div>
                     </div>
