@@ -492,7 +492,7 @@
                 <h3 id="modalTitle" class="font-bold text-slate-800 text-base flex items-center gap-2">
                     <i class="fa-solid fa-user-plus text-emerald-500"></i> 新增學生資料
                 </h3>
-                <button onclick="closeStudentModal()" class="text-slate-400 hover:text-slate-600 p-1">
+                <button onclick="requestCloseModal('studentModal')" class="text-slate-400 hover:text-slate-600 p-1">
                     <i class="fa-solid fa-xmark text-lg"></i>
                 </button>
             </div>
@@ -568,7 +568,7 @@
             </div>
 
             <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                <button onclick="closeStudentModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
+                <button onclick="requestCloseModal('studentModal')" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
                 <button onclick="saveStudentFromModal()" class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition">儲存資料</button>
             </div>
         </div>
@@ -579,7 +579,7 @@
         <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div class="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h3 id="gmTitle" class="font-bold text-slate-800 text-base flex items-center gap-2"><i class="fa-solid fa-user-group text-indigo-500"></i> 新增小組班</h3>
-                <button onclick="closeGroupModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark text-lg"></i></button>
+                <button onclick="requestCloseModal('groupModal')" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
             <input type="hidden" id="gmId" value="">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
@@ -625,7 +625,7 @@
             <div class="flex items-center justify-between gap-2 pt-3 border-t border-slate-100">
                 <button id="gmDeleteBtn" onclick="deleteGroupFromModal()" class="hidden px-3 py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs font-bold rounded-xl transition"><i class="fa-solid fa-trash-can"></i> 刪除小組</button>
                 <div class="flex items-center gap-2 ml-auto">
-                    <button onclick="closeGroupModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
+                    <button onclick="requestCloseModal('groupModal')" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
                     <button onclick="saveGroupModal()" class="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700 transition">儲存小組</button>
                 </div>
             </div>
@@ -637,7 +637,7 @@
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-3">
             <div class="flex items-center justify-between border-b border-slate-100 pb-2">
                 <h3 class="text-sm font-bold text-slate-800"><i class="fa-solid fa-arrows-rotate text-sky-500 mr-1"></i>補堂改期</h3>
-                <button onclick="closeMoveModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
+                <button onclick="requestCloseModal('moveModal')" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div id="moveModalInfo" class="text-xs text-slate-600 leading-relaxed"></div>
             <div class="flex items-center gap-2 text-xs">
@@ -646,7 +646,7 @@
                 <input type="time" id="moveTime" class="p-2 border border-slate-300 rounded-lg bg-white">
             </div>
             <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                <button onclick="closeMoveModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
+                <button onclick="requestCloseModal('moveModal')" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
                 <button onclick="submitMoveModal()" class="px-4 py-2 bg-sky-600 text-white text-xs font-bold rounded-xl hover:bg-sky-700 transition">確定改期</button>
             </div>
         </div>
@@ -695,7 +695,7 @@
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-5 space-y-3 max-h-[85vh] overflow-y-auto">
             <div class="flex items-center justify-between border-b border-slate-100 pb-2">
                 <h3 id="qeTitle" class="text-sm font-bold text-slate-800"></h3>
-                <button onclick="closeQuickEdit()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
+                <button onclick="requestCloseModal('quickEditModal')" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div id="qeInfo" class="text-xs text-slate-600 space-y-1.5"></div>
             <div class="grid grid-cols-2 gap-3 text-xs">
@@ -731,7 +731,7 @@
             </div>
             <div id="qePreview" class="text-xs space-y-1 max-h-52 overflow-y-auto"></div>
             <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                <button onclick="closeQuickEdit()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
+                <button onclick="requestCloseModal('quickEditModal')" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
                 <button onclick="saveQuickEdit()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl transition"><i class="fa-solid fa-floppy-disk mr-1"></i>保存</button>
             </div>
         </div>
@@ -742,7 +742,7 @@
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-5 space-y-3 max-h-[85vh] overflow-y-auto">
             <div class="flex items-center justify-between border-b border-slate-100 pb-2">
                 <h3 class="text-sm font-bold text-slate-800"><i class="fa-solid fa-bullhorn text-violet-500 mr-1"></i>自定義群發（加入發送中心待發送欄）</h3>
-                <button onclick="closeBroadcastModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
+                <button onclick="requestCloseModal('broadcastModal')" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="space-y-2 text-xs">
                 <div>
@@ -772,7 +772,7 @@
                     <button onclick="bcSetAll(false)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全不選</button>
                 </div>
                 <div class="flex gap-2">
-                    <button onclick="closeBroadcastModal()" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
+                    <button onclick="requestCloseModal('broadcastModal')" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
                     <button onclick="applyBroadcast()" class="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-xl transition"><i class="fa-solid fa-paper-plane mr-1"></i>加入待發送</button>
                 </div>
             </div>

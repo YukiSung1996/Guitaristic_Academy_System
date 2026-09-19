@@ -24,7 +24,62 @@
             renderStudentTable();
             rebuildMonthContext();
             renderAll();
+            installModalClose();
         };
+
+        // ===== 彈窗通用關閉：點背景／Esc ＝ 關閉；表單類彈窗有未儲存改動時先確認（改動會丟失）=====
+        // 各 open 函數在填好欄位、顯示後呼叫 markModalOpened(id) 拍一張「表單快照」；
+        // requestCloseModal(id)（✕／取消／背景／Esc 共用）比對快照，有差異才 confirm。
+        // 儲存路徑仍直接呼叫各自的 close 函數（已儲存的改動不必再問）。
+        const MODAL_CLOSERS = {
+            studentModal: () => closeStudentModal(),
+            groupModal: () => closeGroupModal(),
+            quickEditModal: () => closeQuickEdit(),
+            broadcastModal: () => closeBroadcastModal(),
+            moveModal: () => closeMoveModal(),
+            msgModal: () => closeMsgModal(),
+            // 同步面板：執行中（進度顯示、按鈕鎖定）不讓背景／Esc 關掉；✕ 仍可用
+            gcalSyncModal: () => { if (typeof gcalSyncBusy !== 'undefined' && gcalSyncBusy) return; closeGcalSyncModal(); }
+        };
+        const modalSnapshots = {};
+        function modalFormState(id) {
+            const box = document.getElementById(id);
+            if (!box) return '';
+            return Array.from(box.querySelectorAll('input, select, textarea')).map((el, i) =>
+                (el.id || i) + '=' + (el.type === 'checkbox' || el.type === 'radio' ? (el.checked ? 1 : 0) : el.value)).join('|');
+        }
+        function markModalOpened(id) { modalSnapshots[id] = modalFormState(id); }
+        function modalIsDirty(id) { return (id in modalSnapshots) && modalSnapshots[id] !== modalFormState(id); }
+        function requestCloseModal(id) {
+            const closer = MODAL_CLOSERS[id];
+            if (!closer) return false;
+            if (modalIsDirty(id) && !confirm('有未儲存的改動，關閉後會丟失。\n確定要關閉嗎？')) return false;
+            delete modalSnapshots[id];
+            closer();
+            return true;
+        }
+        function isModalOpen(id) {
+            const el = document.getElementById(id);
+            return !!el && !el.classList.contains('hidden');
+        }
+        function installModalClose() {
+            Object.keys(MODAL_CLOSERS).forEach(id => {
+                const overlay = document.getElementById(id);
+                if (!overlay) return;
+                // 只有「按下＋放開」都在背景才算點背景：在面板內拖選文字、放開時滑出面板不會誤關
+                let downOnBackdrop = false;
+                overlay.addEventListener('pointerdown', e => { downOnBackdrop = e.target === overlay; });
+                overlay.addEventListener('click', e => {
+                    if (e.target === overlay && downOnBackdrop) requestCloseModal(id);
+                    downOnBackdrop = false;
+                });
+            });
+            document.addEventListener('keydown', e => {
+                if (e.key !== 'Escape') return;
+                const open = Object.keys(MODAL_CLOSERS).find(isModalOpen);
+                if (open) requestCloseModal(open);
+            });
+        }
 
         // 成功提示用右下角 toast（3.5 秒淡出，不阻斷操作）；只有需要用戶決定或必須看清的內容才用 alert/confirm
         let lastToast = '';
@@ -237,6 +292,7 @@
             renderGroupMemberList();
             renderGroupPreview();
             document.getElementById('groupModal').classList.remove('hidden');
+            markModalOpened('groupModal');
         }
 
         let groupModalMembers = new Set(); // 彈窗內暫存的成員勾選（搜尋過濾時不丟失）
@@ -358,6 +414,7 @@
             document.getElementById('qeEffMonth').value = monthKey;
             renderQuickEditPreview();
             document.getElementById('quickEditModal').classList.remove('hidden');
+            markModalOpened('quickEditModal');
         }
 
         function renderQuickEditInfo(s) {
@@ -1196,6 +1253,7 @@
             document.getElementById('moveDate').value = mk.lesson.date;
             document.getElementById('moveTime').value = mk.lesson.time;
             document.getElementById('moveModal').classList.remove('hidden');
+            markModalOpened('moveModal');
         }
 
         function openMoveModalForMakeup(makeupLessonId) {
@@ -1499,6 +1557,7 @@
             }
 
             modal.classList.remove('hidden');
+            markModalOpened('studentModal');
         }
 
         // 學生弹窗內的「所屬小組」勾選（儲存時同步各小組的 memberIds）
@@ -1508,7 +1567,7 @@
             box.innerHTML = groupClasses.map(g => `<label class="flex items-center gap-1.5 bg-white px-2 py-1 rounded-lg border border-slate-200 cursor-pointer">
                 <input type="checkbox" class="modal-group-chk accent-indigo-600" value="${g.id}" ${studentId && (g.memberIds || []).indexOf(studentId) !== -1 ? 'checked' : ''}>
                 <span><b>${g.name}</b> <span class="text-slate-400">${getWeekdayName(g.weekday)} ${g.time}</span></span></label>`).join('')
-                || '<span class="text-slate-400 italic text-[11px]">尚無小組班（總課表 →「新增小組」）</span>';
+                || '<span class="text-slate-400 italic text-[11px]">尚無小組班（本頁右上「+ 新增小組」）</span>';
         }
 
         function closeStudentModal() {
@@ -2008,6 +2067,7 @@
                 '<option value="ALL">所有導師</option>' + tutors.map(t => `<option value="${t}">${t}</option>`).join('');
             renderBroadcastList();
             document.getElementById('broadcastModal').classList.remove('hidden');
+            markModalOpened('broadcastModal');
         }
 
         function closeBroadcastModal() {

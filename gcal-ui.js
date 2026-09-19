@@ -94,6 +94,7 @@ function setGcalBusy(busy) {
 //   🧹 殘留     標籤對不上任何本地課（本地改動/重新生成後的舊事件）→ 從 GCal 刪除
 //   ➕ 手動新建 GCal 手動建立、可歸屬學生 → 收編為補堂或獨立加課（需逐條選擇，預設不勾）
 let gcalSyncPlan = null;
+let gcalSyncBusy = false; // 執行中：背景／Esc 不關面板（app.js MODAL_CLOSERS 讀取）
 
 function openGcalSync() {
     if (!gcalPreflight()) return;
@@ -283,10 +284,12 @@ function showGcalSyncResult(done, errs, pushRes, delRes) {
         if (b) b.disabled = false;
     });
     gcalSyncPlan = null; // 已執行，計劃作廢（再開面板會重新計算）
+    gcalSyncBusy = false;
 }
 
 // 執行中的面板狀態：正文換成進度條文字、面板按鈕鎖定（防重複點擊）
 function gcalSyncShowBusy(text) {
+    gcalSyncBusy = true;
     const body = document.getElementById('gcalSyncBody');
     if (body) body.innerHTML = `<div class="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-800 text-xs font-semibold">${text}</div>`;
     ['gcalSyncApplyBtn', 'gcalSyncCancelBtn'].forEach(id => {
@@ -296,6 +299,7 @@ function gcalSyncShowBusy(text) {
 }
 
 function closeGcalSyncModal() {
+    gcalSyncBusy = false;
     const m = document.getElementById('gcalSyncModal');
     if (m) m.classList.add('hidden');
     ['gcalSyncApplyBtn', 'gcalSyncCancelBtn'].forEach(id => {
