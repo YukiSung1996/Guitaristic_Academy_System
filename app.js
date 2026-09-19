@@ -1,6 +1,10 @@
 ﻿window.onload = function() {
             // v2：所有資料經 lib/storage.js 讀寫（新 key；舊 key 兼容讀取自動遷移；損壞 JSON 不白屏）
             gacStore = GACStorage.createStore(window.localStorage);
+            // v3：導師名單與費率覆寫先載入（學生／課堂查價依賴）
+            tutorsList = gacStore.loadTutors(typeof defaultTutors !== 'undefined' ? defaultTutors : []);
+            rateOverrides = gacStore.loadRateOverrides();
+            GACRates.applyOverrides(rateTable, rateOverrides);
             studentDatabase = gacStore.loadStudents(defaultStudents);
             groupClasses = gacStore.loadGroups(typeof defaultGroups !== 'undefined' ? defaultGroups : []);
             lessonsByMonth = gacStore.loadLessons();
@@ -23,6 +27,7 @@
             document.addEventListener('visibilitychange', handleWaReturnConfirm);
 
             loadSettingsForm();
+            populateTutorSelects();
             renderBatchCheckboxes();
             renderStudentTable();
             rebuildMonthContext();
@@ -125,7 +130,7 @@
         const STATUS_LABEL = { SCHEDULED: '已排課', ATTENDED: '已上課', LEAVE: '請假', NOSHOW: '缺席' };
 
         function historyState() {
-            return { students: studentDatabase, groups: groupClasses, lessons: lessonsByMonth, sendlog: sendLog };
+            return { students: studentDatabase, groups: groupClasses, lessons: lessonsByMonth, sendlog: sendLog, tutors: tutorsList, rateOverrides: rateOverrides };
         }
 
         function pushHistory(description) {
@@ -148,6 +153,11 @@
             if (st.groups) groupClasses = st.groups;
             if (st.lessons) lessonsByMonth = st.lessons;
             if (st.sendlog) sendLog = st.sendlog;
+            if (st.tutors) { tutorsList = st.tutors; persistTutors(); }
+            if (st.rateOverrides) { rateOverrides = st.rateOverrides; applyRateOverridesToTable(); persistRateOverrides(); }
+            populateTutorSelects();
+            renderTutorManagementList();
+            renderRateTableEditor();
             gacStore.saveStudents(studentDatabase);
             persistGroups();
             gacStore.saveLessons(lessonsByMonth);
@@ -272,6 +282,8 @@
                 renderHistoryUI();
             } else if (tabId === 'settingsTab') {
                 loadSettingsForm();
+                renderTutorManagementList();
+                renderRateTableEditor();
             }
         }
 
@@ -378,13 +390,13 @@
             document.getElementById('gmTitle').innerHTML = g
                 ? `<i class="fa-solid fa-user-group text-indigo-500"></i> 編輯小組班（${g.id}）`
                 : '<i class="fa-solid fa-user-group text-indigo-500"></i> 新增小組班';
-            const tutors = [...new Set(studentDatabase.map(s => s.tutor).concat(groupClasses.map(x => x.tutor)))].filter(Boolean);
-            document.getElementById('gmTutor').innerHTML = tutors.map(t => `<option value="${t}">${t}</option>`).join('');
+            const tutors = allTutorNames();
+            document.getElementById('gmTutor').innerHTML = tutorOptionsHtml(tutors);
             document.getElementById('gmName').value = g ? g.name : '';
             document.getElementById('gmProgram').value = g ? (g.program || '') : '';
             document.getElementById('gmLevel').value = g ? (g.level || '') : '';
             document.getElementById('gmTutor').value = g ? g.tutor : tutors[0] || '';
-            document.getElementById('gmTutorLevel').value = g ? (g.tutorLevel || advancedTutor({ tutor: g.tutor })) : '普通導師';
+            document.getElementById('gmTutorLevel').value = g ? (g.tutorLevel || advancedTutor({ tutor: g.tutor })) : (tutorTier(tutors[0]) || '普通導師');
             document.getElementById('gmDuration').value = g ? (g.duration || 60) : 60;
             document.getElementById('gmWeekday').value = g ? g.weekday : 6;
             document.getElementById('gmTime').value = g ? g.time : '15:00';
@@ -803,7 +815,7 @@
             const sSel = document.getElementById('schedStudentFilter');
             if (!tSel || !sSel) return;
             const prevT = tSel.value || 'ALL', prevS = sSel.value || 'ALL';
-            const tutors = [...new Set(studentDatabase.map(s => s.tutor).concat(groupClasses.map(g => g.tutor)))].filter(Boolean).sort();
+            const tutors = allTutorNames().slice().sort();
             tSel.innerHTML = '<option value="ALL">所有導師</option>' +
                 tutors.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
             tSel.value = tutors.includes(prevT) ? prevT : 'ALL';
@@ -1800,7 +1812,8 @@
                 document.getElementById('modalName').value = s.name;
                 document.getElementById('modalPhone').value = s.phone || '';
                 document.getElementById('modalEmail').value = s.email || '';
-                document.getElementById('modalTutor').value = s.tutor || 'Instructor A';
+                populateTutorSelects();
+                document.getElementById('modalTutor').value = s.tutor || (allTutorNames()[0] || '');
                 document.getElementById('modalWeekday').value = hasIndividualSlot(s) ? s.weekday : '';
                 document.getElementById('modalTime').value = s.time || '';
                 // 費率欄位：舊資料的組合不在費率表時會被修正成第一個可選（儲存後即為修正值）
@@ -1812,10 +1825,11 @@
                 document.getElementById('modalName').value = '';
                 document.getElementById('modalPhone').value = '';
                 document.getElementById('modalEmail').value = '';
-                document.getElementById('modalTutor').value = 'Instructor A';
+                populateTutorSelects();
+                document.getElementById('modalTutor').value = allTutorNames()[0] || '';
                 document.getElementById('modalWeekday').value = 1;
                 document.getElementById('modalTime').value = '16:00';
-                renderStudentFeeSelects({ tutorLevel: '普通導師', program: 'Pop Guitar', level: 'Elementary 初級', type: '一對一', duration: 45 });
+                renderStudentFeeSelects({ tutorLevel: tutorTier(allTutorNames()[0]) || '普通導師', program: 'Pop Guitar', level: 'Elementary 初級', type: '一對一', duration: 45 });
                 renderModalGroups(null);
             }
 
@@ -2017,7 +2031,8 @@
         // JSON 備份/還原（v2 全量：students + lessons + sendlog + settings；匯入帶 schema 版本檢查）
         function exportJSONDatabase() {
             const payload = GACStorage.buildExportPayload({
-                students: studentDatabase, groups: groupClasses, lessons: lessonsByMonth, sendlog: sendLog, settings: appSettings
+                students: studentDatabase, groups: groupClasses, lessons: lessonsByMonth, sendlog: sendLog, settings: appSettings,
+                tutors: tutorsList, rateOverrides: rateOverrides
             });
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
             const downloadAnchor = document.createElement('a');
@@ -2043,6 +2058,10 @@
                 lessonsByMonth = res.lessons;
                 sendLog = res.sendlog;
                 appSettings = Object.assign({}, GACStorage.DEFAULT_SETTINGS, res.settings);
+                if (Array.isArray(res.tutors) && res.tutors.length) { tutorsList = res.tutors; persistTutors(); } // v2 備份無名單 → 保留現有
+                rateOverrides = (res.rateOverrides && typeof res.rateOverrides === 'object') ? res.rateOverrides : {};
+                applyRateOverridesToTable();
+                persistRateOverrides();
                 gacStore.saveStudents(studentDatabase);
                 persistGroups();
                 gacStore.saveLessons(lessonsByMonth);
@@ -2051,6 +2070,9 @@
             }
             renderBatchCheckboxes();
             renderStudentTable();
+            populateTutorSelects();
+            renderTutorManagementList();
+            renderRateTableEditor();
             rebuildMonthContext();
             loadSettingsForm();
             renderAll();
@@ -2413,7 +2435,7 @@
             const monthKey = paymentMonth();
             const tSel = document.getElementById('payTutorFilter');
             const prevT = (tSel && tSel.value) || 'ALL';
-            const tutors = [...new Set(studentDatabase.map(s => s.tutor).concat(groupClasses.map(g => g.tutor)))].filter(Boolean).sort();
+            const tutors = allTutorNames().slice().sort();
             if (tSel) {
                 tSel.innerHTML = '<option value="ALL">所有導師</option>' + tutors.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
                 tSel.value = tutors.includes(prevT) ? prevT : 'ALL';
@@ -2661,7 +2683,7 @@
         function openBroadcastModal() {
             document.getElementById('bcTitle').value = '';
             document.getElementById('bcMonth').value = sendCenterMonth();
-            const tutors = [...new Set(studentDatabase.map(s => s.tutor))];
+            const tutors = allTutorNames();
             document.getElementById('bcTutor').innerHTML =
                 '<option value="ALL">所有導師</option>' + tutors.map(t => `<option value="${t}">${t}</option>`).join('');
             renderBroadcastList();
@@ -2750,6 +2772,174 @@
                 persistSendlog();
                 renderSendCenter();
             }
+        }
+
+        // ===== 導師管理（gac_tutors_v3）：名單驅動所有導師下拉；等級＝查價用的導師級別 =====
+        function tutorTier(name) {
+            const t = tutorsList.find(x => x.name === name);
+            return t ? t.tier : null;
+        }
+
+        // 名單 ∪ 學生／小組上仍在用的名字（刪掉導師後舊資料照常顯示）
+        function allTutorNames() {
+            const names = tutorsList.map(t => t.name);
+            studentDatabase.forEach(s => { if (s.tutor && names.indexOf(s.tutor) === -1) names.push(s.tutor); });
+            groupClasses.forEach(g => { if (g.tutor && names.indexOf(g.tutor) === -1) names.push(g.tutor); });
+            return names;
+        }
+
+        function tutorOptionsHtml(names) {
+            return names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+        }
+
+        // 常駐的兩個下拉：排課篩選（保留「所有導師」首項）、學生弹窗；小組／群發／總表篩選／繳費篩選在各自渲染時重建
+        function populateTutorSelects() {
+            const names = allTutorNames();
+            const f = document.getElementById('filterTutor');
+            if (f) {
+                const cur = f.value || 'ALL';
+                f.innerHTML = '<option value="ALL">所有導師 (All Tutors)</option>' + tutorOptionsHtml(names);
+                f.value = names.indexOf(cur) !== -1 ? cur : 'ALL';
+            }
+            const m = document.getElementById('modalTutor');
+            if (m) {
+                const cur = m.value;
+                m.innerHTML = tutorOptionsHtml(names);
+                m.value = names.indexOf(cur) !== -1 ? cur : (names[0] || '');
+            }
+        }
+
+        function persistTutors() { gacStore.saveTutors(tutorsList); }
+
+        function renderTutorManagementList() {
+            const box = document.getElementById('tutorManagementList');
+            if (!box) return;
+            box.innerHTML = tutorsList.length ? tutorsList.map(t => {
+                const n = studentDatabase.filter(s => s.tutor === t.name).length + groupClasses.filter(g => g.tutor === t.name).length;
+                return `<div class="flex items-center justify-between gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+                    <span><b class="text-slate-800">${escapeHtml(t.name)}</b> <span class="text-slate-400">· ${n} 位學生／小組</span></span>
+                    <div class="flex items-center gap-2">
+                        <select onchange="updateTutorTier('${jsStrAttr(t.name)}', this.value)" class="p-1.5 border border-slate-300 rounded-lg bg-white">
+                            <option value="普通導師" ${t.tier === '普通導師' ? 'selected' : ''}>普通導師</option>
+                            <option value="資深導師" ${t.tier === '資深導師' ? 'selected' : ''}>資深導師</option>
+                        </select>
+                        <button onclick="deleteTutor('${jsStrAttr(t.name)}')" class="text-rose-600 hover:text-rose-800 px-2 py-1.5 hover:bg-rose-50 rounded-lg" title="刪除導師"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>`;
+            }).join('') : '<div class="text-center py-4 text-slate-400 text-xs">尚未新增任何導師。</div>';
+        }
+
+        function addTutor() {
+            const name = (document.getElementById('newTutorName').value || '').trim();
+            const tier = document.getElementById('newTutorTier').value === '資深導師' ? '資深導師' : '普通導師';
+            if (!name) { alert('請輸入導師名稱！'); return; }
+            if (tutorsList.some(t => t.name === name)) { alert('此導師名稱已存在！'); return; }
+            pushHistory(`新增導師：${name}（${tier}）`);
+            tutorsList.push({ name: name, tier: tier });
+            persistTutors();
+            document.getElementById('newTutorName').value = '';
+            afterTutorsChanged();
+            showToast(`✅ 已新增導師 ${name}（${tier}）`);
+        }
+
+        function updateTutorTier(name, tier) {
+            const t = tutorsList.find(x => x.name === name);
+            if (!t || t.tier === tier) return;
+            pushHistory(`導師等級：${name} → ${tier}`);
+            t.tier = tier;
+            persistTutors();
+            afterTutorsChanged();
+            showToast(`✅ ${name} 的定價等級改為 ${tier}（已登記學生的導師級別不變，逐一編輯可更新）`);
+        }
+
+        function deleteTutor(name) {
+            const inUse = studentDatabase.filter(s => s.tutor === name).length + groupClasses.filter(g => g.tutor === name).length;
+            if (!confirm(inUse
+                ? `「${name}」仍有 ${inUse} 位學生／小組使用，確定刪除？\n（他們記錄上的導師名稱不會改動，只是名單裡不再列出）`
+                : `確定刪除導師「${name}」？`)) return;
+            pushHistory(`刪除導師：${name}`);
+            tutorsList = tutorsList.filter(t => t.name !== name);
+            persistTutors();
+            afterTutorsChanged();
+        }
+
+        function afterTutorsChanged() {
+            populateTutorSelects();
+            renderTutorManagementList();
+            renderBatchCheckboxes();
+        }
+
+        // 學生／小組表單：選導師 → 自動帶出其等級（仍可手動改）
+        function onModalTutorChange() {
+            const tier = tutorTier(document.getElementById('modalTutor').value);
+            const sel = readFeeSelection();
+            if (tier) sel.tutorLevel = tier;
+            renderStudentFeeSelects(sel);
+        }
+
+        function onGroupTutorChange() {
+            const tier = tutorTier(document.getElementById('gmTutor').value);
+            if (tier) document.getElementById('gmTutorLevel').value = tier;
+        }
+
+        // ===== 收費標準表（gac_rate_overrides_v3）：設定頁改價，就地套用到 rateTable，即時生效 =====
+        function applyRateOverridesToTable() { GACRates.applyOverrides(rateTable, rateOverrides); }
+        function persistRateOverrides() { gacStore.saveRateOverrides(rateOverrides); }
+
+        function renderRateTableEditor() {
+            const body = document.getElementById('rateTableEditorBody');
+            if (!body) return;
+            const tierSel = document.getElementById('rateEditTier');
+            const progSel = document.getElementById('rateEditProgram');
+            const programs = [...new Set(rateTable.map(r => r.instrument))];
+            const curP = progSel.value;
+            progSel.innerHTML = programs.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+            progSel.value = programs.indexOf(curP) !== -1 ? curP : programs[0];
+            const tier = tierSel.value || '資深導師';
+            const program = progSel.value;
+            const rows = rateTable.filter(r => r.tutor === tier && r.instrument === program);
+            const cnt = document.getElementById('rateOverrideCount');
+            if (cnt) { const n = Object.keys(rateOverrides).length; cnt.textContent = n ? `已改價 ${n} 項` : '全部為預設價'; }
+            body.innerHTML = rows.map(r => {
+                const key = GACRates.overrideKey(r);
+                const changed = rateOverrides[key] !== undefined;
+                return `<tr class="${changed ? 'bg-amber-50/60' : ''}">
+                    <td class="p-2 font-semibold">${escapeHtml(r.grade)}</td>
+                    <td class="p-2 text-slate-600">${escapeHtml(r.classType)}</td>
+                    <td class="p-2 text-center">${r.duration} 分鐘</td>
+                    <td class="p-2 text-right"><input type="number" min="0" value="${r.rate}" data-key="${escapeHtml(key)}" onchange="handleRateTableEdit(this)" class="w-24 text-right p-1.5 border ${changed ? 'border-amber-400' : 'border-slate-300'} rounded-lg"${changed ? ` title="預設 $${r.baseRate}"` : ''}></td>
+                    <td class="p-2 text-right">${changed ? `<button onclick="resetRateRow('${jsStrAttr(key)}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-semibold" title="還原預設 $${r.baseRate}">還原</button>` : ''}</td>
+                </tr>`;
+            }).join('') || '<tr><td colspan="5" class="p-4 text-center text-slate-400">此組合暫無收費資料。</td></tr>';
+        }
+
+        function handleRateTableEdit(input) {
+            const key = input.dataset ? input.dataset.key : input.getAttribute('data-key');
+            const row = rateTable.find(r => GACRates.overrideKey(r) === key);
+            if (!row) return;
+            const v = Number(input.value);
+            if (!(v >= 0)) { alert('請輸入有效金額'); input.value = row.rate; return; }
+            if (v === row.rate) return;
+            pushHistory(`改價：${row.tutor} ${row.instrument} ${row.grade} ${row.classType} ${row.duration}分 → $${v}`);
+            if (v === row.baseRate) delete rateOverrides[key]; else rateOverrides[key] = v;
+            applyRateOverridesToTable();
+            persistRateOverrides();
+            afterRatesChanged();
+        }
+
+        function resetRateRow(key) {
+            const row = rateTable.find(r => GACRates.overrideKey(r) === key);
+            if (!row || rateOverrides[key] === undefined) return;
+            pushHistory(`還原預設價：${row.tutor} ${row.instrument} ${row.grade} ${row.classType} ${row.duration}分`);
+            delete rateOverrides[key];
+            applyRateOverridesToTable();
+            persistRateOverrides();
+            afterRatesChanged();
+        }
+
+        function afterRatesChanged() {
+            renderRateTableEditor();
+            renderAll(); // 薪酬／分析／繳費顯示按新價；學費條目金額要重新「生成」才更新
         }
 
         // ===== 設定頁（gac_settings_v2）=====

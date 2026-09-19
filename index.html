@@ -196,8 +196,6 @@
                         <label class="block text-xs font-bold text-slate-600 mb-1">篩選導師：</label>
                         <select id="filterTutor" onchange="renderBatchCheckboxes()" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white">
                             <option value="ALL">所有導師 (All Tutors)</option>
-                            <option value="Instructor A">Instructor A</option>
-                            <option value="Instructor B">Instructor B</option>
                         </select>
                     </div>
 
@@ -630,11 +628,58 @@
                     <span id="settingsSavedHint" class="hidden text-xs text-emerald-600 font-semibold"><i class="fa-solid fa-check"></i> 已儲存</span>
                 </div>
             </div>
+            <!-- 導師管理（v3）：名單驅動所有導師下拉；等級＝查價用的導師級別 -->
+            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-3 max-w-2xl">
+                <div class="border-b border-slate-100 pb-3">
+                    <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-chalkboard-user text-indigo-500"></i> 導師管理</h3>
+                    <p class="text-xs text-slate-500 mt-0.5">新增／移除導師並設定定價等級。學生與小組表單選導師時自動帶出等級（仍可個別改）；刪除導師不會改動已登記學生／小組上的導師名稱。</p>
+                </div>
+                <div id="tutorManagementList" class="space-y-2"></div>
+                <div class="flex flex-wrap items-end gap-2 pt-2 border-t border-slate-100 text-xs">
+                    <div>
+                        <label class="block font-bold text-slate-600 mb-1">新導師名稱</label>
+                        <input type="text" id="newTutorName" placeholder="例如：Instructor C" class="p-2 border border-slate-300 rounded-lg">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-600 mb-1">定價等級</label>
+                        <select id="newTutorTier" class="p-2 border border-slate-300 rounded-lg bg-white">
+                            <option value="普通導師">普通導師</option>
+                            <option value="資深導師">資深導師</option>
+                        </select>
+                    </div>
+                    <button onclick="addTutor()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> 新增導師</button>
+                </div>
+            </div>
+            <!-- 收費標準表（v3）：改價就地套用到 rateTable 即時生效，存 gac_rate_overrides_v3；「還原」回到 art-rate-data.js 的預設價 -->
+            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-3 max-w-2xl">
+                <div class="border-b border-slate-100 pb-3">
+                    <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-tags text-purple-600"></i> 收費標準表</h3>
+                    <p class="text-xs text-slate-500 mt-0.5">改價後立即生效：學生表單、薪酬與數據分析按新價查表。已生成月份的學費條目要重新按「生成」才會按新價（已發送的學費單不變）。改過的列會標示，可逐列還原預設。</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-3 text-xs">
+                    <label class="font-bold text-slate-600">導師等級</label>
+                    <select id="rateEditTier" onchange="renderRateTableEditor()" class="p-2 border border-slate-300 rounded-lg bg-white">
+                        <option value="資深導師">資深導師</option>
+                        <option value="普通導師">普通導師</option>
+                    </select>
+                    <label class="font-bold text-slate-600">課程</label>
+                    <select id="rateEditProgram" onchange="renderRateTableEditor()" class="p-2 border border-slate-300 rounded-lg bg-white"></select>
+                    <span id="rateOverrideCount" class="text-slate-500"></span>
+                </div>
+                <div class="overflow-x-auto rounded-xl border border-slate-200">
+                    <table class="w-full text-left text-xs text-slate-700">
+                        <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
+                            <tr><th class="p-2">級別</th><th class="p-2">授課形式</th><th class="p-2 text-center">時長</th><th class="p-2 text-right">每堂學費</th><th class="p-2"></th></tr>
+                        </thead>
+                        <tbody id="rateTableEditorBody" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </div>
             <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-3 max-w-2xl">
                 <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
                     <i class="fa-solid fa-box-archive text-emerald-500"></i> 資料備份
                 </h3>
-                <p class="text-xs text-slate-500">全量備份包含：學生名單、小組、課表（含狀態與補堂鏈）、發送紀錄（含繳費記錄）、設定。還原時會覆蓋現有資料；舊版「僅學生名單」備份檔亦可匯入（只影響學生名單）。</p>
+                <p class="text-xs text-slate-500">全量備份包含：學生名單、小組、課表（含狀態與補堂鏈）、發送紀錄（含繳費記錄）、設定、導師名單、費率覆寫。還原時會覆蓋現有資料；舊版「僅學生名單」備份檔亦可匯入（只影響學生名單）。</p>
                 <div class="flex items-center gap-2">
                     <button onclick="exportJSONDatabase()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
                         <i class="fa-solid fa-file-export"></i> 全量備份 (JSON)
@@ -696,10 +741,7 @@
                 </div>
                 <div>
                     <label class="block font-bold text-slate-600 mb-1">負責導師</label>
-                    <select id="modalTutor" class="w-full p-2 border border-slate-300 rounded-lg bg-white">
-                        <option value="Instructor A">Instructor A</option>
-                        <option value="Instructor B">Instructor B</option>
-                    </select>
+                    <select id="modalTutor" onchange="onModalTutorChange()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
                 </div>
                 <!-- 費率連動：導師級別 → 課程 → 級別 → 上課形式 → 時長，只列費率表（art-rate-data.js）有定價的組合；每堂學費唯讀自動帶出 -->
                 <div>
@@ -779,7 +821,7 @@
                 </div>
                 <div>
                     <label class="block font-bold text-slate-600 mb-1">負責導師</label>
-                    <select id="gmTutor" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
+                    <select id="gmTutor" onchange="onGroupTutorChange()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
                 </div>
                 <div>
                     <label class="block font-bold text-slate-600 mb-1">導師級別（計費用）</label>

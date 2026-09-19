@@ -27,6 +27,12 @@ const defaultStudents = [
             { id: "G01", name: "樂理 Grade 5 小組", program: "Music Theory", level: "Grade 5", duration: 60, tutor: "Instructor B", tutorLevel: "資深導師", weekday: 6, time: "15:00", memberIds: ["S020", "S021", "S030", "S031", "S032"] }
         ];
 
+        // 導師名單（設定頁可增刪、改定價等級）；學生／小組表單選導師時自動帶出導師級別
+        const defaultTutors = [
+            { name: "Instructor A", tier: "普通導師" },
+            { name: "Instructor B", tier: "資深導師" }
+        ];
+
         const groupCourses = [
             {
                 id: "GROUP-01",

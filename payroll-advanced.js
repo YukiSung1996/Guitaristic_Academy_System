@@ -9,6 +9,8 @@ const advancedPayrollState = {
 // 導師級別（計費用）：學生／小組／課堂記錄自帶 tutorLevel；缺少時回退示範對應（Instructor B＝資深）
 function advancedTutor(student) {
   if (student && student.tutorLevel) return student.tutorLevel;
+  const fromList = (typeof tutorTier === 'function') ? tutorTier(student && student.tutor) : null; // 導師名單（設定頁）
+  if (fromList) return fromList;
   return student && student.tutor === 'Instructor B' ? '資深導師' : '普通導師';
 }
 

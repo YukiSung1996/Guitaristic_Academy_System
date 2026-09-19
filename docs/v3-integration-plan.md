@@ -2,6 +2,7 @@
 
 - 參考檔：`zz_requests/Guitaristic_Academy_System_v3.2_santize.html`（**只留本地，已加入 .gitignore，不進 GitHub**）
 - 版本控制：`v2-dev` 凍結於 tag `v2.0`（commit f71883c）；本文所述整合全部在 `v3-dev` 分支進行。
+- 進度：Stage 1 出席與繳費 ✅（e384569）／Stage 2 數據分析 ✅（83ba068）／Stage 3 歷史記錄與撤銷 ✅（03873b9）／Stage 4 導師與收費設定 ✅（本 commit）
 - 目標：把參考檔的「出席與繳費」「數據分析」「歷史記錄／撤銷」「導師與收費設定」整合進 v2 架構——**移植的是函數與資料流，不是殼**；凡 v2 已有更完整實作的（狀態機、課節模型、費率連動）沿用 v2。
 
 ---
