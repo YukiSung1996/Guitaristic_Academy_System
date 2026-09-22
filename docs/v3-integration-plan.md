@@ -124,3 +124,9 @@ v2 現況：出席是完整狀態機（已上課／請假 L·SL·TL／缺席／�
 - 訊息模板全部進設定（`TPL_FIELDS` id→設定鍵；預設在 `DEFAULT_SETTINGS`；`msgTpl(key)`＋`GACSendlog.fillTemplate`）：學費單三段、請假、補堂、改期、催繳、收款確認。
 - 新條目類型 `MOVE_CONFIRM`（`ensureMoveEntry`）：補堂改期（舊時間已通知過才建）與 GCal 時間變更套用。
 - 導師名單多 `calendarEmbed`／`calendarId`；總課表「Google 日曆」視圖（`tutorEmbedUrl` 組 embed 網址＋dates 定位）。
+
+### Stage 7 — 唯讀模式與匯入 ICS（用戶 2026-09-22 需求 1：「只 read 不 write 的版本」＝一個是否授權寫入的開關）
+- 設定 `gcalWrite`（預設 true）。關閉：`gcalScope()` 用唯讀 scope（token 記 scope，切換即重新授權）；`openGcalSync` 的 toPush／orphans 清空、無標籤事件走 `reconcileByContent`；清場只清本地；按鈕標示「（唯讀）」。
+- `lib/ics.js`（新）：parse／toEvents（RRULE 展開、EXDATE、RECURRENCE-ID、時區換算）。`icsImportFromText(text, tutor, tz)` → 同一個 `gcalSyncPlan`（source 'ics'）→ `renderGcalSyncModal`。
+- `gcalCalendarsToRead()`：導師有日曆 ID 則逐一讀（事件 `_tutor`），否則預設日曆。
+- 不做：從 ICS 直接生成常規課（仍由「生成」產生，ICS 只作比對基準）；MONTHLY/YEARLY 的 BYDAY 進階規則。

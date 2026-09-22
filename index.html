@@ -177,7 +177,10 @@
 
                     <div class="flex items-center gap-2 flex-wrap">
                         <button onclick="openGcalSync()" id="gcalSyncBtn" title="一次過比對本地與 Google Calendar（本月前後各 7 天）：缺的推送、GCal 上的改動拉回（Calendar 為準）、殘留清掉、手動事件收編——面板逐項勾選後執行。需在設定頁填 Client ID 並經 http 開啟" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
-                            <i class="fa-solid fa-rotate"></i> 同步 GCal
+                            <i class="fa-solid fa-rotate"></i> <span id="gcalSyncBtnLabel">同步 GCal</span>
+                        </button>
+                        <button onclick="openIcsImport()" title="不用 Google 授權：上傳導師日曆匯出的 .ics（Google 日曆 → 設定 → 該日曆 → 匯出），與本地按學生／小組配對比對，勾選後只更新本地。每月先「生成」再匯入作基準，之後再匯入只見差異" class="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
+                            <i class="fa-solid fa-file-import"></i> 匯入 ICS
                         </button>
                         <button onclick="downloadMasterICS()" title="在本地導出 .ics 文件，可用於 Google Calendar 批量導入" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
                             <i class="fa-solid fa-file-arrow-down"></i> 導出 .ics（批量導入）
@@ -609,6 +612,13 @@
                     <i id="smodChev_gcal" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
                 </button>
                 <div id="smod_gcal" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
+                    <label class="flex items-start gap-3 text-sm cursor-pointer">
+                        <input type="checkbox" id="setGcalWrite" class="mt-0.5 w-4 h-4 accent-indigo-600">
+                        <span>
+                            <span class="font-bold text-slate-700">授權寫入 Google Calendar</span>
+                            <span class="block text-xs text-slate-500 mt-0.5"><b>開</b>＝同步時可推送事件、清殘留，清場會刪 GCal 事件（申請 calendar.events 權限）。<b>關＝唯讀</b>：只申請唯讀權限，同步面板只把 Calendar 上的改動拉回本地（時間變更／狀態碼／Calendar 沒有／手動新建，按學生 ID 或姓名、小組名稱配對），不推送不刪除；清場只清本地。唯讀時也可以完全不用 OAuth——總課表「匯入 ICS」上傳日曆匯出檔即可比對。</span>
+                        </span>
+                    </label>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label class="block text-xs font-bold text-slate-600 mb-1">Google OAuth Client ID</label>
@@ -1053,11 +1063,34 @@
         </div>
     </div>
 
+    <!-- 匯入 ICS：選導師（該檔案是誰的日曆）→ 選檔 → 解析後直接進同步面板（唯讀比對） -->
+    <div id="icsImportModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                <h3 class="text-sm font-bold text-slate-800"><i class="fa-solid fa-file-import text-indigo-500 mr-1"></i>匯入 ICS 比對</h3>
+                <button onclick="requestCloseModal('icsImportModal')" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <p class="text-xs text-slate-500">Google 日曆 → 設定 → 該日曆 → 「匯出」下載 .ics（或 takeout）。上傳後與本地課表按學生 ID／姓名、小組名稱配對，差異列在面板逐項勾選；<b>只會更新本地</b>，不會寫回 Google。</p>
+            <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">這個檔案是誰的日曆？</label>
+                <select id="icsTutor" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white"></select>
+                <p class="text-[11px] text-slate-400 mt-1">選了導師：只比對該導師的課堂（該導師其他學生當天沒事件才算「Calendar 沒有」）。</p>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">選擇 .ics 檔案</label>
+                <input type="file" id="icsFileInput" accept=".ics,text/calendar" onchange="handleIcsFile(event)" class="block w-full text-xs text-slate-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-indigo-50 file:text-indigo-700 file:font-semibold hover:file:bg-indigo-100">
+                <p id="icsMonthInfo" class="text-[11px] text-slate-400 mt-1"></p>
+            </div>
+            <div class="flex justify-end pt-2 border-t border-slate-100">
+                <button onclick="requestCloseModal('icsImportModal')" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
+            </div>
+        </div>
+    </div>
     <!-- 同步 GCal 面板：一次抓取，兩邊差異分組（推送/時間/狀態碼/已刪/殘留/手動新建）勾選執行 -->
     <div id="gcalSyncModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-5 space-y-3 max-h-[85vh] overflow-y-auto">
             <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                <h3 class="text-sm font-bold text-slate-800"><i class="fa-solid fa-rotate text-indigo-500 mr-1"></i>同步 Google Calendar</h3>
+                <h3 id="gcalSyncTitle" class="text-sm font-bold text-slate-800"><i class="fa-solid fa-rotate text-indigo-500 mr-1"></i>同步 Google Calendar</h3>
                 <button onclick="closeGcalSyncModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div id="gcalSyncBody" class="space-y-2 text-xs"></div>
@@ -1177,6 +1210,7 @@
     <script src="lib/storage.js"></script>
     <script src="lib/history.js"></script>
     <script src="lib/gcal.js"></script>
+    <script src="lib/ics.js"></script>
     <script src="lib/rates.js"></script>
     <script src="state.js"></script>
     <script src="app.js"></script>

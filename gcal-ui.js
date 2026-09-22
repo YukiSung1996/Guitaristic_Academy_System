@@ -1,6 +1,8 @@
 // gcal-ui.js — Google Calendar 同步的瀏覽器膠水層（Phase 2）
 // OAuth：Google Identity Services（GIS）取 access token，僅存記憶體；API 呼叫走 lib/gcal.js 的 REST client。
 // 前置：設定頁填 gcalClientId；頁面須經 http(s) 開啟（GIS 不支援 file://，可用 serve.cmd 或 VS Code Live Server）。
+// 唯讀模式（設定 gcalWrite=false）：只申請唯讀 scope，同步面板只拉回 Calendar 的改動（按內容配對），不推送不刪除；
+// 另有「匯入 ICS」：不用 OAuth，上傳日曆匯出檔（lib/ics.js 解析）走同一個比對面板。
 
 let gcalToken = null;   // { accessToken, expiresAt }，僅存記憶體，刷新即失效
 
@@ -35,18 +37,42 @@ function loadGisScript() {
     });
 }
 
+// 寫入授權開關（設定 → Google Calendar）：關閉＝只申請唯讀 scope、同步不推送不刪除、清場只清本地
+function gcalWriteEnabled() { return !appSettings || appSettings.gcalWrite !== false; }
+
+function gcalScope() {
+    return gcalWriteEnabled()
+        ? 'https://www.googleapis.com/auth/calendar.events'
+        : 'https://www.googleapis.com/auth/calendar.events.readonly';
+}
+
+// 總課表按鈕標示目前模式（載入與儲存設定時呼叫）
+function applyGcalModeUi() {
+    const on = gcalWriteEnabled();
+    const label = document.getElementById('gcalSyncBtnLabel');
+    if (label) label.textContent = on ? '同步 GCal' : '同步 GCal（唯讀）';
+    const btn = document.getElementById('gcalSyncBtn');
+    if (btn) {
+        btn.title = on
+            ? '一次過比對本地與 Google Calendar（本月前後各 7 天）：缺的推送、GCal 上的改動拉回（Calendar 為準）、殘留清掉、手動事件收編——面板逐項勾選後執行。需在設定頁填 Client ID 並經 http 開啟'
+            : '唯讀模式：只讀取 Google Calendar（唯讀授權），把 Calendar 上的改動拉回本地（按學生 ID／姓名、小組名稱配對）；不推送、不刪除。設定 → Google Calendar 可開啟寫入授權；不想用 OAuth 可改用「匯入 ICS」';
+    }
+}
+
 function ensureGcalToken() {
-    if (gcalToken && Date.now() < gcalToken.expiresAt - 60000) {
+    const scope = gcalScope();
+    if (gcalToken && gcalToken.scope === scope && Date.now() < gcalToken.expiresAt - 60000) {
         return Promise.resolve(gcalToken.accessToken);
     }
     return loadGisScript().then(() => new Promise((resolve, reject) => {
         const client = google.accounts.oauth2.initTokenClient({
             client_id: appSettings.gcalClientId,
-            scope: 'https://www.googleapis.com/auth/calendar.events',
+            scope: scope,
             callback: (resp) => {
                 if (resp && resp.access_token) {
                     gcalToken = {
                         accessToken: resp.access_token,
+                        scope: scope,
                         expiresAt: Date.now() + (Number(resp.expires_in) || 3600) * 1000
                     };
                     resolve(gcalToken.accessToken);
@@ -60,7 +86,8 @@ function ensureGcalToken() {
     }));
 }
 
-function gcalClient(token) {
+// calendarId 省略＝設定的預設日曆；導師日曆（設定 → Google Calendar → 導師日曆的日曆 ID）讀取時逐一傳入
+function gcalClient(token, calendarId) {
     return GACGcal.createRestClient({
         // 每個請求 30 秒逾時：網路卡住時明確報錯，而不是永遠沒動靜
         fetchFn: (u, o) => {
@@ -71,8 +98,32 @@ function gcalClient(token) {
             return fetch(u, init);
         },
         token: token,
-        calendarId: (appSettings.gcalCalendarId || 'primary')
+        calendarId: calendarId || (appSettings.gcalCalendarId || 'primary')
     });
+}
+
+// 要讀取的日曆：有填日曆 ID 的導師各一個（事件標 _tutor，按導師配對）；都沒填 → 預設日曆一個
+function gcalCalendarsToRead() {
+    const withId = (typeof tutorsList !== 'undefined' ? tutorsList : []).filter(t => t && t.calendarId);
+    if (withId.length) return withId.map(t => ({ tutor: t.name, calendarId: t.calendarId }));
+    return [{ tutor: null, calendarId: appSettings.gcalCalendarId || 'primary' }];
+}
+
+function monthLastDay(monthKey) {
+    const p = String(monthKey).split('-').map(Number);
+    return monthKey + '-' + String(new Date(p[0], p[1], 0).getDate()).padStart(2, '0');
+}
+
+// 按內容對帳的選項：學生／小組名單、導師範圍、已配對課節、「Calendar 沒有」只看本月
+function contentOpts(tutor, skipKeys, monthKey) {
+    return {
+        students: studentDatabase.map(s => ({ id: s.id, name: s.name })),
+        groups: groupClasses.map(g => ({ id: g.id, name: g.name })),
+        tutor: tutor || null,
+        skipCellKeys: skipKeys || {},
+        deleteFrom: monthKey + '-01',
+        deleteTo: monthLastDay(monthKey)
+    };
 }
 
 function gcalTimeZone() {
@@ -105,7 +156,13 @@ function openGcalSync() {
     ensureGcalToken()
         .then(token => {
             const w = GACGcal.syncWindow(monthKey);
-            return gcalClient(token).listWindow(w.timeMin, w.timeMax);
+            // 導師日曆逐一讀（事件標 _tutor）；都沒填 → 預設日曆
+            let chain = Promise.resolve([]);
+            gcalCalendarsToRead().forEach(c => {
+                chain = chain.then(acc => gcalClient(token, c.calendarId).listWindow(w.timeMin, w.timeMax)
+                    .then(evs => acc.concat((evs || []).map(ev => Object.assign(ev, { _tutor: c.tutor })))));
+            });
+            return chain;
         })
         .then(events => {
             const w = GACGcal.syncWindow(monthKey);
@@ -132,14 +189,37 @@ function openGcalSync() {
             const delKeys = new Set(diff.deletions.map(d => d.cell.key));
             const toPush = GACSchedule.groupByCell(lessonsByMonth[monthKey] || [])
                 .filter(c => !evByKey[c.key] && !delKeys.has(c.key));
+            const writeOn = gcalWriteEnabled();
+            let timeChanges = diff.timeChanges, statusChanges = diff.statusChanges, deletions = diff.deletions, manualNew = diff.manualNew;
+            let unmatched = 0;
+            if (!writeOn) {
+                // 唯讀模式：本系統沒寫過標籤 → 無標籤事件按內容（學生 ID／姓名、小組名稱）配對；有標籤的仍按標籤。
+                // 已由標籤配對／判定刪除的課節不再進內容配對（避免同一節兩行）。
+                const skip = {};
+                events.forEach(ev => { const k = ev && GACGcal.eventCellKey(ev); if (k) skip[k] = true; });
+                diff.deletions.forEach(d => { skip[d.cell.key] = true; });
+                const byTutor = new Map();
+                events.forEach(ev => { const t = (ev && ev._tutor) || ''; if (!byTutor.has(t)) byTutor.set(t, []); byTutor.get(t).push(ev); });
+                manualNew = [];
+                byTutor.forEach((evs, tutor) => {
+                    const r = GACGcal.reconcileByContent(windowLessons, evs, contentOpts(tutor || null, skip, monthKey));
+                    timeChanges = timeChanges.concat(r.timeChanges);
+                    statusChanges = statusChanges.concat(r.statusChanges);
+                    deletions = deletions.concat(r.deletions);
+                    manualNew = manualNew.concat(r.manualNew);
+                    unmatched += r.unmatched.length;
+                });
+            }
             gcalSyncPlan = {
                 monthKey: monthKey,
-                toPush: toPush,
-                timeChanges: diff.timeChanges,
-                statusChanges: diff.statusChanges,
-                deletions: diff.deletions,
-                orphans: pre.orphans,
-                manualNew: diff.manualNew
+                source: 'gcal', readOnly: !writeOn, contentMode: !writeOn, unmatched: unmatched,
+                calendars: gcalCalendarsToRead().length,
+                toPush: writeOn ? toPush : [],
+                timeChanges: timeChanges,
+                statusChanges: statusChanges,
+                deletions: deletions,
+                orphans: writeOn ? pre.orphans : [],
+                manualNew: manualNew
             };
             renderGcalSyncModal();
         })
@@ -174,6 +254,20 @@ function renderGcalSyncModal() {
     const total = p.toPush.length + p.timeChanges.length + p.statusChanges.length +
         p.deletions.length + p.orphans.length + p.manualNew.length;
     gcalSyncFooterMode(total ? 'act' : 'ack');
+    const title = document.getElementById('gcalSyncTitle');
+    if (title) {
+        title.innerHTML = p.source === 'ics'
+            ? '<i class="fa-solid fa-file-import text-indigo-500 mr-1"></i>匯入 ICS 比對（唯讀）'
+            : '<i class="fa-solid fa-rotate text-indigo-500 mr-1"></i>同步 Google Calendar' + (p.readOnly ? '（唯讀）' : '');
+    }
+    if (p.source === 'ics') {
+        parts.push(`<div class="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 text-xs">📄 來源：ICS 檔案${p.calName ? '「' + escapeHtml(p.calName) + '」' : ''}${p.tutor ? '（' + escapeHtml(p.tutor) + ' 的日曆）' : '（不按導師篩選）'}，視窗內 ${p.eventCount} 個事件。唯讀比對，只會更新本地。${p.unmatched ? ' 另有 ' + p.unmatched + ' 個事件無法歸屬學生／小組（略過）。' : ''}</div>`);
+    } else if (p.readOnly) {
+        parts.push(`<div class="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 text-xs">🔒 唯讀模式：只拉取 Calendar 上的改動，不推送、不刪除（設定 → Google Calendar 可開啟寫入授權）。${p.calendars > 1 ? '已讀取 ' + p.calendars + ' 位導師的日曆。' : ''}${p.unmatched ? ' 另有 ' + p.unmatched + ' 個事件無法歸屬學生／小組（略過）。' : ''}</div>`);
+    }
+    if (p.contentMode && total) {
+        parts.push('<div class="text-[11px] text-slate-500">按內容配對：事件標題以學生 ID 開頭或含學生姓名／小組名稱；同一學生（小組）同一天＝同一節。改到別的日子的課會同時出現在「Calendar 沒有」與「手動新建」，勾選＝請假＋補堂。</div>');
+    }
     if (!total) {
         parts.push('<div class="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs font-semibold">✅ 本地與 Google Calendar 完全一致，沒有需要同步的項目。</div>');
     } else {
@@ -205,7 +299,9 @@ function renderGcalSyncModal() {
     if (p.deletions.length) {
         // 防呆：大量刪除多半是「清場」而非逐堂取消——照套用會整批標請假、灌爆待補堂池。
         const massDelete = p.deletions.length >= 5;
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🗑️ 事件已在 GCal 刪除（勾選＝跟隨 Calendar：本地標記請假・事假；取消勾選＝保留本地，下次同步可重推）</div>');
+        parts.push(p.contentMode
+            ? '<div class="text-xs font-bold text-slate-700 mt-2">🗑️ Calendar 上沒有這堂（該學生／小組當天沒有事件；只列仍為「已排課」的節、只看本月）→ 勾選＝本地標記請假（一對一事假 L、小組導師假 TL）</div>'
+            : '<div class="text-xs font-bold text-slate-700 mt-2">🗑️ 事件已在 GCal 刪除（勾選＝跟隨 Calendar：本地標記請假・事假；取消勾選＝保留本地，下次同步可重推）</div>');
         if (massDelete) {
             parts.push(`<div class="p-2 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 text-xs">⚠️ 一次偵測到 ${p.deletions.length} 件刪除——看起來像批量清場而非逐堂取消，<b>已預設不勾</b>（套用會把這些課全部標成請假、湧入待補堂池）。想清場重來請改用「設定 → 清空本月／全部清場」；真的是逐堂取消才自行勾選。</div>`);
         }
@@ -491,12 +587,12 @@ function clearCurrentMonthData() {
         return res;
     };
 
-    // 未設定 GCal → 只清本地
-    if (!appSettings.gcalClientId) {
+    // 未設定 GCal／唯讀模式 → 只清本地
+    if (!appSettings.gcalClientId || !gcalWriteEnabled()) {
         const res = wipeMonthLocal();
         alert(`✅ 已清空本地 ${monthKey}：刪 ${res.removed.length} 堂（含跨月補堂）` +
             (res.unlinked.length ? `、${res.unlinked.length} 堂其他月份的請假回到待補池` : '') +
-            '。\n（未設定 GCal，Google Calendar 未動。）');
+            (gcalWriteEnabled() ? '。\n（未設定 GCal，Google Calendar 未動。）' : '。\n（唯讀模式：未授權寫入，Google Calendar 未動。）'));
         return;
     }
 
@@ -581,10 +677,12 @@ function resetAllScheduleData() {
         renderAll();
     };
 
-    // 未設定 GCal → 只清本地（不用走授權）
-    if (!appSettings.gcalClientId) {
+    // 未設定 GCal／唯讀模式 → 只清本地（不用走授權）
+    if (!appSettings.gcalClientId || !gcalWriteEnabled()) {
         wipeLocal();
-        alert('✅ 已清空本地課表與發送紀錄（未設定 GCal，Google Calendar 未動）。\n學生名單保留，可重新「生成」。');
+        alert(gcalWriteEnabled()
+            ? '✅ 已清空本地課表與發送紀錄（未設定 GCal，Google Calendar 未動）。\n學生名單保留，可重新「生成」。'
+            : '✅ 已清空本地課表與發送紀錄（唯讀模式：未授權寫入，Google Calendar 未動）。\n學生名單保留，可重新「生成」。');
         return;
     }
 
@@ -623,4 +721,61 @@ function resetAllScheduleData() {
             }
         })
         .finally(() => setGcalBusy(false));
+}
+
+// ===== 匯入 ICS（唯讀來源，不用 OAuth）：Google 日曆匯出的 .ics → lib/ics.js 解析 → 與本地按內容比對 → 同一個面板勾選套用（只改本地）=====
+// 用法：每月先「生成」本地課表，再上傳該導師日曆的 .ics 作基準比對；之後的改動再上傳一次即只見差異。
+function openIcsImport() {
+    const sel = document.getElementById('icsTutor');
+    if (sel) {
+        const names = (typeof allTutorNames === 'function') ? allTutorNames() : [];
+        sel.innerHTML = '<option value="">不按導師篩選（整個檔案對全部課堂）</option>' +
+            names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)} 的日曆</option>`).join('');
+    }
+    const info = document.getElementById('icsMonthInfo');
+    if (info) info.textContent = `比對範圍：${currentMonthKey()}（前後各 7 天；「Calendar 沒有」只看本月）`;
+    const inp = document.getElementById('icsFileInput');
+    if (inp) inp.value = '';
+    document.getElementById('icsImportModal').classList.remove('hidden');
+    markModalOpened('icsImportModal');
+}
+
+function closeIcsImportModal() {
+    const m = document.getElementById('icsImportModal');
+    if (m) m.classList.add('hidden');
+}
+
+function handleIcsFile(evt) {
+    const file = evt && evt.target && evt.target.files && evt.target.files[0];
+    if (!file) return;
+    const tutor = (document.getElementById('icsTutor') || {}).value || '';
+    const reader = new FileReader();
+    reader.onload = () => {
+        try { icsImportFromText(String(reader.result || ''), tutor); }
+        catch (e) { alert('⚠️ ICS 解析失敗：' + ((e && e.message) || e)); }
+    };
+    reader.onerror = () => alert('⚠️ 無法讀取檔案。');
+    reader.readAsText(file);
+}
+
+// 文字 → 事件（視窗＝本月前後 7 天）→ 按內容對帳 → 面板。timeZone 可注入（測試）；預設瀏覽器時區。回傳計劃或 null
+function icsImportFromText(text, tutorName, timeZone) {
+    const cal = GACIcs.parse(text);
+    if (!cal.events.length) { alert('檔案裡沒有任何事件（VEVENT），請確認是 Google 日曆匯出的 .ics。'); return null; }
+    const monthKey = currentMonthKey();
+    const w = GACGcal.syncWindow(monthKey);
+    const lo = w.timeMin.slice(0, 10), hi = w.timeMax.slice(0, 10);
+    const events = GACIcs.toEvents(cal, { timeZone: timeZone || gcalTimeZone(), from: lo, to: hi });
+    const windowLessons = GACLessonState.allLessons(lessonsByMonth).filter(l => l.date >= lo && l.date <= hi);
+    const diff = GACGcal.reconcileByContent(windowLessons, events, contentOpts(tutorName || null, {}, monthKey));
+    gcalSyncPlan = {
+        monthKey: monthKey, source: 'ics', calName: cal.name || '', tutor: tutorName || '',
+        readOnly: true, contentMode: true,
+        eventCount: events.filter(e => e.status !== 'cancelled').length, unmatched: diff.unmatched.length,
+        toPush: [], orphans: [],
+        timeChanges: diff.timeChanges, statusChanges: diff.statusChanges, deletions: diff.deletions, manualNew: diff.manualNew
+    };
+    closeIcsImportModal();
+    renderGcalSyncModal();
+    return gcalSyncPlan;
 }

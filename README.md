@@ -60,6 +60,8 @@
 
 使用（總課表頁頂部）：
 
+- **寫入授權開關**（設定 → Google Calendar →「授權寫入 Google Calendar」，預設開）：**關＝唯讀模式**——只申請唯讀 scope（`calendar.events.readonly`），同步面板不推送、不清殘留，只把 Calendar 上的改動拉回本地；因為本系統沒寫過標籤，無標籤事件改為**按內容配對**（`lib/gcal.js` `reconcileByContent`：標題以學生 ID 開頭或含學生姓名、含小組名稱；同一學生／小組同一天＝同一節→時間變更／狀態碼；當天沒事件且仍為已排課→「Calendar 上沒有這堂」（只看本月）；Calendar 有而本地沒有→手動新建可收編）。清空本月／全部清場在唯讀模式只清本地。有填「導師日曆 → 日曆 ID」的導師，同步時逐一讀取各自的日曆並按導師配對（推送仍只到預設日曆）。
+- **匯入 ICS**（不用 OAuth）：上傳導師日曆匯出的 .ics（Google 日曆 → 設定 → 該日曆 → 匯出），`lib/ics.js` 解析（行摺疊、UTC／TZID／浮動時間換算、全日、RRULE 每日／每週 BYDAY／每月／每年、INTERVAL／COUNT／UNTIL、EXDATE、RECURRENCE-ID 覆寫、CANCELLED），展開到本月前後 7 天後按內容配對，進同一個面板勾選套用（只改本地）。建議流程：每月先「生成」，再匯入該月的 .ics 作基準；之後日曆有改動再匯入一次，只會列出差異。
 - **同步 GCal**（單一入口）：一次授權、一次抓取本月前後各 7 天的事件，兩邊差異分組列在同一面板，勾選後執行——**預設勾選＝執行後兩邊一致，GCal 上的改動以 Calendar 為準**：
   - ⬆️ **推送**：本地有、GCal 沒有 → **一節一個事件**：一對一按 `private.gacLessonId` 查重，標題 `S001 Student 001([1/5] 09/2026)`；小組課同時段全組**只建一個事件**，按 `private.gacCellKey` 查重，標題 `Music Theory Grade 5 小組 ×5 (09/2026)`、description 列成員、`private.gacLessonIds` 存成員清單，事件 id 回填到全體成員。**絕不 update 既有事件**；location 放狀態碼（L/SL/TL/MU/NS，小組全員同碼才寫）。
   - 🕒 **時間變更**／🏷️ **狀態碼變更**：GCal 上被挪動或標了 L/SL/TL/NS → 更新本地（lessonId 不變，跨月自動移桶；小組事件對全體成員生效）。

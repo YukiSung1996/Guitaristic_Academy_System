@@ -327,3 +327,61 @@ test('D3-D6: reconcile 分類——時間變更/已刪除/狀態碼/手動新增
     const r2 = G.reconcile(lessons, events, ['S001']);
     assert.strictEqual(r2.statusChanges.length, 0);
 });
+
+test('D9: reconcileByContent——無標籤事件按學生 ID／姓名／小組名稱配對：同日時間變更、狀態碼、Calendar 沒有（只限已排課）、手動新建、無法歸屬、導師範圍、刪除日期範圍、標籤事件略過', () => {
+    const lessons = S.generateMonthLessons(student(), '2026-09'); // S001 週二 9/1,8,15,22,29 21:30
+    const s2 = S.generateMonthLessons(student({ id: 'S002', name: 'Student 002', tutor: 'Instructor B', weekday: 3 }), '2026-09'); // 週三
+    lessons[4].status = 'ATTENDED';
+    const g = (date, sid) => ({
+        lessonId: sid + '-G01-' + date, studentId: sid, studentName: sid, tutor: 'Instructor B', date: date, time: '15:00', duration: 60,
+        status: 'SCHEDULED', leaveType: '', isMakeup: false, groupId: 'G01', groupName: '樂理 Grade 5 小組', program: 'Music Theory', level: 'Grade 5'
+    });
+    const groupLessons = [g('2026-09-05', 'S020'), g('2026-09-05', 'S021')];
+    const all = lessons.concat(s2, groupLessons);
+    const ev = (id, summary, dt, extra) => Object.assign({ id: id, status: 'confirmed', summary: summary, location: '', start: { dateTime: dt } }, extra || {});
+    const events = [
+        ev('e1', 'S001 Student 001', '2026-09-01T21:30:00'),            // 一致
+        ev('e2', 'Student 001 guitar', '2026-09-08T20:00:00'),           // 姓名配對、時間變更
+        ev('e3', 'S001 Student 001', '2026-09-15T21:30:00', { location: 'SL' }), // 狀態碼
+        ev('e4', 'S001 補課', '2026-09-10T18:00:00'),                      // 當天沒課 → 手動新建
+        ev('e5', 'Dentist', '2026-09-11T10:00:00'),                        // 無法歸屬
+        ev('e6', '樂理 Grade 5 小組', '2026-09-05T16:00:00'),               // 小組名稱、時間變更（全組）
+        ev('e7', '樂理 Grade 5 小組', '2026-09-12T15:00:00'),               // 小組無對應課節 → 無法歸屬（不收編）
+        ev('e8', 'S001 tagged', '2026-09-22T21:30:00', { extendedProperties: { private: { gacLessonId: 'x' } } }), // 帶標籤 → 略過
+        { id: 'e9', status: 'cancelled', summary: 'S001 x', start: { dateTime: '2026-09-22T21:30:00' } }
+    ];
+    const students = [{ id: 'S001', name: 'Student 001' }, { id: 'S002', name: 'Student 002' }, { id: 'S020', name: 'Student 020' }, { id: 'S021', name: 'Student 021' }];
+    const groups = [{ id: 'G01', name: '樂理 Grade 5 小組' }];
+    const r = G.reconcileByContent(all, events, { students: students, groups: groups });
+    assert.deepStrictEqual(r.timeChanges.map(c => [c.lesson.lessonId, c.time, c.lessons.length]), [[lessons[1].lessonId, '20:00', 1], ['S020-G01-2026-09-05', '16:00', 2]]);
+    assert.strictEqual(r.statusChanges.length, 1);
+    assert.strictEqual(r.statusChanges[0].lesson.lessonId, lessons[2].lessonId);
+    assert.deepStrictEqual(r.statusChanges[0].to, { status: 'LEAVE', leaveType: 'SL' });
+    assert.deepStrictEqual(r.manualNew.map(m => [m.studentId, m.date, m.time]), [['S001', '2026-09-10', '18:00']]);
+    assert.deepStrictEqual(r.unmatched.map(e => e.id), ['e5', 'e7']);
+    // Calendar 沒有：S001 9/22（e8 帶標籤不算、e9 cancelled 不算）；9/29 已上課不列；S002 週三全部沒事件 → 5 節
+    const delIds = r.deletions.map(d => d.lesson.lessonId);
+    assert.ok(delIds.includes(lessons[3].lessonId));
+    assert.ok(!delIds.includes(lessons[4].lessonId), '已上課不因 Calendar 缺席而動');
+    assert.strictEqual(delIds.filter(id => id.startsWith('S002')).length, 5);
+    assert.strictEqual(r.matched, 4);
+    // 導師範圍：只比 Instructor A 的課 → S002／小組不在範圍（小組事件變成無法歸屬）
+    const rA = G.reconcileByContent(all, events, { students: students, groups: groups, tutor: 'Instructor A' });
+    assert.strictEqual(rA.deletions.length, 1);
+    assert.strictEqual(rA.timeChanges.length, 1);
+    assert.deepStrictEqual(rA.unmatched.map(e => e.id), ['e5', 'e6', 'e7']);
+    // 刪除只看指定範圍
+    const rW = G.reconcileByContent(all, events, { students: students, groups: groups, tutor: 'Instructor A', deleteTo: '2026-09-20' });
+    assert.strictEqual(rW.deletions.length, 0);
+    // 已由標籤配對的課節跳過
+    const skip = {}; skip[S.groupByCell([lessons[1]])[0].key] = true;
+    const rS = G.reconcileByContent(all, events, { students: students, groups: groups, tutor: 'Instructor A', skipCellKeys: skip });
+    assert.strictEqual(rS.timeChanges.length, 0);
+    assert.deepStrictEqual(rS.manualNew.map(m => m.date), ['2026-09-08', '2026-09-10'], '該節被跳過 → 其事件成為手動新建');
+    // 狀態已一致 → 不再提案
+    lessons[2].status = 'LEAVE'; lessons[2].leaveType = 'SL';
+    assert.strictEqual(G.reconcileByContent(all, events, { students: students, groups: groups }).statusChanges.length, 0);
+    assert.strictEqual(G.matchStudent('student 001 lesson', students), 'S001', '姓名不分大小寫');
+    assert.strictEqual(G.matchStudent('S0012 x', students), null, 'ID 詞邊界');
+    assert.strictEqual(G.matchStudent('Student 0', students), null, '姓名要完整出現');
+});

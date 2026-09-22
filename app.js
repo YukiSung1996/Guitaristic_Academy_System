@@ -27,6 +27,7 @@
             document.addEventListener('visibilitychange', handleWaReturnConfirm);
 
             loadSettingsForm();
+            if (typeof applyGcalModeUi === 'function') applyGcalModeUi();
             populateTutorSelects();
             renderBatchCheckboxes();
             renderStudentTable();
@@ -49,6 +50,7 @@
             msgModal: () => closeMsgModal(),
             // 同步面板：執行中（進度顯示、按鈕鎖定）不讓背景／Esc 關掉；✕ 仍可用
             gcalSyncModal: () => { if (typeof gcalSyncBusy !== 'undefined' && gcalSyncBusy) return; closeGcalSyncModal(); },
+            icsImportModal: () => closeIcsImportModal(),
             lessonModal: () => closeLessonModal()
         };
         const modalSnapshots = {};
@@ -3285,6 +3287,7 @@
             document.getElementById('setPublicIcsUrl').value = appSettings.publicIcsUrl || '';
             document.getElementById('setGcalClientId').value = appSettings.gcalClientId || '';
             document.getElementById('setGcalCalendarId').value = appSettings.gcalCalendarId || 'primary';
+            document.getElementById('setGcalWrite').checked = appSettings.gcalWrite !== false;
             document.getElementById('setFpsId').value = appSettings.fpsId || '';
             document.getElementById('setInfoUrl').value = appSettings.infoUrl || '';
             document.getElementById('setFeeNotice').value = appSettings.feeNotice || '';
@@ -3341,6 +3344,7 @@
             appSettings.publicIcsUrl = document.getElementById('setPublicIcsUrl').value.trim();
             appSettings.gcalClientId = document.getElementById('setGcalClientId').value.trim();
             appSettings.gcalCalendarId = document.getElementById('setGcalCalendarId').value.trim() || 'primary';
+            appSettings.gcalWrite = !!document.getElementById('setGcalWrite').checked;
             appSettings.fpsId = document.getElementById('setFpsId').value.trim();
             appSettings.infoUrl = document.getElementById('setInfoUrl').value.trim();
             appSettings.feeNotice = document.getElementById('setFeeNotice').value.trim();
@@ -3354,6 +3358,7 @@
                 if (el) appSettings[TPL_FIELDS[k][1]] = String(el.value || '').trim() || GACStorage.DEFAULT_SETTINGS[TPL_FIELDS[k][1]];
             });
             gacStore.saveSettings(appSettings);
+            if (typeof applyGcalModeUi === 'function') applyGcalModeUi();
             renderPaymentTab();
             renderSendCenter(); // 催繳／收款確認的自動開關與天數、訊息模板改了要重新組訊息
             const hints = document.querySelectorAll('.settings-saved-hint');
