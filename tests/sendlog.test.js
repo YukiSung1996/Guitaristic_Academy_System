@@ -332,3 +332,26 @@ test('C13: 模板變數與代入——金額格式、月份標籤、付款方式
     assert.strictEqual(SL.monthLabel('bad'), 'bad');
     assert.strictEqual(SL.fillTemplate(null, null), '');
 });
+
+test('C14: 改期通知 ensureMoveEntry——快照改期前時間；TODO 再改期保留原 from；SENT 再改期重開 TODO 並以上次已通知時間作 from；孤兒清理照舊', () => {
+    const log = {};
+    const lesson = { lessonId: 'S001-20260916-2130-MU-20260909-2130', studentId: 'S001', studentName: 'Student 001', phone: '00000000', date: '2026-09-23', time: '18:00' };
+    const e = SL.ensureMoveEntry(log, lesson, { date: '2026-09-16', time: '21:30' }, '2026-09-19T10:00:00.000Z');
+    assert.strictEqual(e.key, 'MOVE_CONFIRM:' + lesson.lessonId);
+    assert.strictEqual(e.type, 'MOVE_CONFIRM');
+    assert.strictEqual(e.fromDate, '2026-09-16');
+    assert.strictEqual(e.fromTime, '21:30');
+    assert.strictEqual(e.month, '2026-09');
+    assert.strictEqual(e.status, 'TODO');
+    lesson.date = '2026-09-30';
+    SL.ensureMoveEntry(log, lesson, { date: '2026-09-23', time: '18:00' });
+    assert.strictEqual(log[e.key].fromDate, '2026-09-16', 'TODO 中再改期 → 保留最初的 from');
+    SL.markSent(log, e.key, 'wa_link', '2026-09-20T00:00:00.000Z');
+    lesson.date = '2026-10-02'; lesson.time = '19:00';
+    SL.ensureMoveEntry(log, lesson, { date: '2026-09-30', time: '18:00' }, '2026-09-21T00:00:00.000Z');
+    assert.strictEqual(log[e.key].status, 'TODO', 'SENT 再改期 → 重開');
+    assert.strictEqual(log[e.key].fromDate, '2026-09-30', 'from＝上次已通知的時間');
+    assert.strictEqual(log[e.key].month, '2026-10', '歸屬月份跟課堂');
+    assert.strictEqual(log[e.key].sentAt, null);
+    assert.deepStrictEqual(SL.pruneOrphans(log, () => false), [e.key], '課堂不存在 → TODO 改期通知清掉');
+});

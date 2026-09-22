@@ -281,8 +281,10 @@
             } else if (tabId === 'historyTab') {
                 renderHistoryUI();
             } else if (tabId === 'settingsTab') {
+                applySettingsModules();
                 loadSettingsForm();
                 renderTutorManagementList();
+                renderTutorCalendarList();
                 renderRateTableEditor();
             }
         }
@@ -777,6 +779,7 @@
             renderPendingPool();
             renderMasterScheduleList();
             renderMasterCalendarView();
+            if (currentViewMode === 'gcal') renderGcalEmbedView();
             renderSendCenter();
             renderPaymentTab();
             // 數據分析只在頁籤可見時重算（圖表重建有成本）
@@ -789,13 +792,20 @@
             currentViewMode = mode;
             const listEl = document.getElementById('masterScheduleList');
             const calEl = document.getElementById('masterCalendarView');
+            const gcalEl = document.getElementById('masterGcalView');
 
             listEl.classList.add('hidden');
             calEl.classList.add('hidden');
+            if (gcalEl) gcalEl.classList.add('hidden');
 
             document.querySelectorAll('#masterScheduleWrapper .inline-flex button').forEach(b => b.classList.remove('bg-white', 'text-sky-600', 'shadow-sm'));
 
-            if (mode === 'calendar') {
+            if (mode === 'gcal' && gcalEl) {
+                gcalEl.classList.remove('hidden');
+                const b = document.getElementById('btnGcalView');
+                if (b) b.classList.add('bg-white', 'text-sky-600', 'shadow-sm');
+                renderGcalEmbedView();
+            } else if (mode === 'calendar') {
                 calEl.classList.remove('hidden');
                 document.getElementById('btnCalView').classList.add('bg-white', 'text-sky-600', 'shadow-sm');
             } else {
@@ -807,6 +817,58 @@
 
         function onWeekSelectChange() {
             if (currentViewMode === 'list') renderMasterScheduleList();
+        }
+
+        // ===== 總課表「Google 日曆」視圖：每位導師的嵌入日曆（唯讀）；連結存在導師名單 calendarEmbed =====
+        let gcalEmbedTutor = '';
+
+        // 導師的 calendarEmbed 可以是完整 embed 網址、整段 <iframe> 代碼，或只是日曆 ID／電郵；一律組成 embed 網址並定位到檢視月份
+        function tutorEmbedUrl(t, monthKey) {
+            let v = String((t && t.calendarEmbed) || '').trim();
+            if (!v) return '';
+            const m = /src=["']([^"']+)["']/i.exec(v);
+            if (m) v = m[1].replace(/&amp;/g, '&');
+            if (!/^https?:\/\//i.test(v)) {
+                let tz = 'Asia/Hong_Kong';
+                try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || tz; } catch (e) { /* ignore */ }
+                v = 'https://calendar.google.com/calendar/embed?src=' + encodeURIComponent(v) + '&ctz=' + encodeURIComponent(tz);
+            }
+            const p = String(monthKey || '').split('-').map(Number);
+            if (p.length === 2 && p[0] && p[1] && !/[?&]dates=/.test(v)) {
+                const last = new Date(p[0], p[1], 0).getDate();
+                const mm = String(p[1]).padStart(2, '0');
+                v += (v.indexOf('?') === -1 ? '?' : '&') + 'dates=' + p[0] + mm + '01/' + p[0] + mm + String(last).padStart(2, '0');
+            }
+            return v;
+        }
+
+        function renderGcalEmbedView() {
+            const box = document.getElementById('masterGcalView');
+            if (!box) return;
+            const withCal = tutorsList.filter(t => t.calendarEmbed);
+            if (!withCal.length) {
+                box.__src = '';
+                box.innerHTML = '<div class="p-6 text-center text-slate-400 text-xs">尚未設定任何導師的日曆嵌入連結。到「設定 → Google Calendar → 導師日曆」填入（嵌入代碼的 src，或直接貼日曆 ID）。</div>';
+                return;
+            }
+            if (!withCal.some(t => t.name === gcalEmbedTutor)) gcalEmbedTutor = withCal[0].name;
+            const t = withCal.find(x => x.name === gcalEmbedTutor);
+            const src = tutorEmbedUrl(t, currentMonthKey());
+            const tabs = withCal.map(x => `<button onclick="showGcalEmbed('${jsStrAttr(x.name)}')" class="px-3 py-1 rounded-md text-xs font-semibold transition ${x.name === gcalEmbedTutor ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-600'}">${escapeHtml(x.name)}</button>`).join('');
+            // iframe 只在網址變了才重建（renderAll 頻繁呼叫，避免閃爍重載）
+            const head = `<div class="flex items-center gap-2 flex-wrap mb-2"><div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50">${tabs}</div><span class="text-[11px] text-slate-400">Google 提供的唯讀畫面，已定位到 ${currentMonthKey()}；需以有權限的 Google 帳號登入瀏覽器（或日曆為公開）才會顯示內容。</span></div>`;
+            if (box.__src === src && box.innerHTML) {
+                const h = document.getElementById('masterGcalHead');
+                if (h) h.innerHTML = head;
+                return;
+            }
+            box.__src = src;
+            box.innerHTML = `<div id="masterGcalHead">${head}</div><iframe src="${escapeHtml(src)}" style="border:0" width="100%" height="650" frameborder="0" scrolling="no" title="Google Calendar"></iframe>`;
+        }
+
+        function showGcalEmbed(name) {
+            gcalEmbedTutor = name;
+            renderGcalEmbedView();
         }
 
         // ===== 總課表篩選：導師／學生（或小組班）——清單與月曆同時套用；批量確認出席亦以此範圍為準 =====
@@ -1477,13 +1539,13 @@
                 .filter(Boolean).map(f => f.lesson);
             if (!lessons.length) return;
             const isLeave = type === 'leave';
-            document.getElementById('msgModalTitle').textContent = isLeave ? '📩 請假確認訊息' : '📩 補堂確認訊息';
+            document.getElementById('msgModalTitle').textContent = '📩 ' + ({ leave: '請假確認', makeup: '補堂確認', move: '改期通知' }[type] || '補堂確認') + '訊息';
             const parts = [];
             if (note) parts.push(`<div class="p-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">${note}</div>`);
             if (lessons.length > 1) parts.push(`<div class="p-2 bg-sky-50 border border-sky-200 rounded-lg text-sky-800 font-semibold"><i class="fa-solid fa-user-group mr-1"></i>小組課：共 ${lessons.length} 位學生，請逐一發送。</div>`);
             lessons.forEach(l => {
-                const msg = isLeave ? leaveMsgFor(l) : makeupMsgFor(l);
-                const copyFn = isLeave ? 'copyLeaveMsgMaster' : 'copyMakeupMsgMaster';
+                const msg = lessonMsgByType(type, l);
+                const copyFn = `copyLessonMsg('${type}', `;
                 const wa = l.phone
                     ? `<button onclick="openWhatsAppMessage('${l.lessonId}', '${type}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`
                     : `<span class="text-slate-400 italic">無電話，僅可複製</span>`;
@@ -1496,7 +1558,7 @@
                         </div>
                         <div class="bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-700 whitespace-pre-wrap">${msg}</div>
                         <div class="flex items-center gap-1.5">
-                            <button onclick="${copyFn}('${l.lessonId}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold"><i class="fa-solid fa-copy"></i> 複製</button>
+                            <button onclick="${copyFn}'${l.lessonId}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold"><i class="fa-solid fa-copy"></i> 複製</button>
                             ${wa}
                         </div>
                     </div>`);
@@ -1583,11 +1645,19 @@
             }
             pushHistory(`補堂改期：${origin.studentName} → ${date} ${time}`);
             const moved = [];
+            let anyMove = false;
+            const nowIso = new Date().toISOString();
             targets.forEach(t => {
+                // 舊補堂時間已通知過（補堂確認或改期通知已發）→ 這次建「改期通知」；未通知過 → 仍是新的補堂確認
+                const oldId = t.makeupLessonId;
+                const oldMkF = oldId ? GACLessonState.findLesson(lessonsByMonth, oldId) : null;
+                const from = oldMkF ? { date: oldMkF.lesson.date, time: oldMkF.lesson.time } : null;
+                const told = !!oldId && ['MAKEUP_CONFIRM:', 'MOVE_CONFIRM:'].some(p => sendLog[p + oldId] && sendLog[p + oldId].status === 'SENT');
                 const r = GACLessonState.scheduleMakeup(lessonsByMonth, t.lessonId, { date, time }, { replaceExisting: true });
                 if (r.ok) {
                     // 舊補堂的 TODO 確認條目會被 syncSendlog 孤兒清理，這裡為新補堂建新條目
-                    GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', r.makeup, new Date().toISOString());
+                    if (told && from) { GACSendlog.ensureMoveEntry(sendLog, r.makeup, from, nowIso); anyMove = true; }
+                    else GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', r.makeup, nowIso);
                     moved.push(r.makeup.lessonId);
                 } else alert(`⚠️ ${t.studentName}：${r.error}`);
             });
@@ -1597,7 +1667,7 @@
             renderAll();
             const note = date.slice(0, 7) !== currentMonthKey()
                 ? `補堂不在目前檢視月份（切換到 ${date.slice(0, 7)} 可見）。` : '';
-            openMsgModal('makeup', moved, note);
+            openMsgModal(anyMove ? 'move' : 'makeup', moved, note);
         }
 
         // ===== 小組一致性警告橫幅（兜底偵測：任何路徑造成的不一致都會在這裡現形） =====
@@ -2107,24 +2177,63 @@
             }
         }
 
-        function leaveMsgFor(lesson) {
-            const d = lessonStart(lesson);
-            return `已確認 ${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 (${getWeekdayName(d.getDay())}) 的課堂請假。`;
+        // ===== 課堂訊息（請假確認／補堂確認／改期通知）：文案在設定頁「訊息模板」，留空用預設；顯示時才組成 =====
+        function msgTpl(key) {
+            const c = (typeof appSettings !== 'undefined' && appSettings) || {};
+            return c[key] || GACStorage.DEFAULT_SETTINGS[key];
         }
 
-        function makeupMsgFor(lesson) {
-            const d = lessonStart(lesson);
-            return `已確認 ${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 (${getWeekdayName(d.getDay())}) ${lesson.time} 進行補課。`;
+        function dateLabel(dateStr) {
+            const p = String(dateStr || '').split('-').map(Number);
+            return p.length === 3 && p[0] ? `${p[0]}年${p[1]}月${p[2]}日` : String(dateStr || '');
+        }
+
+        function weekdayOfDate(dateStr) {
+            const p = String(dateStr || '').split('-').map(Number);
+            return p.length === 3 && p[0] ? getWeekdayName(new Date(p[0], p[1] - 1, p[2]).getDay()) : '—';
+        }
+
+        // {date}＝2026年9月16日 {weekday}＝星期三 {time} {name} {id} {tutor} {program} {level}
+        function lessonVars(lesson) {
+            return {
+                date: dateLabel(lesson.date), weekday: weekdayOfDate(lesson.date), time: lesson.time || '',
+                name: lesson.studentName || lesson.studentId || '', id: lesson.studentId || '',
+                tutor: lesson.tutor || '', program: lesson.program || '', level: lesson.level || ''
+            };
+        }
+
+        function leaveMsgFor(lesson) { return GACSendlog.fillTemplate(msgTpl('tplLeave'), lessonVars(lesson)); }
+        function makeupMsgFor(lesson) { return GACSendlog.fillTemplate(msgTpl('tplMakeup'), lessonVars(lesson)); }
+
+        // 改期通知：{fromDate}/{fromWeekday}/{fromTime} 來自條目快照（改期前），{date}/{time} 讀課堂現值
+        function moveMsgFor(entry, lesson) {
+            const v = lessonVars(lesson);
+            v.fromDate = dateLabel(entry.fromDate); v.fromWeekday = weekdayOfDate(entry.fromDate); v.fromTime = entry.fromTime || '';
+            return GACSendlog.fillTemplate(msgTpl('tplMove'), v);
+        }
+
+        // 訊息弹窗／WhatsApp 用：type 'leave' | 'makeup' | 'move'（改期用該課的 MOVE_CONFIRM 條目；沒有則退回補堂確認）
+        function lessonMsgByType(type, lesson) {
+            if (type === 'leave') return leaveMsgFor(lesson);
+            if (type === 'move') {
+                const e = sendLog['MOVE_CONFIRM:' + lesson.lessonId];
+                return e ? moveMsgFor(e, lesson) : makeupMsgFor(lesson);
+            }
+            return makeupMsgFor(lesson);
+        }
+
+        function copyLessonMsg(type, lessonId) {
+            const found = GACLessonState.findLesson(lessonsByMonth, lessonId);
+            if (found) copyToClipboard(lessonMsgByType(type, found.lesson));
         }
 
         // 學費訊息模板（文案常量，方便修改；{month}=yyyy年m月、{m}=月份數字、{name}=學生）
         // 每個報讀項目（個別課／各小組）一段明細：日期 逢星期／時間起訖／級別／上課形式／導師／每堂學費／堂數／合共；
         // 多於一項時最後加「總額」。金額以條目的 amount 為準（手改過的金額照樣反映在訊息裡）。
-        const TUITION_MSG = {
-            header: '【學費】\n你好，以下是 {month} 的學費單：\n\n【{m}月份上堂詳情及學費】\n學生：{name}',
-            total: '總額：{amount}',
-            footer: '＊以上收費均以每位學生計算'
-        };
+        // 開頭／總額／結尾三段可在設定頁「訊息模板」改；預設值在 lib/storage.js DEFAULT_SETTINGS
+        function tuitionTpl() {
+            return { header: msgTpl('tplTuitionHeader'), total: msgTpl('tplTuitionTotal'), footer: msgTpl('tplTuitionFooter') };
+        }
 
         function tuitionMoney(n) { return '$' + Number(n || 0).toLocaleString('en-US'); }
 
@@ -2167,10 +2276,12 @@
                 : [{ dates: entry.dates || [], count: entry.count, subtotal: entry.amount, weekday: null, rate: null }];
             const single = items.length === 1;
             const blocks = items.map(it => tuitionItemLines(it, single ? entry.amount : it.subtotal));
-            const out = [TUITION_MSG.header.replace('{month}', monthLabel).replace('{m}', m).replace('{name}', entry.studentName || entry.studentId)];
+            const T = tuitionTpl();
+            const vars = { month: monthLabel, m: m, name: entry.studentName || entry.studentId, id: entry.studentId || '', amount: tuitionMoney(entry.amount) };
+            const out = [GACSendlog.fillTemplate(T.header, vars)];
             out.push(blocks.join('\n\n'));
-            if (!single) out.push(TUITION_MSG.total.replace('{amount}', tuitionMoney(entry.amount)));
-            out.push(TUITION_MSG.footer);
+            if (!single) out.push(GACSendlog.fillTemplate(T.total, vars));
+            if (T.footer && T.footer.trim()) out.push(GACSendlog.fillTemplate(T.footer, vars));
             // 尾段（設定頁）：FPS ID／附註／學員守則連結，填了才出現
             const cfg = (typeof appSettings !== 'undefined' && appSettings) || {};
             const tail = [];
@@ -2195,6 +2306,7 @@
             if (DERIVED_TYPES.has(entry.type)) return derivedMsgFor(entry);
             const f = GACLessonState.findLesson(lessonsByMonth, entry.lessonId);
             if (!f) return '（原課堂已不存在，此條目僅留作歷史紀錄）';
+            if (entry.type === 'MOVE_CONFIRM') return moveMsgFor(entry, f.lesson);
             return entry.type === 'LEAVE_CONFIRM' ? leaveMsgFor(f.lesson) : makeupMsgFor(f.lesson);
         }
 
@@ -2203,6 +2315,7 @@
             TUITION: { label: '學費', cls: 'bg-emerald-100 text-emerald-700' },
             LEAVE_CONFIRM: { label: '請假確認', cls: 'bg-amber-100 text-amber-700' },
             MAKEUP_CONFIRM: { label: '補堂確認', cls: 'bg-sky-100 text-sky-700' },
+            MOVE_CONFIRM: { label: '改期通知', cls: 'bg-orange-100 text-orange-700' },
             CUSTOM: { label: '自定義', cls: 'bg-violet-100 text-violet-700' },
             PAY_REMIND: { label: '催繳', cls: 'bg-rose-100 text-rose-700' },
             RECEIPT: { label: '收款確認', cls: 'bg-teal-100 text-teal-700' }
@@ -2336,7 +2449,7 @@
             let html = '<option value="ALL">全部類別</option>';
             // 學費之下多兩個繳費狀態子篩選（未繳清＝未繳＋部分；已繳清），只列本月實際有的
             const payStates = new Set(entries.filter(e => e.type === 'TUITION').map(e => (GACSendlog.paymentStatus(e) === 'paid' ? 'paid' : 'due')));
-            [['TUITION', '學費'], ['TUITION:due', '學費 · 未繳清'], ['TUITION:paid', '學費 · 已繳清'], ['LEAVE_CONFIRM', '請假確認'], ['MAKEUP_CONFIRM', '補堂確認'], ['PAY_REMIND', '催繳'], ['RECEIPT', '收款確認']].forEach(([v, label]) => {
+            [['TUITION', '學費'], ['TUITION:due', '學費 · 未繳清'], ['TUITION:paid', '學費 · 已繳清'], ['LEAVE_CONFIRM', '請假確認'], ['MAKEUP_CONFIRM', '補堂確認'], ['MOVE_CONFIRM', '改期通知'], ['PAY_REMIND', '催繳'], ['RECEIPT', '收款確認']].forEach(([v, label]) => {
                 const ok = v.indexOf('TUITION:') === 0 ? payStates.has(v.slice(8)) : present.has(v);
                 if (ok) html += `<option value="${v}">${label}</option>`;
             });
@@ -3010,7 +3123,37 @@
         function afterTutorsChanged() {
             populateTutorSelects();
             renderTutorManagementList();
+            renderTutorCalendarList();
             renderBatchCheckboxes();
+        }
+
+        // ===== 導師日曆（設定 → Google Calendar）：每位導師的嵌入連結／日曆 ID，存在導師名單上，改動即存 =====
+        function renderTutorCalendarList() {
+            const box = document.getElementById('tutorCalendarList');
+            if (!box) return;
+            const inp = 'w-full px-2 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none';
+            box.innerHTML = tutorsList.length ? tutorsList.map(t => `<div class="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1.5">
+                    <div class="font-bold text-slate-800">${escapeHtml(t.name)} ${t.calendarEmbed ? '<span class="text-emerald-600 font-normal">· 已設嵌入</span>' : '<span class="text-slate-400 font-normal">· 未設嵌入連結</span>'}</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <label class="block"><span class="text-slate-500">嵌入連結（embed 的 src，或日曆 ID）</span>
+                            <input type="text" value="${escapeHtml(t.calendarEmbed || '')}" onchange="updateTutorCalendar('${jsStrAttr(t.name)}', 'calendarEmbed', this.value)" placeholder="https://calendar.google.com/calendar/embed?src=…" class="${inp}"></label>
+                        <label class="block"><span class="text-slate-500">日曆 ID（API 讀取用；留空＝預設日曆）</span>
+                            <input type="text" value="${escapeHtml(t.calendarId || '')}" onchange="updateTutorCalendar('${jsStrAttr(t.name)}', 'calendarId', this.value)" placeholder="xxx@group.calendar.google.com" class="${inp}"></label>
+                    </div>
+                </div>`).join('') : '<div class="text-center py-3 text-slate-400 text-xs">尚未新增任何導師（在「導師管理」新增）。</div>';
+        }
+
+        function updateTutorCalendar(name, field, value) {
+            if (field !== 'calendarEmbed' && field !== 'calendarId') return;
+            const t = tutorsList.find(x => x.name === name);
+            const v = String(value || '').trim();
+            if (!t || (t[field] || '') === v) return;
+            pushHistory(`導師日曆：${name}（${field === 'calendarEmbed' ? '嵌入連結' : '日曆 ID'}）`);
+            t[field] = v;
+            persistTutors();
+            renderTutorCalendarList();
+            if (currentViewMode === 'gcal') renderGcalEmbedView();
+            showToast(`✅ 已更新 ${name} 的${field === 'calendarEmbed' ? '日曆嵌入連結' : '日曆 ID'}`);
         }
 
         // 學生／小組表單：選導師 → 自動帶出其等級（仍可手動改）
@@ -3086,6 +3229,53 @@
             renderAll(); // 薪酬／分析／繳費顯示按新價；學費條目金額要重新「生成」才更新
         }
 
+        // ===== 設定頁模組摺疊：開合狀態只存本機 gac_settings_open（UI 便利，不入備份；預設只開「一般」）=====
+        const SETTINGS_MODULES = ['general', 'gcal', 'fee', 'templates', 'tutors', 'rates', 'backup', 'danger'];
+
+        function settingsOpenSet() {
+            try {
+                const v = JSON.parse(localStorage.getItem('gac_settings_open') || 'null');
+                if (Array.isArray(v)) return new Set(v);
+            } catch (e) { /* 無法讀取就用預設 */ }
+            return new Set(['general']);
+        }
+
+        function saveSettingsOpenSet(set) {
+            try { localStorage.setItem('gac_settings_open', JSON.stringify([...set])); } catch (e) { /* ignore */ }
+        }
+
+        function applySettingsModules() {
+            const open = settingsOpenSet();
+            SETTINGS_MODULES.forEach(id => {
+                const body = document.getElementById('smod_' + id);
+                const chev = document.getElementById('smodChev_' + id);
+                if (body) body.classList.toggle('hidden', !open.has(id));
+                if (chev) chev.classList.toggle('rotate-180', open.has(id));
+            });
+        }
+
+        function toggleSettingsModule(id) {
+            const open = settingsOpenSet();
+            if (open.has(id)) open.delete(id); else open.add(id);
+            saveSettingsOpenSet(open);
+            applySettingsModules();
+        }
+
+        function openSettingsModule(id) {
+            const open = settingsOpenSet();
+            open.add(id);
+            saveSettingsOpenSet(open);
+            applySettingsModules();
+        }
+
+        // 訊息模板欄位：設定頁 textarea id → 設定鍵（還原預設／載入／儲存共用）
+        const TPL_FIELDS = {
+            tuitionHeader: ['setTplTuitionHeader', 'tplTuitionHeader'], tuitionTotal: ['setTplTuitionTotal', 'tplTuitionTotal'],
+            tuitionFooter: ['setTplTuitionFooter', 'tplTuitionFooter'], leave: ['setTplLeave', 'tplLeave'],
+            makeup: ['setTplMakeup', 'tplMakeup'], move: ['setTplMove', 'tplMove'],
+            remind: ['setRemindMsg', 'remindMsg'], receipt: ['setReceiptMsg', 'receiptMsg']
+        };
+
         // ===== 設定頁（gac_settings_v2）=====
         function loadSettingsForm() {
             const chk = document.getElementById('setPayNoShow');
@@ -3102,9 +3292,11 @@
             const c = derivedCfg();
             document.getElementById('setRemindAuto').checked = c.remindAuto;
             document.getElementById('setRemindDays').value = c.remindDays;
-            document.getElementById('setRemindMsg').value = c.remindMsg;
             document.getElementById('setReceiptAuto').checked = c.receiptAuto;
-            document.getElementById('setReceiptMsg').value = c.receiptMsg;
+            Object.keys(TPL_FIELDS).forEach(k => {
+                const el = document.getElementById(TPL_FIELDS[k][0]);
+                if (el) el.value = msgTpl(TPL_FIELDS[k][1]);
+            });
         }
 
         // 付款方式清單：編號＝陣列位置＋1，對應繳費紀錄的 payMethod；改名不影響既有紀錄，只能刪最後一個（避免編號前移對不上）
@@ -3137,8 +3329,10 @@
         }
 
         function resetMsgTemplate(which) {
-            const el = document.getElementById(which === 'receipt' ? 'setReceiptMsg' : 'setRemindMsg');
-            if (el) el.value = GACStorage.DEFAULT_SETTINGS[which === 'receipt' ? 'receiptMsg' : 'remindMsg'];
+            const f = TPL_FIELDS[which];
+            if (!f) return;
+            const el = document.getElementById(f[0]);
+            if (el) el.value = GACStorage.DEFAULT_SETTINGS[f[1]];
         }
 
         function saveSettingsForm() {
@@ -3154,17 +3348,17 @@
             if (pm && pm.length) appSettings.payMethods = pm; // 讀不到編輯器（畫面未渲染）時保留原值
             appSettings.remindAuto = !!document.getElementById('setRemindAuto').checked;
             appSettings.remindDays = Math.max(1, parseInt(document.getElementById('setRemindDays').value, 10) || GACStorage.DEFAULT_SETTINGS.remindDays);
-            appSettings.remindMsg = document.getElementById('setRemindMsg').value.trim() || GACStorage.DEFAULT_SETTINGS.remindMsg;
             appSettings.receiptAuto = !!document.getElementById('setReceiptAuto').checked;
-            appSettings.receiptMsg = document.getElementById('setReceiptMsg').value.trim() || GACStorage.DEFAULT_SETTINGS.receiptMsg;
+            Object.keys(TPL_FIELDS).forEach(k => {
+                const el = document.getElementById(TPL_FIELDS[k][0]);
+                if (el) appSettings[TPL_FIELDS[k][1]] = String(el.value || '').trim() || GACStorage.DEFAULT_SETTINGS[TPL_FIELDS[k][1]];
+            });
             gacStore.saveSettings(appSettings);
             renderPaymentTab();
-            renderSendCenter(); // 催繳／收款確認的自動開關與天數改了要重新同步
-            const hint = document.getElementById('settingsSavedHint');
-            if (hint) {
-                hint.classList.remove('hidden');
-                setTimeout(() => hint.classList.add('hidden'), 2000);
-            }
+            renderSendCenter(); // 催繳／收款確認的自動開關與天數、訊息模板改了要重新組訊息
+            const hints = document.querySelectorAll('.settings-saved-hint');
+            hints.forEach(h => h.classList.remove('hidden'));
+            setTimeout(() => hints.forEach(h => h.classList.add('hidden')), 2000);
         }
 
         function copyLeaveMsgMaster(lessonId) {
@@ -3195,7 +3389,7 @@
                 return;
             }
 
-            const message = messageType === 'leave' ? leaveMsgFor(lesson) : makeupMsgFor(lesson);
+            const message = lessonMsgByType(messageType, lesson);
             const whatsappUrl = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`;
             window.open(whatsappUrl, '_blank', 'noopener');
         }

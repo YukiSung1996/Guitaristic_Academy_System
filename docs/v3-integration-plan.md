@@ -118,3 +118,9 @@ v2 現況：出席是完整狀態機（已上課／請假 L·SL·TL／缺席／�
   - 「不用發」＝`dismissDerived`：刪條目＋學費條目 `remindSkipped`／`receiptSkipped`；學費單 `markUnsent` 重置前者、`setPayment({paid:false})` 重置後者。
   - 訊息不快照：`fillTemplate(模板, paymentVars(學費條目))`，佔位符 {name} {month} {amount} {paid} {outstanding} {method} {date} {payinfo} {fps}；模板與開關在設定 `remindAuto/remindDays/remindMsg/receiptAuto/receiptMsg`。
   - 未做（可後續）：同一月第二次催繳、逾期天數 KPI。
+
+### Stage 6 — 設定頁模組化／訊息模板／導師日曆（用戶 2026-09-22 需求 2、3）
+- 設定頁改為八個可收合模組（`toggleSettingsModule`／`applySettingsModules`，狀態只存本機 `gac_settings_open`）。
+- 訊息模板全部進設定（`TPL_FIELDS` id→設定鍵；預設在 `DEFAULT_SETTINGS`；`msgTpl(key)`＋`GACSendlog.fillTemplate`）：學費單三段、請假、補堂、改期、催繳、收款確認。
+- 新條目類型 `MOVE_CONFIRM`（`ensureMoveEntry`）：補堂改期（舊時間已通知過才建）與 GCal 時間變更套用。
+- 導師名單多 `calendarEmbed`／`calendarId`；總課表「Google 日曆」視圖（`tutorEmbedUrl` 組 embed 網址＋dates 定位）。

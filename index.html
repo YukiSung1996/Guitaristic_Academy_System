@@ -251,6 +251,7 @@
                         <div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 text-xs font-semibold">
                             <button id="btnListView" onclick="switchView('list')" class="px-3 py-1 rounded-md active bg-white text-sky-600 shadow-sm transition">📋 清單</button>
                             <button id="btnCalView" onclick="switchView('calendar')" class="px-3 py-1 rounded-md text-slate-600 transition">📅 月曆</button>
+                            <button id="btnGcalView" onclick="switchView('gcal')" title="每位導師的 Google 日曆嵌入畫面（唯讀；連結在設定 → Google Calendar → 導師日曆）" class="px-3 py-1 rounded-md text-slate-600 transition">🌐 Google 日曆</button>
                         </div>
                     </div>
 
@@ -289,6 +290,7 @@
                 <!-- Views -->
                 <div id="masterScheduleList" class="space-y-3 max-h-[600px] overflow-y-auto pr-1"></div>
                 <div id="masterCalendarView" class="hidden overflow-x-auto"></div>
+                <div id="masterGcalView" class="hidden"></div>
             </div>
         </section>
 
@@ -559,48 +561,90 @@
             </div>
         </section>
 
-        <!-- TAB 6: SETTINGS 設定 -->
-        <section id="settingsTab" class="tab-content hidden space-y-6">
-            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4 max-w-2xl">
-                <div class="border-b border-slate-100 pb-3">
-                    <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
-                        <i class="fa-solid fa-gear text-slate-500"></i> 系統設定
-                    </h2>
-                    <p class="text-xs text-slate-500 mt-0.5">儲存於本機（gac_settings_v2），並包含在全量備份內。</p>
-                </div>
-                <label class="flex items-start gap-3 text-sm cursor-pointer">
-                    <input type="checkbox" id="setPayNoShow" class="mt-0.5 w-4 h-4 accent-sky-600">
-                    <span>
-                        <span class="font-bold text-slate-700">缺席（NOSHOW）計入導師薪酬</span>
-                        <!-- TODO(跟老闆確認)：NOSHOW 計薪預設值，目前預設計入 -->
-                        <span class="block text-xs text-slate-500 mt-0.5">學生無故缺席但導師已到場，該堂照計工資（高級薪酬「匯入學生及課堂」時生效）。</span>
+        <!-- TAB 6: SETTINGS 設定（按模組摺疊；開合狀態只存本機 gac_settings_open） -->
+        <section id="settingsTab" class="tab-content hidden space-y-4">
+            <div class="max-w-2xl">
+                <h2 class="text-base font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-gear text-slate-500"></i> 系統設定</h2>
+                <p class="text-xs text-slate-500 mt-0.5">按模組收合。設定儲存於本機（gac_settings_v2）並包含在全量備份內；表單類模組各有「儲存設定」，按任一個都會儲存全部欄位。</p>
+            </div>
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm max-w-2xl">
+                <button type="button" onclick="toggleSettingsModule('general')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
+                    <span class="min-w-0">
+                        <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-sliders text-slate-500"></i> 一般</span>
+                        <span class="block text-xs text-slate-500 mt-0.5">薪酬口徑、發送中心 WhatsApp 行為</span>
                     </span>
-                </label>
-                <div>
-                    <label class="block text-xs font-bold text-slate-600 mb-1">發送中心：點開 WhatsApp 後的處理</label>
-                    <select id="setWaSentMode" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white">
-                        <option value="confirm">安全（預設）：標記「已開啟」＋切回本頁時詢問是否已發</option>
-                        <option value="badge">最保守：只標記「已開啟」，不詢問、不自動移欄</option>
-                        <option value="auto">進取：點開 WhatsApp 即自動移到「已發送」（可移回撤銷）</option>
-                    </select>
-                    <p class="text-xs text-slate-500 mt-1">瀏覽器無法得知訊息在 WhatsApp 裡是否真的送出，此選項決定「點開連結」如何對應「已發送」。</p>
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-slate-600 mb-1">公開 ICS 網址（高級薪酬「讀取公開 ICS」使用）</label>
-                    <input type="url" id="setPublicIcsUrl" placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <i id="smodChev_general" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
+                </button>
+                <div id="smod_general" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
+                    <label class="flex items-start gap-3 text-sm cursor-pointer">
+                        <input type="checkbox" id="setPayNoShow" class="mt-0.5 w-4 h-4 accent-sky-600">
+                        <span>
+                            <span class="font-bold text-slate-700">缺席（NOSHOW）計入導師薪酬</span>
+                            <!-- TODO(跟老闆確認)：NOSHOW 計薪預設值，目前預設計入 -->
+                            <span class="block text-xs text-slate-500 mt-0.5">學生無故缺席但導師已到場，該堂照計工資（高級薪酬「匯入學生及課堂」時生效）。</span>
+                        </span>
+                    </label>
                     <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">Google OAuth Client ID（Phase 2 使用）</label>
-                        <input type="text" id="setGcalClientId" placeholder="xxxx.apps.googleusercontent.com" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        <label class="block text-xs font-bold text-slate-600 mb-1">發送中心：點開 WhatsApp 後的處理</label>
+                        <select id="setWaSentMode" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white">
+                            <option value="confirm">安全（預設）：標記「已開啟」＋切回本頁時詢問是否已發</option>
+                            <option value="badge">最保守：只標記「已開啟」，不詢問、不自動移欄</option>
+                            <option value="auto">進取：點開 WhatsApp 即自動移到「已發送」（可移回撤銷）</option>
+                        </select>
+                        <p class="text-xs text-slate-500 mt-1">瀏覽器無法得知訊息在 WhatsApp 裡是否真的送出，此選項決定「點開連結」如何對應「已發送」。</p>
+                    </div>
+                    <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
+                        <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5"><i class="fa-solid fa-floppy-disk"></i> 儲存設定</button>
+                        <span class="settings-saved-hint hidden text-xs text-emerald-600 font-semibold"><i class="fa-solid fa-check"></i> 已儲存</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm max-w-2xl">
+                <button type="button" onclick="toggleSettingsModule('gcal')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
+                    <span class="min-w-0">
+                        <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-brands fa-google text-indigo-500"></i> Google Calendar</span>
+                        <span class="block text-xs text-slate-500 mt-0.5">OAuth 連線、每位導師的日曆（嵌入連結／日曆 ID）</span>
+                    </span>
+                    <i id="smodChev_gcal" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
+                </button>
+                <div id="smod_gcal" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1">Google OAuth Client ID</label>
+                            <input type="text" id="setGcalClientId" placeholder="xxxx.apps.googleusercontent.com" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1">預設日曆 ID（同步 GCal 用；導師未另設日曆時用此）</label>
+                            <input type="text" id="setGcalCalendarId" placeholder="primary" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        </div>
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">目標日曆 ID（Phase 2 使用）</label>
-                        <input type="text" id="setGcalCalendarId" placeholder="primary" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        <label class="block text-xs font-bold text-slate-600 mb-1">公開 ICS 網址（高級薪酬「讀取公開 ICS」使用）</label>
+                        <input type="url" id="setPublicIcsUrl" placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                    </div>
+                    <!-- 導師日曆：一位導師一個 Google 日曆。嵌入連結供總課表「Google 日曆」視圖唯讀顯示；日曆 ID 供 API 讀取。存在導師名單（gac_tutors_v3）上 -->
+                    <div class="pt-2 border-t border-slate-100 space-y-2">
+                        <div class="text-xs font-bold text-slate-700"><i class="fa-solid fa-calendar-days text-indigo-500 mr-1"></i>導師日曆（一位導師一個日曆）</div>
+                        <p class="text-[11px] text-slate-500">嵌入連結：Google 日曆 → 設定 → 該日曆「整合日曆」→「嵌入代碼」內 <code>src="…"</code> 的網址（或直接貼日曆 ID／電郵，系統自行組成）。總課表「🌐 Google 日曆」視圖按導師切換顯示，唯讀；瀏覽器需登入有權限的 Google 帳號（或日曆為公開）才會顯示內容。改動即時儲存。</p>
+                        <div id="tutorCalendarList" class="space-y-2"></div>
+                    </div>
+                    <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
+                        <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5"><i class="fa-solid fa-floppy-disk"></i> 儲存設定</button>
+                        <span class="settings-saved-hint hidden text-xs text-emerald-600 font-semibold"><i class="fa-solid fa-check"></i> 已儲存</span>
                     </div>
                 </div>
-                <div class="pt-2 border-t border-slate-100 space-y-3">
-                    <div class="text-xs font-bold text-slate-700"><i class="fa-solid fa-sack-dollar text-purple-600 mr-1"></i>學費單與繳費</div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm max-w-2xl">
+                <button type="button" onclick="toggleSettingsModule('fee')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
+                    <span class="min-w-0">
+                        <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-sack-dollar text-purple-600"></i> 學費單與繳費</span>
+                        <span class="block text-xs text-slate-500 mt-0.5">FPS／守則連結／附註、付款方式、自動催繳與收款確認開關</span>
+                    </span>
+                    <i id="smodChev_fee" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
+                </button>
+                <div id="smod_fee" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label class="block text-xs font-bold text-slate-600 mb-1">FPS 轉數快 ID（填了才會加到學費單）</label>
@@ -622,107 +666,183 @@
                         </div>
                         <div id="payMethodsEditor" class="grid grid-cols-2 sm:grid-cols-3 gap-2"></div>
                     </div>
-                    <!-- 催繳／收款確認：由學費條目的繳費狀態自動派生到發送中心（lib/sendlog.js syncDerived） -->
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                        <div class="space-y-1.5">
-                            <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600 flex-wrap">
-                                <input type="checkbox" id="setRemindAuto" class="accent-rose-600 rounded"> 自動催繳：學費單發出後
-                                <input type="number" id="setRemindDays" min="1" max="60" class="w-14 px-2 py-1 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none"> 天仍未繳清 → 加入「待發送」
-                            </label>
-                            <textarea id="setRemindMsg" rows="3" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"></textarea>
-                            <p class="text-[11px] text-slate-400">每生每月一筆，部分繳交照催（未繳金額即時更新）；卡片「不用發」可略過。佔位符：{name} {month} {amount}應收 {paid}已收 {outstanding}未繳 {fps}（填了 FPS ID 才有內容）
-                                <button type="button" onclick="resetMsgTemplate('remind')" class="underline hover:text-slate-600">還原預設文案</button></p>
-                        </div>
-                        <div class="space-y-1.5">
-                            <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600">
-                                <input type="checkbox" id="setReceiptAuto" class="accent-teal-600 rounded"> 繳清時自動建立「收款確認」訊息（發出後自動勾上「收據」）
-                            </label>
-                            <textarea id="setReceiptMsg" rows="3" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"></textarea>
-                            <p class="text-[11px] text-slate-400">佔位符：{name} {month} {paid}實收 {method}付款方式 {date}日期 {payinfo}＝（方式，日期）
-                                <button type="button" onclick="resetMsgTemplate('receipt')" class="underline hover:text-slate-600">還原預設文案</button></p>
-                        </div>
+                    <!-- 催繳／收款確認：由學費條目的繳費狀態自動派生到發送中心（lib/sendlog.js syncDerived）；文案在「訊息模板」 -->
+                    <div class="space-y-2 pt-1">
+                        <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600 flex-wrap">
+                            <input type="checkbox" id="setRemindAuto" class="accent-rose-600 rounded"> 自動催繳：學費單發出後
+                            <input type="number" id="setRemindDays" min="1" max="60" class="w-14 px-2 py-1 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none"> 天仍未繳清 → 加入「待發送」
+                        </label>
+                        <p class="text-[11px] text-slate-400">每生每月一筆，部分繳交照催（未繳金額即時更新）；卡片「不用發」可略過；學費單移回待發會重新計算。文案在「訊息模板」。</p>
+                        <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                            <input type="checkbox" id="setReceiptAuto" class="accent-teal-600 rounded"> 繳清時自動建立「收款確認」訊息（發出後自動在條目記下已發收據）
+                        </label>
                     </div>
-                </div>
-                <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
-                    <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
-                        <i class="fa-solid fa-floppy-disk"></i> 儲存設定
-                    </button>
-                    <span id="settingsSavedHint" class="hidden text-xs text-emerald-600 font-semibold"><i class="fa-solid fa-check"></i> 已儲存</span>
+                    <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
+                        <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5"><i class="fa-solid fa-floppy-disk"></i> 儲存設定</button>
+                        <span class="settings-saved-hint hidden text-xs text-emerald-600 font-semibold"><i class="fa-solid fa-check"></i> 已儲存</span>
+                    </div>
                 </div>
             </div>
-            <!-- 導師管理（v3）：名單驅動所有導師下拉；等級＝查價用的導師級別 -->
-            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-3 max-w-2xl">
-                <div class="border-b border-slate-100 pb-3">
-                    <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-chalkboard-user text-indigo-500"></i> 導師管理</h3>
-                    <p class="text-xs text-slate-500 mt-0.5">新增／移除導師並設定定價等級。學生與小組表單選導師時自動帶出等級（仍可個別改）；刪除導師不會改動已登記學生／小組上的導師名稱。</p>
-                </div>
-                <div id="tutorManagementList" class="space-y-2"></div>
-                <div class="flex flex-wrap items-end gap-2 pt-2 border-t border-slate-100 text-xs">
-                    <div>
-                        <label class="block font-bold text-slate-600 mb-1">新導師名稱</label>
-                        <input type="text" id="newTutorName" placeholder="例如：Instructor C" class="p-2 border border-slate-300 rounded-lg">
+
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm max-w-2xl">
+                <button type="button" onclick="toggleSettingsModule('templates')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
+                    <span class="min-w-0">
+                        <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-envelope-open-text text-teal-600"></i> 訊息模板</span>
+                        <span class="block text-xs text-slate-500 mt-0.5">學費單、請假確認、補堂確認、改期通知、催繳、收款確認的文案</span>
+                    </span>
+                    <i id="smodChev_templates" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
+                </button>
+                <div id="smod_templates" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
+                    <p class="text-[11px] text-slate-500">留空＝用預設。訊息在顯示時才按模板組成，改了模板連已建立、未發送的條目都會跟著變（已發送的紀錄不受影響）。</p>
+                    <div class="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                        <div class="text-xs font-bold text-slate-700">學費單</div>
+                    <div class="space-y-1">
+                        <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">開頭</label><button type="button" onclick="resetMsgTemplate('tuitionHeader')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
+                        <textarea id="setTplTuitionHeader" rows="5" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
+                        <p class="text-[11px] text-slate-400">佔位符：{month}＝2026年9月 {m}＝9 {name} {id}</p>
                     </div>
-                    <div>
-                        <label class="block font-bold text-slate-600 mb-1">定價等級</label>
-                        <select id="newTutorTier" class="p-2 border border-slate-300 rounded-lg bg-white">
-                            <option value="普通導師">普通導師</option>
+                        <p class="text-[11px] text-slate-500">（中段：每個報讀項目一段——日期 逢星期／時間／級別／上課形式／導師／每堂學費／堂數／合共，格式固定，由課表資料生成）</p>
+                    <div class="space-y-1">
+                        <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">總額（多於一個報讀項目時才加）</label><button type="button" onclick="resetMsgTemplate('tuitionTotal')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
+                        <textarea id="setTplTuitionTotal" rows="1" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
+                        <p class="text-[11px] text-slate-400">佔位符：{amount}</p>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">結尾</label><button type="button" onclick="resetMsgTemplate('tuitionFooter')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
+                        <textarea id="setTplTuitionFooter" rows="2" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
+                        <p class="text-[11px] text-slate-400">之後接尾段：FPS ID／附註／學員守則連結（在「學費單與繳費」填了才出現）</p>
+                    </div>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">請假確認</label><button type="button" onclick="resetMsgTemplate('leave')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
+                        <textarea id="setTplLeave" rows="2" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
+                        <p class="text-[11px] text-slate-400">佔位符：{date}＝2026年9月16日 {weekday}＝星期三 {time} {name} {id} {tutor} {program} {level}</p>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">補堂確認</label><button type="button" onclick="resetMsgTemplate('makeup')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
+                        <textarea id="setTplMakeup" rows="2" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
+                        <p class="text-[11px] text-slate-400">佔位符同上（{date} {time}＝補堂的日期時間）</p>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">改期通知（補堂改期、或 Calendar 上改了時間並套用時建立）</label><button type="button" onclick="resetMsgTemplate('move')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
+                        <textarea id="setTplMove" rows="2" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
+                        <p class="text-[11px] text-slate-400">佔位符：{fromDate} {fromWeekday} {fromTime}＝改期前；{date} {weekday} {time}＝改期後；{name} {id} {tutor}</p>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">催繳</label><button type="button" onclick="resetMsgTemplate('remind')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
+                        <textarea id="setRemindMsg" rows="3" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
+                        <p class="text-[11px] text-slate-400">佔位符：{name} {month} {amount}應收 {paid}已收 {outstanding}未繳 {fps}（填了 FPS ID 才有內容）</p>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">收款確認</label><button type="button" onclick="resetMsgTemplate('receipt')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
+                        <textarea id="setReceiptMsg" rows="3" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
+                        <p class="text-[11px] text-slate-400">佔位符：{name} {month} {paid}實收 {method}付款方式 {date}日期 {payinfo}＝（方式，日期）</p>
+                    </div>
+                    <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
+                        <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5"><i class="fa-solid fa-floppy-disk"></i> 儲存設定</button>
+                        <span class="settings-saved-hint hidden text-xs text-emerald-600 font-semibold"><i class="fa-solid fa-check"></i> 已儲存</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm max-w-2xl">
+                <button type="button" onclick="toggleSettingsModule('tutors')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
+                    <span class="min-w-0">
+                        <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-chalkboard-user text-indigo-500"></i> 導師管理</span>
+                        <span class="block text-xs text-slate-500 mt-0.5">名單驅動所有導師下拉；等級＝查價用的導師級別</span>
+                    </span>
+                    <i id="smodChev_tutors" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
+                </button>
+                <div id="smod_tutors" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
+                    <p class="text-xs text-slate-500">新增／移除導師並設定定價等級。學生與小組表單選導師時自動帶出等級（仍可個別改）；刪除導師不會改動已登記學生／小組上的導師名稱。導師的日曆在「Google Calendar」模組設定。</p>
+                    <div id="tutorManagementList" class="space-y-2"></div>
+                    <div class="flex flex-wrap items-end gap-2 pt-2 border-t border-slate-100 text-xs">
+                        <div>
+                            <label class="block font-bold text-slate-600 mb-1">新導師名稱</label>
+                            <input type="text" id="newTutorName" placeholder="例如：Instructor C" class="p-2 border border-slate-300 rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-slate-600 mb-1">定價等級</label>
+                            <select id="newTutorTier" class="p-2 border border-slate-300 rounded-lg bg-white">
+                                <option value="普通導師">普通導師</option>
+                                <option value="資深導師">資深導師</option>
+                            </select>
+                        </div>
+                        <button onclick="addTutor()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> 新增導師</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm max-w-2xl">
+                <button type="button" onclick="toggleSettingsModule('rates')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
+                    <span class="min-w-0">
+                        <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-tags text-purple-600"></i> 收費標準表</span>
+                        <span class="block text-xs text-slate-500 mt-0.5">改價就地生效，存 gac_rate_overrides_v3；可逐列還原預設</span>
+                    </span>
+                    <i id="smodChev_rates" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
+                </button>
+                <div id="smod_rates" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
+                    <p class="text-xs text-slate-500">改價後立即生效：學生表單、薪酬與數據分析按新價查表。已生成月份的學費條目要重新按「生成」才會按新價（已發送的學費單不變）。改過的列會標示，可逐列還原預設。</p>
+                    <div class="flex flex-wrap items-center gap-3 text-xs">
+                        <label class="font-bold text-slate-600">導師等級</label>
+                        <select id="rateEditTier" onchange="renderRateTableEditor()" class="p-2 border border-slate-300 rounded-lg bg-white">
                             <option value="資深導師">資深導師</option>
+                            <option value="普通導師">普通導師</option>
                         </select>
+                        <label class="font-bold text-slate-600">課程</label>
+                        <select id="rateEditProgram" onchange="renderRateTableEditor()" class="p-2 border border-slate-300 rounded-lg bg-white"></select>
+                        <span id="rateOverrideCount" class="text-slate-500"></span>
                     </div>
-                    <button onclick="addTutor()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> 新增導師</button>
+                    <div class="overflow-x-auto rounded-xl border border-slate-200">
+                        <table class="w-full text-left text-xs text-slate-700">
+                            <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
+                                <tr><th class="p-2">級別</th><th class="p-2">授課形式</th><th class="p-2 text-center">時長</th><th class="p-2 text-right">每堂學費</th><th class="p-2"></th></tr>
+                            </thead>
+                            <tbody id="rateTableEditorBody" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
-            <!-- 收費標準表（v3）：改價就地套用到 rateTable 即時生效，存 gac_rate_overrides_v3；「還原」回到 art-rate-data.js 的預設價 -->
-            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-3 max-w-2xl">
-                <div class="border-b border-slate-100 pb-3">
-                    <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-tags text-purple-600"></i> 收費標準表</h3>
-                    <p class="text-xs text-slate-500 mt-0.5">改價後立即生效：學生表單、薪酬與數據分析按新價查表。已生成月份的學費條目要重新按「生成」才會按新價（已發送的學費單不變）。改過的列會標示，可逐列還原預設。</p>
-                </div>
-                <div class="flex flex-wrap items-center gap-3 text-xs">
-                    <label class="font-bold text-slate-600">導師等級</label>
-                    <select id="rateEditTier" onchange="renderRateTableEditor()" class="p-2 border border-slate-300 rounded-lg bg-white">
-                        <option value="資深導師">資深導師</option>
-                        <option value="普通導師">普通導師</option>
-                    </select>
-                    <label class="font-bold text-slate-600">課程</label>
-                    <select id="rateEditProgram" onchange="renderRateTableEditor()" class="p-2 border border-slate-300 rounded-lg bg-white"></select>
-                    <span id="rateOverrideCount" class="text-slate-500"></span>
-                </div>
-                <div class="overflow-x-auto rounded-xl border border-slate-200">
-                    <table class="w-full text-left text-xs text-slate-700">
-                        <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
-                            <tr><th class="p-2">級別</th><th class="p-2">授課形式</th><th class="p-2 text-center">時長</th><th class="p-2 text-right">每堂學費</th><th class="p-2"></th></tr>
-                        </thead>
-                        <tbody id="rateTableEditorBody" class="divide-y divide-slate-100"></tbody>
-                    </table>
+
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm max-w-2xl">
+                <button type="button" onclick="toggleSettingsModule('backup')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
+                    <span class="min-w-0">
+                        <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-box-archive text-emerald-500"></i> 資料備份</span>
+                        <span class="block text-xs text-slate-500 mt-0.5">全量備份／還原（JSON）</span>
+                    </span>
+                    <i id="smodChev_backup" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
+                </button>
+                <div id="smod_backup" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
+                    <p class="text-xs text-slate-500">全量備份包含：學生名單、小組、課表（含狀態與補堂鏈）、發送紀錄（含繳費記錄）、設定（含訊息模板）、導師名單（含日曆設定）、費率覆寫。還原時會覆蓋現有資料；舊版「僅學生名單」備份檔亦可匯入（只影響學生名單）。</p>
+                    <div class="flex items-center gap-2">
+                        <button onclick="exportJSONDatabase()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
+                            <i class="fa-solid fa-file-export"></i> 全量備份 (JSON)
+                        </button>
+                        <button onclick="document.getElementById('importJsonInput').click()" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
+                            <i class="fa-solid fa-file-import"></i> 還原備份
+                        </button>
+                    </div>
                 </div>
             </div>
-            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-3 max-w-2xl">
-                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
-                    <i class="fa-solid fa-box-archive text-emerald-500"></i> 資料備份
-                </h3>
-                <p class="text-xs text-slate-500">全量備份包含：學生名單、小組、課表（含狀態與補堂鏈）、發送紀錄（含繳費記錄）、設定、導師名單、費率覆寫。還原時會覆蓋現有資料；舊版「僅學生名單」備份檔亦可匯入（只影響學生名單）。</p>
-                <div class="flex items-center gap-2">
-                    <button onclick="exportJSONDatabase()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
-                        <i class="fa-solid fa-file-export"></i> 全量備份 (JSON)
-                    </button>
-                    <button onclick="document.getElementById('importJsonInput').click()" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
-                        <i class="fa-solid fa-file-import"></i> 還原備份
-                    </button>
-                </div>
-            </div>
-            <div class="bg-white rounded-2xl p-5 border border-rose-300 shadow-sm space-y-3 max-w-2xl">
-                <h3 class="text-sm font-bold text-rose-800 flex items-center gap-2">
-                    <i class="fa-solid fa-triangle-exclamation text-rose-500"></i> 危險區：全部清場重來
-                </h3>
-                <p class="text-xs text-slate-500">測試點亂了想重來：兩個範圍可選——<b>清空本月</b>只清「總課表目前檢視的月份」（該月 GCal 帶標籤事件＋本地課堂連跨月補堂＋該月發送紀錄）；<b>全部清場</b>刪 GCal 上今天前後一年內所有帶標籤事件並清空本地全部月份（課堂／發送紀錄／薪酬調整與封存）。兩者都<b>絕不刪</b>你在 GCal 手動建立的事件（刪掉的可在 GCal 垃圾桶還原）；<b>本地部分不可還原，請先全量備份</b>。學生名單與設定（含 Client ID）一律保留。</p>
-                <div class="flex items-center gap-2">
-                    <button onclick="clearCurrentMonthData()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
-                        <i class="fa-solid fa-broom"></i> 清空本月（GCal＋本地）
-                    </button>
-                    <button onclick="resetAllScheduleData()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
-                        <i class="fa-solid fa-bomb"></i> 全部清場（GCal＋本地）
-                    </button>
+
+            <div class="bg-white rounded-2xl border border-rose-300 shadow-sm max-w-2xl">
+                <button type="button" onclick="toggleSettingsModule('danger')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
+                    <span class="min-w-0">
+                        <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation text-rose-500"></i> <span class="text-rose-800">危險區：清場重來</span></span>
+                        <span class="block text-xs text-slate-500 mt-0.5">清空本月／全部清場（本地不可還原，請先備份）</span>
+                    </span>
+                    <i id="smodChev_danger" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
+                </button>
+                <div id="smod_danger" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
+                    <p class="text-xs text-slate-500">測試點亂了想重來：兩個範圍可選——<b>清空本月</b>只清「總課表目前檢視的月份」（該月 GCal 帶標籤事件＋本地課堂連跨月補堂＋該月發送紀錄）；<b>全部清場</b>刪 GCal 上今天前後一年內所有帶標籤事件並清空本地全部月份（課堂／發送紀錄／薪酬調整與封存）。兩者都<b>絕不刪</b>你在 GCal 手動建立的事件（刪掉的可在 GCal 垃圾桶還原）；<b>本地部分不可還原，請先全量備份</b>。學生名單與設定（含 Client ID）一律保留。</p>
+                    <div class="flex items-center gap-2">
+                        <button onclick="clearCurrentMonthData()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
+                            <i class="fa-solid fa-broom"></i> 清空本月（GCal＋本地）
+                        </button>
+                        <button onclick="resetAllScheduleData()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
+                            <i class="fa-solid fa-bomb"></i> 全部清場（GCal＋本地）
+                        </button>
+                    </div>
                 </div>
             </div>
         </section>

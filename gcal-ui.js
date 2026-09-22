@@ -8,6 +8,7 @@ function gcalPreflight() {
     if (!appSettings.gcalClientId) {
         alert('請先在「設定」頁籤填寫 Google OAuth Client ID。\n\n（GCP Console → APIs & Services → Credentials 建立 OAuth client：\n類型 Web application，Authorized JavaScript origins 加入你開啟本頁的網址，\n並啟用 Google Calendar API）');
         switchTab('settingsTab');
+        openSettingsModule('gcal');
         return false;
     }
     if (typeof location !== 'undefined' && location.protocol === 'file:') {
@@ -337,9 +338,12 @@ function applyGcalSyncInner() {
     p.timeChanges.forEach((c, i) => {
         if (!gcalChk('gsT_' + i)) return;
         membersOf(c).forEach(l => {
+            const from = { date: l.date, time: l.time }; // 改期前（l 與課堂同一物件，移動後會變）
             const r = GACLessonState.moveLessonDateTime(lessonsByMonth, l.lessonId, c.date, c.time);
-            if (r.ok) done.push(`時間：${l.studentName} → ${c.date} ${c.time}`);
-            else errs.push(`${l.studentName}：${r.error}`);
+            if (r.ok) {
+                GACSendlog.ensureMoveEntry(sendLog, r.lesson, from, nowIso); // 改期通知（發送中心）
+                done.push(`時間：${l.studentName} → ${c.date} ${c.time}`);
+            } else errs.push(`${l.studentName}：${r.error}`);
         });
     });
 
