@@ -2505,7 +2505,8 @@
         }
 
         function payMethodNames() {
-            return (appSettings && appSettings.payMethods) || GACStorage.DEFAULT_SETTINGS.payMethods;
+            const pm = appSettings && appSettings.payMethods;
+            return (Array.isArray(pm) && pm.length) ? pm : GACStorage.DEFAULT_SETTINGS.payMethods;
         }
 
         function paymentBadge(e) {
@@ -2564,7 +2565,7 @@
             setText('payKpiUnsent', String(entries.filter(e => e.status !== 'SENT').length));
             setText('payKpiAbsent', String(rows.reduce((s, r) => s + r.noshow, 0)));
             if (!rows.length) {
-                body.innerHTML = `<tr><td colspan="14" class="p-6 text-center text-slate-400 text-xs">📭 ${monthKey} 尚未生成課表，或沒有符合篩選的學生。到「總課表」生成後，學費條目會出現在這裡。</td></tr>`;
+                body.innerHTML = `<tr><td colspan="13" class="p-6 text-center text-slate-400 text-xs">📭 ${monthKey} 尚未生成課表，或沒有符合篩選的學生。到「總課表」生成後，學費條目會出現在這裡。</td></tr>`;
                 return;
             }
             body.innerHTML = rows.map(paymentRowHtml).join('');
@@ -2575,7 +2576,7 @@
             const who = `<td class="p-2.5 whitespace-nowrap"><b>${escapeHtml(s.id)}</b> ${escapeHtml(s.name)}</td><td class="p-2.5 text-slate-600">${escapeHtml(s.tutor)}</td>`;
             const attCell = `<span class="text-emerald-700 font-semibold">${r.attended}</span> / <span class="text-rose-600 font-semibold">${r.leave}</span> / <span class="text-purple-700 font-semibold">${r.noshow}</span>`;
             if (!e) {
-                return `<tr class="hover:bg-slate-50">${who}<td class="p-2.5 text-right text-slate-400">—</td><td class="p-2.5 text-center">${r.count}</td><td class="p-2.5 text-center whitespace-nowrap">${attCell}</td><td class="p-2.5 text-slate-400 italic" colspan="9">此月尚無學費條目（到總課表按「生成」）</td></tr>`;
+                return `<tr class="hover:bg-slate-50">${who}<td class="p-2.5 text-right text-slate-400">—</td><td class="p-2.5 text-center">${r.count}</td><td class="p-2.5 text-center whitespace-nowrap">${attCell}</td><td class="p-2.5 text-slate-400 italic" colspan="8">此月尚無學費條目（到總課表按「生成」）</td></tr>`;
             }
             const k = e.key;
             const sent = e.status === 'SENT';
@@ -2593,9 +2594,11 @@
                 ? '<div class="text-[10px] text-slate-500" title="收款確認訊息已發出">確認已發</div>'
                 : '<div class="text-[10px] text-amber-600 font-semibold" title="收款確認訊息已在發送中心「待發送」">確認待發</div>');
             const phone = sendEntryPhone(e);
-            const waBtn = phone && !sent
-                ? `<button onclick="sendWhatsApp('${k}'); renderPaymentTab()" class="ml-1 px-1.5 py-0.5 bg-green-100 hover:bg-green-200 text-green-800 rounded font-semibold" title="開 WhatsApp 預填學費單（發完請勾已發送）"><i class="fa-brands fa-whatsapp"></i></button>`
-                : '';
+            // 未發：預填學費單；已發：只打開對話不預填——人手複核訊息是否真的送出／對方有否回覆
+            const waBtn = !phone ? ''
+                : (!sent
+                    ? `<button onclick="sendWhatsApp('${k}'); renderPaymentTab()" class="ml-1 px-1.5 py-0.5 bg-green-100 hover:bg-green-200 text-green-800 rounded font-semibold" title="開 WhatsApp 預填學費單（發完請勾已發送）"><i class="fa-brands fa-whatsapp"></i></button>`
+                    : `<button onclick="openWhatsAppChat('${k}')" class="ml-1 px-1.5 py-0.5 bg-slate-100 hover:bg-green-100 text-green-700 rounded font-semibold" title="已發送——打開對話（不預填訊息），人手複核"><i class="fa-brands fa-whatsapp"></i></button>`);
             return `<tr class="hover:bg-slate-50 ${st === 'paid' ? 'bg-emerald-50/30' : ''}">
                 ${who}
                 <td class="p-2.5 text-right whitespace-nowrap">${r.rates.length ? r.rates.map(x => tuitionMoney(x)).join('<br>') : '—'}</td>
@@ -2604,11 +2607,10 @@
                 <td class="p-2.5 text-right font-bold whitespace-nowrap">${tuitionMoney(e.amount)}${e.amountEdited ? ' <i class="fa-solid fa-pen text-amber-500" title="金額已手改（發送中心可改）"></i>' : ''}</td>
                 <td class="p-2.5 text-center"><input type="checkbox" ${e.checked ? 'checked' : ''} onchange="payUpdate('${k}', { checked: this.checked })" class="w-4 h-4 accent-slate-600" title="已核對金額"></td>
                 <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${sent ? 'checked' : ''} onchange="paySetSent('${k}', this.checked)" class="w-4 h-4 accent-emerald-600" title="學費單已發送（與發送中心同步；勾＝手動已發，取消＝移回待發）">${waBtn}${remindNote}</td>
-                <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${e.paid ? 'checked' : ''} onchange="payUpdate('${k}', { paid: this.checked })" class="w-4 h-4 accent-emerald-600" title="勾＝已繳（預設整額、今天）"> ${badge}</td>
+                <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${e.paid ? 'checked' : ''} onchange="payUpdate('${k}', { paid: this.checked })" class="w-4 h-4 accent-emerald-600" title="勾＝已繳（預設整額、今天）"> ${badge}${receiptNote}</td>
                 <td class="p-2.5 text-right"><input type="number" min="0" value="${Number(e.paidAmount) || 0}" onchange="payUpdate('${k}', { paidAmount: this.value })" class="w-20 px-1.5 py-1 border border-slate-300 rounded-lg text-right" title="實收金額（改動即更新已繳狀態）"></td>
                 <td class="p-2.5">${methodSel}</td>
                 <td class="p-2.5"><input type="date" value="${e.payDate || ''}" onchange="payUpdate('${k}', { payDate: this.value })" class="px-1.5 py-1 border border-slate-300 rounded-lg text-[11px]"></td>
-                <td class="p-2.5 text-center"><input type="checkbox" ${e.receipt ? 'checked' : ''} onchange="payUpdate('${k}', { receipt: this.checked })" class="w-4 h-4 accent-sky-600" title="已發收據">${receiptNote}</td>
                 <td class="p-2.5 text-right whitespace-nowrap"><button onclick="payPreview('${k}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold" title="查看／複製學費單"><i class="fa-solid fa-file-invoice"></i></button></td>
             </tr>`;
         }
@@ -2754,6 +2756,15 @@
         function sendCopy(key) {
             const e = sendLog[key];
             if (e) copyToClipboard(sendlogMsgFor(e));
+        }
+
+        // 只打開對話、不預填訊息、不改任何狀態：已發送後人手複核用
+        function openWhatsAppChat(key) {
+            const e = sendLog[key];
+            if (!e) return;
+            const phone = getWhatsAppPhone(sendEntryPhone(e));
+            if (!phone) { alert('此學生沒有可用的 WhatsApp 電話號碼。'); return; }
+            window.open(`https://web.whatsapp.com/send?phone=${phone}`, '_blank', 'noopener');
         }
 
         function sendWhatsApp(key) {
@@ -3087,14 +3098,42 @@
             document.getElementById('setFpsId').value = appSettings.fpsId || '';
             document.getElementById('setInfoUrl').value = appSettings.infoUrl || '';
             document.getElementById('setFeeNotice').value = appSettings.feeNotice || '';
-            const pm = appSettings.payMethods || GACStorage.DEFAULT_SETTINGS.payMethods;
-            [1, 2, 3].forEach(i => { document.getElementById('setPayMethod' + i).value = pm[i - 1] || ''; });
+            renderPayMethodsEditor(payMethodNames());
             const c = derivedCfg();
             document.getElementById('setRemindAuto').checked = c.remindAuto;
             document.getElementById('setRemindDays').value = c.remindDays;
             document.getElementById('setRemindMsg').value = c.remindMsg;
             document.getElementById('setReceiptAuto').checked = c.receiptAuto;
             document.getElementById('setReceiptMsg').value = c.receiptMsg;
+        }
+
+        // 付款方式清單：編號＝陣列位置＋1，對應繳費紀錄的 payMethod；改名不影響既有紀錄，只能刪最後一個（避免編號前移對不上）
+        function renderPayMethodsEditor(list) {
+            const box = document.getElementById('payMethodsEditor');
+            if (!box) return;
+            const names = (Array.isArray(list) && list.length) ? list : GACStorage.DEFAULT_SETTINGS.payMethods;
+            box.innerHTML = names.map((m, i) => `<div class="flex items-center gap-1">
+                    <span class="text-xs text-slate-500 w-4 text-right">${i + 1}.</span>
+                    <input type="text" class="pay-method-input flex-1 min-w-0 px-2 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none" value="${escapeHtml(m)}" placeholder="方式 ${i + 1}">
+                    ${i === names.length - 1 && names.length > 1 ? '<button type="button" onclick="removeLastPayMethod()" class="px-1 text-rose-500 hover:text-rose-700" title="刪除最後一個"><i class="fa-solid fa-xmark"></i></button>' : ''}
+                </div>`).join('');
+        }
+
+        // 回 null＝編輯器不在畫面上（保留原設定）；空白名稱補「方式 N」
+        function readPayMethodsEditor() {
+            const inputs = [...document.querySelectorAll('#payMethodsEditor .pay-method-input')];
+            if (!inputs.length) return null;
+            return inputs.map((el, i) => String(el.value || '').trim() || `方式 ${i + 1}`);
+        }
+
+        function addPayMethodRow() {
+            renderPayMethodsEditor((readPayMethodsEditor() || payMethodNames()).concat(['']));
+        }
+
+        function removeLastPayMethod() {
+            const list = readPayMethodsEditor() || payMethodNames().slice();
+            if (list.length > 1) list.pop();
+            renderPayMethodsEditor(list);
         }
 
         function resetMsgTemplate(which) {
@@ -3111,7 +3150,8 @@
             appSettings.fpsId = document.getElementById('setFpsId').value.trim();
             appSettings.infoUrl = document.getElementById('setInfoUrl').value.trim();
             appSettings.feeNotice = document.getElementById('setFeeNotice').value.trim();
-            appSettings.payMethods = [1, 2, 3].map(i => document.getElementById('setPayMethod' + i).value.trim() || GACStorage.DEFAULT_SETTINGS.payMethods[i - 1]);
+            const pm = readPayMethodsEditor();
+            if (pm && pm.length) appSettings.payMethods = pm; // 讀不到編輯器（畫面未渲染）時保留原值
             appSettings.remindAuto = !!document.getElementById('setRemindAuto').checked;
             appSettings.remindDays = Math.max(1, parseInt(document.getElementById('setRemindDays').value, 10) || GACStorage.DEFAULT_SETTINGS.remindDays);
             appSettings.remindMsg = document.getElementById('setRemindMsg').value.trim() || GACStorage.DEFAULT_SETTINGS.remindMsg;

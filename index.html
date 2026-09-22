@@ -437,7 +437,7 @@
                         <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
                             <i class="fa-solid fa-sack-dollar text-purple-600"></i> 出席與繳費
                         </h2>
-                        <p class="text-xs text-slate-500 mt-0.5">每位學生一行：本月堂數與出席、應收學費、學費單是否已發、繳費記錄。「已發送」與發送中心同步（勾＝手動已發）；勾「已繳」自動填今天與整額，實收可改以記部分繳交。</p>
+                        <p class="text-xs text-slate-500 mt-0.5">每位學生一行：本月堂數與出席、應收學費、學費單是否已發、繳費記錄。「已發送」與發送中心同步（勾＝手動已發）；已發後的 WhatsApp 鈕只打開對話不預填，供人手複核。勾「已繳」自動填今天與整額，實收可改以記部分繳交。</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2 text-xs">
                         <select id="payTutorFilter" onchange="renderPaymentTab()" title="按導師篩選" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none bg-white font-medium">
@@ -466,11 +466,10 @@
                                 <th class="p-2.5 text-right">應收</th>
                                 <th class="p-2.5 text-center" title="已核對金額">核對</th>
                                 <th class="p-2.5 text-center" title="學費單已發送（與發送中心同步）">已發送</th>
-                                <th class="p-2.5 text-center">已繳</th>
+                                <th class="p-2.5 text-center" title="勾＝已繳；下方註「確認待發／已發」＝收款確認訊息狀態">已繳</th>
                                 <th class="p-2.5 text-right">實收</th>
                                 <th class="p-2.5">付款方式</th>
                                 <th class="p-2.5">付款日期</th>
-                                <th class="p-2.5 text-center" title="已發收據">收據</th>
                                 <th class="p-2.5 text-right">學費單</th>
                             </tr>
                         </thead>
@@ -616,10 +615,12 @@
                         <label class="block text-xs font-bold text-slate-600 mb-1">學費單附註（留空則不加）</label>
                         <input type="text" id="setFeeNotice" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
-                    <div class="grid grid-cols-3 gap-3">
-                        <div><label class="block text-xs font-bold text-slate-600 mb-1">付款方式 1</label><input type="text" id="setPayMethod1" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"></div>
-                        <div><label class="block text-xs font-bold text-slate-600 mb-1">付款方式 2</label><input type="text" id="setPayMethod2" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"></div>
-                        <div><label class="block text-xs font-bold text-slate-600 mb-1">付款方式 3</label><input type="text" id="setPayMethod3" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"></div>
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-xs font-bold text-slate-600">付款方式（編號 1、2、3… 對應繳費紀錄；改名不影響既有紀錄，只能刪最後一個）</label>
+                            <button type="button" onclick="addPayMethodRow()" class="text-xs text-sky-700 hover:underline font-semibold"><i class="fa-solid fa-plus"></i> 新增</button>
+                        </div>
+                        <div id="payMethodsEditor" class="grid grid-cols-2 sm:grid-cols-3 gap-2"></div>
                     </div>
                     <!-- 催繳／收款確認：由學費條目的繳費狀態自動派生到發送中心（lib/sendlog.js syncDerived） -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
