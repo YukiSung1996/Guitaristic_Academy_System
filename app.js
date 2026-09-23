@@ -2984,10 +2984,14 @@
             const remindNote = !rm ? '' : (rm.status === 'SENT'
                 ? `<div class="text-[10px] text-slate-500" title="催繳已於 ${String(rm.sentAt || '').slice(0, 10)} 發出">催繳已發</div>`
                 : '<div class="text-[10px] text-rose-600 font-semibold" title="催繳訊息已在發送中心「待發送」">催繳待發</div>');
+            // 收妥之後通常要在同一個 WhatsApp 對話回一句確認——這裡直接可按，不必繞去發送中心
             const rc = sendLog[GACSendlog.receiptKey(e.studentId, e.month)];
+            const rcPhone = rc ? sendEntryPhone(rc) : '';
             const receiptNote = !rc ? '' : (rc.status === 'SENT'
-                ? '<div class="text-[10px] text-slate-500" title="收款確認訊息已發出">確認已發</div>'
-                : '<div class="text-[10px] text-amber-600 font-semibold" title="收款確認訊息已在發送中心「待發送」">確認待發</div>');
+                ? `<div class="text-[10px] text-slate-500" title="收款確認已於 ${String(rc.sentAt || '').slice(0, 10)} 發出">確認已發</div>`
+                : (rcPhone
+                    ? `<button onclick="sendWhatsApp('${rc.key}'); renderPaymentTab()" class="mt-0.5 px-1.5 py-0.5 rounded bg-green-100 hover:bg-green-200 text-green-800 text-[10px] font-semibold" title="開 WhatsApp 發收款確認（文案在設定 → 訊息模板）"><i class="fa-brands fa-whatsapp"></i> 發確認</button>`
+                    : '<div class="text-[10px] text-amber-600 font-semibold" title="收款確認訊息已在發送中心「待發送」（此學生沒有電話）">確認待發</div>'));
             const phone = sendEntryPhone(e);
             // 未發：預填學費單；已發：只打開對話不預填——人手複核訊息是否真的送出／對方有否回覆
             const waBtn = !phone ? ''
