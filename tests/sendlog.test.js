@@ -192,12 +192,12 @@ test('C10: 繳費紀錄——勾已繳預設整額＋今天；實收改動推導
     assert.strictEqual(log[key].paidAmount, 1500, '勾已繳 → 整額');
     assert.strictEqual(log[key].payDate, '2026-09-19', '勾已繳 → 今天');
     assert.strictEqual(SL.paymentStatus(log[key]), 'paid');
-    SL.setPayment(log, key, { paidAmount: 500, payMethod: '2', receipt: true, checked: true });
+    SL.setPayment(log, key, { paidAmount: 500, payMethod: '2', receipt: true });
     assert.strictEqual(SL.paymentStatus(log[key]), 'partial');
     assert.strictEqual(log[key].paid, true);
     assert.strictEqual(log[key].payMethod, '2');
     assert.strictEqual(log[key].receipt, true);
-    assert.strictEqual(log[key].checked, true);
+    assert.strictEqual(log[key].checked, undefined, '「核對」欄位已移除');
     SL.setPayment(log, key, { paid: false });
     assert.strictEqual(log[key].paidAmount, 0, '取消已繳 → 實收歸零');
     assert.strictEqual(SL.paymentStatus(log[key]), 'unpaid');

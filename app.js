@@ -2537,7 +2537,6 @@
                            class="w-24 px-2 py-1 border border-slate-300 rounded-lg ${sent ? 'bg-slate-100 text-slate-400' : ''}">
                        <span class="text-slate-400">（${tuitionCountLabel(e)}）</span>
                        ${e.amountEdited ? '<span class="text-amber-600 font-semibold" title="金額已手改，重新生成課表不會覆蓋"><i class="fa-solid fa-pen"></i> 已手改</span>' : ''}
-                       <label class="flex items-center gap-1 cursor-pointer text-slate-600" title="已核對金額（與「出席與繳費」的核對欄同步）"><input type="checkbox" ${e.checked ? 'checked' : ''} onchange="payUpdate('${e.key}', { checked: this.checked })" class="w-3.5 h-3.5 accent-slate-600"> 核對</label>
                        ${paymentBadge(e)}
                        ${sent ? sendPayToggleBtn(e) : ''}
                    </div>
@@ -2727,7 +2726,7 @@
             setText('payKpiUnsent', String(entries.filter(e => e.status !== 'SENT').length));
             setText('payKpiAbsent', String(rows.reduce((s, r) => s + r.noshow, 0)));
             if (!rows.length) {
-                body.innerHTML = `<tr><td colspan="13" class="p-6 text-center text-slate-400 text-xs">📭 ${monthKey} 尚未生成課表，或沒有符合篩選的學生。到「總課表」生成後，學費條目會出現在這裡。</td></tr>`;
+                body.innerHTML = `<tr><td colspan="12" class="p-6 text-center text-slate-400 text-xs">📭 ${monthKey} 尚未生成課表，或沒有符合篩選的學生。到「總課表」生成後，學費條目會出現在這裡。</td></tr>`;
                 return;
             }
             body.innerHTML = rows.map(paymentRowHtml).join('');
@@ -2738,7 +2737,7 @@
             const who = `<td class="p-2.5 whitespace-nowrap"><b>${escapeHtml(s.id)}</b> ${escapeHtml(s.name)}</td><td class="p-2.5 text-slate-600">${escapeHtml(s.tutor)}</td>`;
             const attCell = `<span class="text-emerald-700 font-semibold">${r.attended}</span> / <span class="text-rose-600 font-semibold">${r.leave}</span> / <span class="text-purple-700 font-semibold">${r.noshow}</span>`;
             if (!e) {
-                return `<tr class="hover:bg-slate-50">${who}<td class="p-2.5 text-right text-slate-400">—</td><td class="p-2.5 text-center">${r.count}</td><td class="p-2.5 text-center whitespace-nowrap">${attCell}</td><td class="p-2.5 text-slate-400 italic" colspan="8">此月尚無學費條目（到總課表按「生成」）</td></tr>`;
+                return `<tr class="hover:bg-slate-50">${who}<td class="p-2.5 text-right text-slate-400">—</td><td class="p-2.5 text-center">${r.count}</td><td class="p-2.5 text-center whitespace-nowrap">${attCell}</td><td class="p-2.5 text-slate-400 italic" colspan="7">此月尚無學費條目（到總課表按「生成」）</td></tr>`;
             }
             const k = e.key;
             const sent = e.status === 'SENT';
@@ -2767,7 +2766,6 @@
                 <td class="p-2.5 text-center" title="${escapeHtml(tuitionCountLabel(e))}">${e.count}</td>
                 <td class="p-2.5 text-center whitespace-nowrap">${attCell}</td>
                 <td class="p-2.5 text-right font-bold whitespace-nowrap">${tuitionMoney(e.amount)}${e.amountEdited ? ' <i class="fa-solid fa-pen text-amber-500" title="金額已手改（發送中心可改）"></i>' : ''}</td>
-                <td class="p-2.5 text-center"><input type="checkbox" ${e.checked ? 'checked' : ''} onchange="payUpdate('${k}', { checked: this.checked })" class="w-4 h-4 accent-slate-600" title="已核對金額"></td>
                 <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${sent ? 'checked' : ''} onchange="paySetSent('${k}', this.checked)" class="w-4 h-4 accent-emerald-600" title="學費單已發送（與發送中心同步；勾＝手動已發，取消＝移回待發）">${waBtn}${remindNote}</td>
                 <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${e.paid ? 'checked' : ''} onchange="payUpdate('${k}', { paid: this.checked })" class="w-4 h-4 accent-emerald-600" title="勾＝已繳（預設整額、今天）"> ${badge}${receiptNote}</td>
                 <td class="p-2.5 text-right"><input type="number" min="0" value="${Number(e.paidAmount) || 0}" onchange="payUpdate('${k}', { paidAmount: this.value })" class="w-20 px-1.5 py-1 border border-slate-300 rounded-lg text-right" title="實收金額（改動即更新已繳狀態）"></td>

@@ -397,7 +397,7 @@
                         <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
                             <i class="fa-solid fa-paper-plane text-teal-500"></i> 發送中心
                         </h2>
-                        <p class="text-xs text-slate-500 mt-0.5">學費、請假確認、補堂確認、催繳、收款確認訊息集中處理。訊息內文預設收起（只顯示首行），按卡片上的「訊息」一行展開，或用「展開全部訊息」。學費卡片：待發送時可核對金額，發出後可直接登記繳費（與「出席與繳費」同一筆紀錄），「類別」的「學費（全部）」下另有「學費 · 未繳清／已繳清」兩個子篩選。預設：開 WhatsApp 只會標記「已開啟」、切回本頁時詢問是否已發（可在「設定」改為自動移欄或只標記）。</p>
+                        <p class="text-xs text-slate-500 mt-0.5">學費、請假確認、補堂確認、催繳、收款確認訊息集中處理。訊息內文預設收起（只顯示首行），按卡片上的「訊息」一行展開，或用「展開全部訊息」。學費卡片：發出後可直接登記繳費（與「出席與繳費」同一筆紀錄），「類別」的「學費（全部）」下另有「學費 · 未繳清／已繳清」兩個子篩選。預設：開 WhatsApp 只會標記「已開啟」、切回本頁時詢問是否已發（可在「設定」改為自動移欄或只標記）。</p>
                     </div>
                     <div class="flex items-center gap-2 text-xs">
                         <button onclick="openBroadcastModal()" title="自訂訊息內容（支持 {name}／{id} 佔位符），按導師篩選、勾選學生後批量加入「待發送」欄，如調整學費通知" class="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
@@ -435,7 +435,7 @@
             </div>
         </section>
 
-        <!-- TAB: 出席與繳費（對應手工學費表：$/LSN・LSN・Total・Check?・Send?・Paid・Method・Date・Receipt；資料源＝發送中心 TUITION 條目＋當月課堂） -->
+        <!-- TAB: 出席與繳費（對應手工學費表：$/LSN・LSN・Total・Send?・Paid・Method・Date；資料源＝發送中心 TUITION 條目＋當月課堂） -->
         <section id="paymentTab" class="tab-content hidden space-y-6">
             <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
@@ -470,7 +470,6 @@
                                 <th class="p-2.5 text-center" title="當月常規堂數">LSN</th>
                                 <th class="p-2.5 text-center" title="已上課／請假／缺席">出席／假／缺</th>
                                 <th class="p-2.5 text-right">應收</th>
-                                <th class="p-2.5 text-center" title="已核對金額">核對</th>
                                 <th class="p-2.5 text-center" title="學費單已發送（與發送中心同步）">已發送</th>
                                 <th class="p-2.5 text-center" title="勾＝已繳；下方註「確認待發／已發」＝收款確認訊息狀態">已繳</th>
                                 <th class="p-2.5 text-right">實收</th>
