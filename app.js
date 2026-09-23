@@ -888,7 +888,19 @@
             const src = tutorEmbedUrl(t, currentMonthKey());
             const tabs = withCal.map(x => `<button onclick="showGcalEmbed('${jsStrAttr(x.name)}')" class="px-3 py-1 rounded-md text-xs font-semibold transition ${x.name === gcalEmbedTutor ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-600'}">${escapeHtml(x.name)}</button>`).join('');
             // iframe 只在網址變了才重建（renderAll 頻繁呼叫，避免閃爍重載）
-            const head = `<div class="flex items-center gap-2 flex-wrap mb-2"><div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50">${tabs}</div><span class="text-[11px] text-slate-400">Google 提供的唯讀畫面，已定位到 ${currentMonthKey()}；需以有權限的 Google 帳號登入瀏覽器（或日曆為公開）才會顯示內容。</span></div>`;
+            const head = `<div class="flex items-center gap-2 flex-wrap mb-2">
+                    <div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50">${tabs}</div>
+                    <a href="${escapeHtml(src)}" target="_blank" rel="noopener" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 flex items-center gap-1" title="用同一個網址開新分頁：新分頁看得到而下方空白 → 瀏覽器擋了第三方 Cookie；新分頁也看不到 → 日曆未公開，或目前登入的不是有權限的帳號"><i class="fa-solid fa-arrow-up-right-from-square"></i> 在新分頁開啟</a>
+                    <button onclick="toggleGcalEmbedHelp()" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 flex items-center gap-1"><i class="fa-solid fa-circle-question"></i> 下方空白？</button>
+                    <span class="text-[11px] text-slate-400">Google 提供的唯讀畫面（已定位到 ${currentMonthKey()}）。</span>
+                </div>
+                <div id="gcalEmbedHelp" class="hidden mb-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 space-y-1.5">
+                    <div class="font-bold">下方一片空白或顯示「無法顯示」——畫面來自 Google，登入與權限由 Google 判斷，本系統不讀取日曆內容。先按「在新分頁開啟」分辨：</div>
+                    <div><b>新分頁看得到、這裡空白</b>＝瀏覽器擋了第三方 Cookie（本頁是 127.0.0.1，日曆是 google.com）。Chrome：網址列右邊的眼睛／盾牌圖示 →「允許第三方 Cookie」，或設定 → 隱私權和安全性 → 第三方 Cookie 加入例外 <code>[*.]google.com</code>。無痕模式與 Safari 預設擋住，會一直空白。</div>
+                    <div><b>新分頁也看不到</b>＝日曆未公開，或瀏覽器目前的預設 Google 帳號沒有權限（同時登入多個帳號時，嵌入畫面用的是第一個登入的帳號）。要嘛切換帳號／改用只登入該帳號的瀏覽器設定檔，要嘛把日曆設為公開：Google 日曆 → 設定 → 該日曆 → <b>存取權限</b> → 勾「公開提供」→ 選「查看所有活動詳細資料」。<b>公開＝任何人拿到網址都看得到學生姓名與上課時間</b>，請自行斟酌。</div>
+                    <div><b>網址貼錯</b>：要用「整合日曆 → 嵌入程式碼」裡 <code>src="…"</code> 的網址（或直接貼日曆 ID）。日常開啟日曆的 <code>/calendar/u/0/r</code> 網址會被 Google 拒絕嵌入；<code>.../basic.ics</code> 是檔案不是網頁，兩者都會空白。</div>
+                    <div class="text-amber-700">不想公開又被 Cookie 擋住：這個視圖可以不用——日常看「📋 清單／📅 月曆」，與 Calendar 對帳用「匯入 ICS」（ICS 用私密網址或匯出檔，不必公開日曆）。</div>
+                </div>`;
             if (box.__src === src && box.innerHTML) {
                 const h = document.getElementById('masterGcalHead');
                 if (h) h.innerHTML = head;
@@ -896,6 +908,11 @@
             }
             box.__src = src;
             box.innerHTML = `<div id="masterGcalHead">${head}</div><iframe src="${escapeHtml(src)}" style="border:0" width="100%" height="650" frameborder="0" scrolling="no" title="Google Calendar"></iframe>`;
+        }
+
+        function toggleGcalEmbedHelp() {
+            const el = document.getElementById('gcalEmbedHelp');
+            if (el) el.classList.toggle('hidden');
         }
 
         function showGcalEmbed(name) {
