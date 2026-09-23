@@ -16,4 +16,16 @@
         .cal-pill-clash { background-color: #ffedd5; color: #9a3412; border-left: 3px solid #f97316; }
         .cal-pill-attended { background-color: #d1fae5; color: #065f46; border-left: 3px solid #10b981; }
         .cal-pill-noshow { background-color: #ede9fe; color: #5b21b6; border-left: 3px solid #8b5cf6; }
+
+        /* Outlook 式的分明度（寫在各 cal-pill-* 之後才蓋得過它們的底色）：
+           已有結果的課（出席／缺席／請假）＝空心淡出，看一眼就知道不用再管；
+           日期已過的再淡一層；未來仍待處理的維持實色，最搶眼。 */
+        .cal-pill-done { background-color: transparent; opacity: .62; font-weight: 400; }
+        .cal-pill-past { opacity: .55; }
+        .cal-pill-done.cal-pill-past { opacity: .42; }
+        /* 已過期卻仍「已排課」＝忘了確認出席：維持實色並加虛線框提醒 */
+        .cal-pill-overdue { outline: 1px dashed currentColor; outline-offset: -1px; }
+        /* 日格：今天藍框、已過去的日子灰底 */
+        .cal-day-today { background-color: #eff6ff; box-shadow: inset 0 0 0 2px #3b82f6; }
+        .cal-day-past { background-color: #fafafa; }
         .advanced-tutor-head td { background: #f1f5f9; font-size: .72rem; padding: .5rem .75rem; border-top: 2px solid #cbd5e1; }

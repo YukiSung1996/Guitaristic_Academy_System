@@ -1376,10 +1376,22 @@
             return pill;
         }
 
+        // 月曆色塊的「分明度」：已有結果 → 空心淡出；日期已過 → 再淡一層；已過期卻仍未確認 → 虛線框提醒
+        function lessonPillState(lesson, todayStr) {
+            const cls = [];
+            if (lesson.status !== 'SCHEDULED') cls.push('cal-pill-done');
+            if (lesson.date < todayStr) {
+                cls.push('cal-pill-past');
+                if (lesson.status === 'SCHEDULED') cls.push('cal-pill-overdue');
+            }
+            return cls.join(' ');
+        }
+
         function renderMasterCalendarView() {
             const calContainer = document.getElementById('masterCalendarView');
             const batchMonthVal = currentMonthKey();
             if (!batchMonthVal) return;
+            const todayStr = localDateStr(new Date());
 
             const monthLessons = sortedMonthLessons();
             const clashIds = GACSchedule.detectClashes(monthLessons);
@@ -1388,6 +1400,12 @@
             const totalDaysInMonth = new Date(year, month, 0).getDate();
 
             let gridHtml = `
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 text-[11px] text-slate-500">
+                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm cal-pill-tony"></span>待處理（未來）</span>
+                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm cal-pill-attended cal-pill-done"></span>已有結果（淡出）</span>
+                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm cal-pill-tony cal-pill-overdue"></span>已過期未確認</span>
+                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm border-2 border-blue-500"></span>今天</span>
+                </div>
                 <div class="grid grid-cols-7 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden min-w-[700px]">
                     <div class="bg-slate-800 text-white text-center py-1.5 text-xs font-bold">日 (Sun)</div>
                     <div class="bg-slate-800 text-white text-center py-1.5 text-xs font-bold">一 (Mon)</div>
@@ -1404,16 +1422,18 @@
                 const dateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                 const dayLessons = monthLessons.filter(l => l.date === dateString);
 
+                const isToday = dateString === todayStr;
+                const dayCls = isToday ? 'cal-day-today' : (dateString < todayStr ? 'cal-day-past' : 'bg-white');
                 gridHtml += `
-                    <div class="bg-white p-1.5 min-h-[100px] flex flex-col space-y-1">
-                        <div class="text-[11px] font-bold text-slate-500">${day}</div>
+                    <div class="${dayCls} p-1.5 min-h-[100px] flex flex-col space-y-1">
+                        <div class="text-[11px] font-bold ${isToday ? 'text-blue-700' : 'text-slate-500'}">${day}${isToday ? '<span class="ml-1 font-normal text-[10px]">今天</span>' : ''}</div>
                 `;
 
                 // 小組課一個時段一個色塊（×人數，成員列在 title）
                 filterCellsByScheduleFilters(GACSchedule.groupByCell(dayLessons)).forEach(cell => {
                     const lesson = cell.lessons[0];
                     const anyClash = cell.lessons.some(l => clashIds.has(l.lessonId));
-                    const pillStyle = lessonPillClass(lesson, anyClash);
+                    const pillStyle = lessonPillClass(lesson, anyClash) + ' ' + lessonPillState(lesson, todayStr);
                     if (cell.isGroup) {
                         const names = cell.lessons.map(l => l.studentName).join('、');
                         gridHtml += `
