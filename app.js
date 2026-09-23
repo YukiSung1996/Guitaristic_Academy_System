@@ -426,8 +426,10 @@
             const open = batchSelectorIsOpen();
             const body = document.getElementById('batchSelectorBody');
             const chev = document.getElementById('batchSelectorChevron');
+            const hint = document.getElementById('batchSelectorHint');
             if (body) body.classList.toggle('hidden', !open);
-            if (chev) chev.classList.toggle('rotate-180', open);
+            if (chev) chev.classList.toggle('rotate-90', open); // ▸ 收起／▾ 展開
+            if (hint) hint.textContent = open ? '點擊收起' : '點擊展開選取';
         }
 
         function toggleBatchSelector() {
@@ -442,7 +444,8 @@
             if (!el || !grid) return;
             const boxes = [...grid.querySelectorAll('.batch-student-chk, .batch-group-chk')];
             const usable = boxes.filter(c => !c.disabled);
-            el.textContent = usable.length ? `· 已勾選 ${usable.filter(c => c.checked).length} / ${usable.length}` : '';
+            el.textContent = usable.length ? `已勾選 ${usable.filter(c => c.checked).length} / ${usable.length}` : '';
+            el.classList.toggle('hidden', !usable.length);
         }
 
         function hasIndividualSlot(sched) {
@@ -2242,13 +2245,41 @@
             };
         }
 
+        // 檔名的片段：去掉空白與檔名不能用的字元，保留中英數與連字號
+        function icsNamePart(text) {
+            return String(text || '').trim().replace(/\s+/g, '-').replace(/[\\/:*?"<>|]+/g, '').slice(0, 40);
+        }
+
+        // 導出檔名：Guitaristic_2026-09_Instructor-A.ics（有選學生／小組再多一段）
+        function icsFileName(monthKey, f) {
+            const parts = ['Guitaristic', monthKey || 'schedule'];
+            parts.push(f.tutor !== 'ALL' ? icsNamePart(f.tutor) : 'All-Tutors');
+            if (f.student !== 'ALL') {
+                if (f.student.indexOf('G:') === 0) {
+                    const g = findGroup(f.student.slice(2));
+                    parts.push(icsNamePart(g ? g.name : f.student.slice(2)));
+                } else {
+                    const s = studentDatabase.find(x => x.id === f.student);
+                    parts.push(icsNamePart(s ? s.id + '-' + s.name : f.student));
+                }
+            }
+            return parts.filter(Boolean).join('_') + '.ics';
+        }
+
+        // 導出目前檢視月份的課；**只導出導師／學生篩選範圍內的課**，這樣檔名寫的導師才跟內容一致
         function downloadMasterICS() {
-            const lessons = sortedMonthLessons();
+            const monthKey = currentMonthKey();
+            const f = scheduleFilterValues();
+            const lessons = sortedMonthLessons().filter(l => lessonMatchesScheduleFilters(l, f));
             if (lessons.length === 0) {
-                alert('目前沒有已生成的課堂可匯出！');
+                alert(scheduleFilterLabel()
+                    ? `目前篩選範圍（${scheduleFilterLabel()}）內沒有可匯出的課堂。\n取消篩選可匯出整月。`
+                    : '目前沒有已生成的課堂可匯出！');
                 return;
             }
-            buildICSFile(lessons.map(lessonToExportEvent), `Guitaristic_Academy_${currentMonthKey() || 'schedule'}.ics`);
+            const name = icsFileName(monthKey, f);
+            buildICSFile(lessons.map(lessonToExportEvent), name);
+            showToast(`📅 已匯出 ${lessons.length} 堂（${scheduleFilterLabel() || '全部導師'}）→ ${name}`);
         }
 
         // Keep the original export function name available for existing links or bookmarks.

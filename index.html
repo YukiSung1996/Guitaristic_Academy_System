@@ -184,7 +184,7 @@
                         <button onclick="openIcsImport()" title="不用 Google 授權：上傳導師日曆匯出的 .ics（Google 日曆 → 設定 → 該日曆 → 匯出），與本地按學生／小組配對比對，勾選後只更新本地。每月先「生成」再匯入作基準，之後再匯入只見差異" class="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
                             <i class="fa-solid fa-file-import"></i> 匯入 ICS
                         </button>
-                        <button onclick="downloadMasterICS()" title="在本地導出 .ics 文件，可用於 Google Calendar 批量導入" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
+                        <button onclick="downloadMasterICS()" title="導出目前月份、目前導師／學生篩選範圍內的課堂為 .ics；檔名帶月份與導師（如 Guitaristic_2026-09_Instructor-A.ics）" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
                             <i class="fa-solid fa-file-arrow-down"></i> 導出 .ics
                         </button>
                     </div>
@@ -223,13 +223,14 @@
 
                 <!-- 學生／小組勾選區：預設折疊（只有要改「生成哪些人」時才打開）；開合狀態記在本機 gac_batch_open -->
                 <div>
-                    <button type="button" onclick="toggleBatchSelector()" class="w-full flex items-center justify-between gap-2 text-left py-1">
-                        <span class="text-xs font-bold text-slate-600">選取要包含在時間表內的學生（個別課）與小組班
-                            <span id="batchSelectorSummary" class="ml-1 font-normal text-slate-400"></span>
-                        </span>
-                        <i id="batchSelectorChevron" class="fa-solid fa-chevron-down text-slate-400 text-xs shrink-0"></i>
+                    <!-- 一條明顯可點的橫條：箭頭在最左，右側寫明點了會怎樣（折疊起來時很容易被當成純標題） -->
+                    <button type="button" onclick="toggleBatchSelector()" class="w-full flex items-center gap-2 px-3 py-2.5 bg-slate-50 hover:bg-sky-50 border border-slate-200 hover:border-sky-300 rounded-xl text-left transition">
+                        <i id="batchSelectorChevron" class="fa-solid fa-chevron-right text-slate-400 text-xs w-3 shrink-0 transition-transform"></i>
+                        <span class="text-xs font-bold text-slate-700">選取要包含在時間表內的學生（個別課）與小組班</span>
+                        <span id="batchSelectorSummary" class="hidden text-[11px] font-bold text-sky-700 bg-sky-100 border border-sky-200 rounded-full px-2 py-0.5 whitespace-nowrap"></span>
+                        <span id="batchSelectorHint" class="ml-auto text-[11px] text-slate-400 shrink-0 whitespace-nowrap"></span>
                     </button>
-                    <div id="batchSelectorBody" class="hidden">
+                    <div id="batchSelectorBody" class="hidden mt-2">
                         <div id="batchStudentGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 max-h-48 overflow-y-auto p-3 bg-slate-50 rounded-xl border border-slate-200">
                             <!-- Checkboxes dynamically rendered -->
                         </div>
