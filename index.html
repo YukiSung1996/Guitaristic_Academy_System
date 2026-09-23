@@ -397,12 +397,13 @@
                         <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
                             <i class="fa-solid fa-paper-plane text-teal-500"></i> 發送中心
                         </h2>
-                        <p class="text-xs text-slate-500 mt-0.5">學費、請假確認、補堂確認、催繳、收款確認訊息集中處理。學費卡片：待發送時可核對金額，發出後可直接登記繳費（與「出席與繳費」同一筆紀錄），「類別」可篩「學費 · 未繳清」。預設：開 WhatsApp 只會標記「已開啟」、切回本頁時詢問是否已發（可在「設定」改為自動移欄或只標記）。</p>
+                        <p class="text-xs text-slate-500 mt-0.5">學費、請假確認、補堂確認、催繳、收款確認訊息集中處理。訊息內文預設收起（只顯示首行），按卡片上的「訊息」一行展開，或用「展開全部訊息」。學費卡片：待發送時可核對金額，發出後可直接登記繳費（與「出席與繳費」同一筆紀錄），「類別」的「學費（全部）」下另有「學費 · 未繳清／已繳清」兩個子篩選。預設：開 WhatsApp 只會標記「已開啟」、切回本頁時詢問是否已發（可在「設定」改為自動移欄或只標記）。</p>
                     </div>
                     <div class="flex items-center gap-2 text-xs">
                         <button onclick="openBroadcastModal()" title="自訂訊息內容（支持 {name}／{id} 佔位符），按導師篩選、勾選學生後批量加入「待發送」欄，如調整學費通知" class="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
                             <i class="fa-solid fa-bullhorn"></i> 自定義群發
                         </button>
+                        <button id="sendMsgToggleAll" onclick="toggleSendMsgAll()" title="一鍵展開／收起所有卡片的訊息內文（個別卡片按「訊息」那一行亦可單獨開合）" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition flex items-center gap-1.5"></button>
                         <label class="font-bold text-slate-600">類別：</label>
                         <!-- 選項由 rebuildSendTypeOptions 動態生成：只列本月存在的類別，自定義按群發名稱列二級子分類 -->
                         <select id="sendTypeFilter" onchange="renderSendCenter()" class="px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white">

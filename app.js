@@ -2388,6 +2388,44 @@
             renderPaymentTab();
         }
 
+        // 訊息內文預設收起（整欄太長）：收起時只顯示首行摘要；個別條目的開合記在 Map，頁首可一鍵全部展開／收起
+        const sendMsgOpen = new Map();
+        let sendMsgDefaultOpen = false;
+
+        function sendMsgIsOpen(key) {
+            return sendMsgOpen.has(key) ? sendMsgOpen.get(key) : sendMsgDefaultOpen;
+        }
+
+        function toggleSendMsg(key) {
+            sendMsgOpen.set(key, !sendMsgIsOpen(key));
+            renderSendCenter();
+        }
+
+        // 一鍵全部：改預設值並清掉個別覆寫
+        function sendMsgSetAll(open) {
+            sendMsgDefaultOpen = !!open;
+            sendMsgOpen.clear();
+            renderSendCenter();
+        }
+
+        function toggleSendMsgAll() { sendMsgSetAll(!sendMsgDefaultOpen); }
+
+        function sendMsgBlock(e, msg) {
+            const open = sendMsgIsOpen(e.key);
+            const key = jsStrAttr(e.key);
+            const lines = String(msg || '').split('\n').filter(x => x.trim());
+            const first = lines[0] || '（無內容）';
+            const preview = first.length > 40 ? first.slice(0, 40) + '…' : first;
+            return `<div class="bg-slate-50 border border-slate-200 rounded-lg">
+                    <button onclick="toggleSendMsg('${key}')" class="w-full flex items-center gap-1.5 px-2 py-1.5 text-left hover:bg-slate-100 rounded-lg" title="${open ? '收起訊息內文' : '展開訊息內文'}">
+                        <i class="fa-solid fa-chevron-${open ? 'down' : 'right'} text-slate-400 text-[10px] shrink-0"></i>
+                        <span class="font-semibold text-slate-600 shrink-0">訊息</span>
+                        ${open ? '' : `<span class="text-slate-500 truncate">${escapeHtml(preview)}</span>${lines.length > 1 ? `<span class="text-slate-400 shrink-0">· ${lines.length} 行</span>` : ''}`}
+                    </button>
+                    ${open ? `<div class="px-2 pb-2 pt-1.5 border-t border-slate-200 text-slate-700 whitespace-pre-wrap">${escapeHtml(msg)}</div>` : ''}
+                </div>`;
+        }
+
         // 已發送欄學費卡片的繳費小表單：未繳清預設展開、已繳清收起；用戶手動切換後以此表為準（key → 開/關）
         const sendPayFormOpen = new Map();
 
@@ -2460,7 +2498,7 @@
             let html = '<option value="ALL">全部類別</option>';
             // 學費之下多兩個繳費狀態子篩選（未繳清＝未繳＋部分；已繳清），只列本月實際有的
             const payStates = new Set(entries.filter(e => e.type === 'TUITION').map(e => (GACSendlog.paymentStatus(e) === 'paid' ? 'paid' : 'due')));
-            [['TUITION', '學費'], ['TUITION:due', '學費 · 未繳清'], ['TUITION:paid', '學費 · 已繳清'], ['LEAVE_CONFIRM', '請假確認'], ['MAKEUP_CONFIRM', '補堂確認'], ['MOVE_CONFIRM', '改期通知'], ['PAY_REMIND', '催繳'], ['RECEIPT', '收款確認']].forEach(([v, label]) => {
+            [['TUITION', '學費（全部）'], ['TUITION:due', '學費 · 未繳清'], ['TUITION:paid', '學費 · 已繳清'], ['LEAVE_CONFIRM', '請假確認'], ['MAKEUP_CONFIRM', '補堂確認'], ['MOVE_CONFIRM', '改期通知'], ['PAY_REMIND', '催繳'], ['RECEIPT', '收款確認']].forEach(([v, label]) => {
                 const ok = v.indexOf('TUITION:') === 0 ? payStates.has(v.slice(8)) : present.has(v);
                 if (ok) html += `<option value="${v}">${label}</option>`;
             });
@@ -2539,7 +2577,7 @@
                         ${sentInfo}
                     </div>
                     ${amountRow}
-                    <div class="bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-700 whitespace-pre-wrap">${msg}</div>
+                    ${sendMsgBlock(e, msg)}
                     <div class="flex items-center gap-1.5 flex-wrap">${actions}</div>
                 </div>`;
         }
@@ -2827,6 +2865,10 @@
                 || `<div class="text-slate-400 text-xs italic p-3">此月份沒有待發送項目${filterNote}。生成課表／標記請假／安排補堂會自動產生對應條目。</div>`;
             sentList.innerHTML = sent.map(e => sendEntryCard(e, true)).join('')
                 || `<div class="text-slate-400 text-xs italic p-3">此月份還沒有已發送紀錄${filterNote}。</div>`;
+            const msgTgl = document.getElementById('sendMsgToggleAll');
+            if (msgTgl) msgTgl.innerHTML = sendMsgDefaultOpen
+                ? '<i class="fa-solid fa-chevron-right"></i> 收起全部訊息'
+                : '<i class="fa-solid fa-chevron-down"></i> 展開全部訊息';
             const todoCountEl = document.getElementById('sendTodoCount');
             const sentCountEl = document.getElementById('sendSentCount');
             if (todoCountEl) todoCountEl.textContent = todo.length;
