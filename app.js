@@ -1157,6 +1157,9 @@
                 if (lesson.isMakeup) {
                     btns.push(`<button onclick="openMoveModalForMakeup('${id}')" class="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1" title="把此補堂改到別的日期／時間"><i class="fa-solid fa-arrows-rotate"></i> 改期</button>`);
                     btns.push(`<button onclick="cancelMakeupUI('${id}')" class="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg font-semibold flex items-center gap-1" title="取消此補堂，原請假課回到待補堂池"><i class="fa-solid fa-xmark"></i> 取消補堂</button>`);
+                } else {
+                    // 雙方提前約好改時間：課照上，只是換時段（不是請假，不產生補堂）
+                    btns.push(`<button onclick="openLessonMoveModal('${id}')" class="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1" title="雙方約好把這一堂改到別的日期／時間（課照上，不算請假）"><i class="fa-solid fa-arrows-rotate"></i> 改期</button>`);
                 }
             } else {
                 if (lesson.status === 'LEAVE' && !lesson.makeupLessonId) {
@@ -1172,6 +1175,11 @@
             if (lesson.status === 'LEAVE') {
                 btns.push(`<button onclick="copyLessonMsg('leave', '${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> 複製請假</button>`);
                 btns.push(`<button onclick="openWhatsAppMessage('${id}', 'leave')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填請假訊息（與發送中心同一條目：點開即按設定標記已開啟／詢問／自動已發）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>${lessonSendBadge(id, 'leave')}`);
+            }
+            // 改期過的常規課：可重發／複製改期通知
+            if (!lesson.isMakeup && lesson.status !== 'LEAVE' && sendLog['MOVE_CONFIRM:' + id]) {
+                btns.push(`<button onclick="copyLessonMsg('move', '${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> 複製改期</button>`);
+                btns.push(`<button onclick="openWhatsAppMessage('${id}', 'move')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填改期通知（與發送中心同一條目）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>${lessonSendBadge(id, 'move')}`);
             }
             if (lesson.isMakeup && lesson.status !== 'LEAVE') {
                 const mkType = sendLog['MOVE_CONFIRM:' + id] ? 'move' : 'makeup'; // 改期過（有改期通知條目）→ 用改期通知文案
@@ -1592,6 +1600,8 @@
 
         // ===== 補堂改期彈窗：選新日期時間，一步調過去（内部＝取消舊補堂＋重排，鏈保持完好） =====
         let moveModalOriginId = null;
+        let moveModalMode = 'makeup';   // 'makeup'＝改補堂（走補堂鏈）｜'lesson'＝改單堂常規課（只搬時間）
+        let moveModalLessonId = null;
 
         function openMoveModal(originLessonId) {
             const f = GACLessonState.findLesson(lessonsByMonth, originLessonId);
@@ -1603,6 +1613,9 @@
                 return;
             }
             moveModalOriginId = originLessonId;
+            moveModalMode = 'makeup';
+            moveModalLessonId = null;
+            setMoveModalTitle('補堂改期');
             document.getElementById('moveModalInfo').innerHTML =
                 `${f.lesson.studentName} (${f.lesson.studentId})<br>原課：${f.lesson.date} ${f.lesson.time}<br>目前補堂：<b>${mk.lesson.date} ${mk.lesson.time}</b>`;
             document.getElementById('moveDate').value = mk.lesson.date;
@@ -1617,18 +1630,102 @@
             openMoveModal(prev.lessonId);
         }
 
+        // 單堂改期（常規課）：雙方約好換時段——課照上，不是請假、不產生補堂，只把這一堂的日期時間搬走。
+        // 小組課整節一起搬（同時段仍是「已排課」的成員）；搬動前先檢查會不會與同一導師的其他課重疊。
+        function openLessonMoveModal(lessonId) {
+            const f = GACLessonState.findLesson(lessonsByMonth, lessonId);
+            if (!f) { alert('⚠️ 找不到課堂 ' + lessonId); return; }
+            const l = f.lesson;
+            if (l.status !== 'SCHEDULED') { alert('⚠️ 只有「已排課」的課堂可以改期；已有結果的請先「還原」。'); return; }
+            if (l.isMakeup) { openMoveModalForMakeup(lessonId); return; }
+            moveModalMode = 'lesson';
+            moveModalLessonId = lessonId;
+            moveModalOriginId = null;
+            setMoveModalTitle('課堂改期');
+            const mates = lessonMoveTargets(l).filter(x => x.lessonId !== l.lessonId);
+            const notes = [];
+            if (mates.length) {
+                notes.push('<div class="mt-1 text-indigo-700"><i class="fa-solid fa-user-group"></i> 小組課：此時段另 ' +
+                    mates.length + ' 位學生（' + mates.map(x => escapeHtml(x.studentName)).join('、') + '）會一併改期。</div>');
+            }
+            if (l.gcalEventId) {
+                notes.push('<div class="mt-1 text-amber-700"><i class="fa-solid fa-triangle-exclamation"></i> 這堂已推送到 Google Calendar：改期後請一併在 Calendar 改時間，否則下次同步會以 Calendar 為準改回來。</div>');
+            }
+            document.getElementById('moveModalInfo').innerHTML =
+                escapeHtml(l.studentName) + ' (' + escapeHtml(l.studentId) + ')<br>目前時間：<b>' +
+                l.date + ' ' + l.time + '</b>（' + l.duration + ' 分鐘）' + notes.join('');
+            document.getElementById('moveDate').value = l.date;
+            document.getElementById('moveTime').value = l.time;
+            document.getElementById('moveModal').classList.remove('hidden');
+            markModalOpened('moveModal');
+        }
+
+        function setMoveModalTitle(text) {
+            const el = document.getElementById('moveModalTitle');
+            if (el) el.innerHTML = '<i class="fa-solid fa-arrows-rotate text-sky-500 mr-1"></i>' + text;
+        }
+
+        // 一起搬的課：小組課＝同節仍是「已排課」的全體成員；個別課＝自己一堂
+        function lessonMoveTargets(lesson) {
+            if (!lesson.groupId) return [lesson];
+            return [lesson].concat(GACLessonState.groupSiblings(lessonsByMonth, lesson.lessonId)
+                .filter(s => s.status === 'SCHEDULED' && s.time === lesson.time));
+        }
+
+        // 改到新時段後會與同一導師的哪些課重疊（同組同時段不算撞）
+        function moveClashNames(targets, date, time) {
+            const moved = targets.map(t => Object.assign({}, t, { date: date, time: time }));
+            const others = GACLessonState.allLessons(lessonsByMonth)
+                .filter(l => !targets.some(t => t.lessonId === l.lessonId));
+            const clash = GACSchedule.detectClashes(others.concat(moved));
+            return others.filter(l => clash.has(l.lessonId)).map(l => l.studentName + ' ' + l.date + ' ' + l.time);
+        }
+
+        function submitLessonMove(date, time) {
+            const f = GACLessonState.findLesson(lessonsByMonth, moveModalLessonId);
+            if (!f) { closeMoveModal(); return; }
+            const l = f.lesson;
+            if (l.date === date && l.time === time) { alert('時間沒有變更。'); return; }
+            const targets = lessonMoveTargets(l);
+            const clashes = moveClashNames(targets, date, time);
+            if (clashes.length && !confirm('⚠️ 改到 ' + date + ' ' + time + ' 會與同一導師的課堂重疊：\n' +
+                clashes.join('\n') + '\n\n仍要改期嗎？')) return;
+            pushHistory('課堂改期：' + l.studentName + ' ' + l.date + ' ' + l.time + ' → ' + date + ' ' + time +
+                (targets.length > 1 ? '（小組 ' + targets.length + ' 位）' : ''));
+            const nowIso = new Date().toISOString();
+            const moved = [];
+            targets.forEach(t => {
+                const from = { date: t.date, time: t.time };
+                const r = GACLessonState.moveLessonDateTime(lessonsByMonth, t.lessonId, date, time);
+                if (r.ok) {
+                    GACSendlog.ensureMoveEntry(sendLog, r.lesson, from, nowIso);
+                    moved.push(t.lessonId);
+                } else alert('⚠️ ' + t.studentName + '：' + r.error);
+            });
+            if (!moved.length) { dropLastHistory(); return; }
+            closeMoveModal();
+            persistLessons();
+            renderAll();
+            const note = date.slice(0, 7) !== currentMonthKey()
+                ? '課堂已移到 ' + date.slice(0, 7) + '（切換月份可見）。' : '';
+            openMsgModal('move', moved, note);
+        }
+
         function closeMoveModal() {
             moveModalOriginId = null;
+            moveModalLessonId = null;
+            moveModalMode = 'makeup';
             const modal = document.getElementById('moveModal');
             if (modal) modal.classList.add('hidden');
         }
 
         function submitMoveModal() {
-            const originId = moveModalOriginId;
             const date = document.getElementById('moveDate')?.value;
             const time = document.getElementById('moveTime')?.value;
+            if (!date || !time) { alert('請選擇新的日期與時間！'); return; }
+            if (moveModalMode === 'lesson') { submitLessonMove(date, time); return; }
+            const originId = moveModalOriginId;
             if (!originId) return;
-            if (!date || !time) { alert('請選擇補堂日期與時間！'); return; }
             const f = GACLessonState.findLesson(lessonsByMonth, originId);
             if (!f || !f.lesson.makeupLessonId) { closeMoveModal(); return; }
             const origin = f.lesson;
