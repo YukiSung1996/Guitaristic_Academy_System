@@ -123,7 +123,7 @@ v2 現況：出席是完整狀態機（已上課／請假 L·SL·TL／缺席／�
 - 設定頁改為八個可收合模組（`toggleSettingsModule`／`applySettingsModules`，狀態只存本機 `gac_settings_open`）。
 - 訊息模板全部進設定（`TPL_FIELDS` id→設定鍵；預設在 `DEFAULT_SETTINGS`；`msgTpl(key)`＋`GACSendlog.fillTemplate`）：學費單三段、請假、補堂、改期、催繳、收款確認。
 - 新條目類型 `MOVE_CONFIRM`（`ensureMoveEntry`）：補堂改期（舊時間已通知過才建）與 GCal 時間變更套用。
-- 導師名單多 `calendarEmbed`／`calendarId`；總課表「Google 日曆」視圖（`tutorEmbedUrl` 組 embed 網址＋dates 定位）。
+- 導師名單多 `calendarId`（同步時逐一讀取各導師日曆）。曾另有 `calendarEmbed`＋總課表「Google 日曆」嵌入視圖，因 iframe 內是 Google 自己的頁面、需公開日曆或放行第三方 Cookie 才顯示，已於 2026-09-23 移除（月曆視圖已覆蓋）。
 
 ### Stage 7 — 唯讀模式與匯入 ICS（用戶 2026-09-22 需求 1：「只 read 不 write 的版本」＝一個是否授權寫入的開關）
 - 設定 `gcalWrite`（預設 true）。關閉：`gcalScope()` 用唯讀 scope（token 記 scope，切換即重新授權）；`openGcalSync` 的 toPush／orphans 清空、無標籤事件走 `reconcileByContent`；清場只清本地；按鈕標示「（唯讀）」。

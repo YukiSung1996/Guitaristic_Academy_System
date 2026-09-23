@@ -811,7 +811,6 @@
             renderPendingPool();
             renderMasterScheduleList();
             renderMasterCalendarView();
-            if (currentViewMode === 'gcal') renderGcalEmbedView();
             renderSendCenter();
             renderPaymentTab();
             // 數據分析只在頁籤可見時重算（圖表重建有成本）
@@ -824,20 +823,13 @@
             currentViewMode = mode;
             const listEl = document.getElementById('masterScheduleList');
             const calEl = document.getElementById('masterCalendarView');
-            const gcalEl = document.getElementById('masterGcalView');
 
             listEl.classList.add('hidden');
             calEl.classList.add('hidden');
-            if (gcalEl) gcalEl.classList.add('hidden');
 
             document.querySelectorAll('#masterScheduleWrapper .inline-flex button').forEach(b => b.classList.remove('bg-white', 'text-sky-600', 'shadow-sm'));
 
-            if (mode === 'gcal' && gcalEl) {
-                gcalEl.classList.remove('hidden');
-                const b = document.getElementById('btnGcalView');
-                if (b) b.classList.add('bg-white', 'text-sky-600', 'shadow-sm');
-                renderGcalEmbedView();
-            } else if (mode === 'calendar') {
+            if (mode === 'calendar') {
                 calEl.classList.remove('hidden');
                 document.getElementById('btnCalView').classList.add('bg-white', 'text-sky-600', 'shadow-sm');
             } else {
@@ -849,75 +841,6 @@
 
         function onWeekSelectChange() {
             if (currentViewMode === 'list') renderMasterScheduleList();
-        }
-
-        // ===== 總課表「Google 日曆」視圖：每位導師的嵌入日曆（唯讀）；連結存在導師名單 calendarEmbed =====
-        let gcalEmbedTutor = '';
-
-        // 導師的 calendarEmbed 可以是完整 embed 網址、整段 <iframe> 代碼，或只是日曆 ID／電郵；一律組成 embed 網址並定位到檢視月份
-        function tutorEmbedUrl(t, monthKey) {
-            let v = String((t && t.calendarEmbed) || '').trim();
-            if (!v) return '';
-            const m = /src=["']([^"']+)["']/i.exec(v);
-            if (m) v = m[1].replace(/&amp;/g, '&');
-            if (!/^https?:\/\//i.test(v)) {
-                let tz = 'Asia/Hong_Kong';
-                try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || tz; } catch (e) { /* ignore */ }
-                v = 'https://calendar.google.com/calendar/embed?src=' + encodeURIComponent(v) + '&ctz=' + encodeURIComponent(tz);
-            }
-            const p = String(monthKey || '').split('-').map(Number);
-            if (p.length === 2 && p[0] && p[1] && !/[?&]dates=/.test(v)) {
-                const last = new Date(p[0], p[1], 0).getDate();
-                const mm = String(p[1]).padStart(2, '0');
-                v += (v.indexOf('?') === -1 ? '?' : '&') + 'dates=' + p[0] + mm + '01/' + p[0] + mm + String(last).padStart(2, '0');
-            }
-            return v;
-        }
-
-        function renderGcalEmbedView() {
-            const box = document.getElementById('masterGcalView');
-            if (!box) return;
-            const withCal = tutorsList.filter(t => t.calendarEmbed);
-            if (!withCal.length) {
-                box.__src = '';
-                box.innerHTML = '<div class="p-6 text-center text-slate-400 text-xs">尚未設定任何導師的日曆嵌入連結。到「設定 → Google Calendar → 導師日曆」填入（嵌入代碼的 src，或直接貼日曆 ID）。</div>';
-                return;
-            }
-            if (!withCal.some(t => t.name === gcalEmbedTutor)) gcalEmbedTutor = withCal[0].name;
-            const t = withCal.find(x => x.name === gcalEmbedTutor);
-            const src = tutorEmbedUrl(t, currentMonthKey());
-            const tabs = withCal.map(x => `<button onclick="showGcalEmbed('${jsStrAttr(x.name)}')" class="px-3 py-1 rounded-md text-xs font-semibold transition ${x.name === gcalEmbedTutor ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-600'}">${escapeHtml(x.name)}</button>`).join('');
-            // iframe 只在網址變了才重建（renderAll 頻繁呼叫，避免閃爍重載）
-            const head = `<div class="flex items-center gap-2 flex-wrap mb-2">
-                    <div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50">${tabs}</div>
-                    <a href="${escapeHtml(src)}" target="_blank" rel="noopener" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 flex items-center gap-1" title="用同一個網址開新分頁：新分頁看得到而下方空白 → 瀏覽器擋了第三方 Cookie；新分頁也看不到 → 日曆未公開，或目前登入的不是有權限的帳號"><i class="fa-solid fa-arrow-up-right-from-square"></i> 在新分頁開啟</a>
-                    <button onclick="toggleGcalEmbedHelp()" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 flex items-center gap-1"><i class="fa-solid fa-circle-question"></i> 下方空白？</button>
-                    <span class="text-[11px] text-slate-400">Google 提供的唯讀畫面（已定位到 ${currentMonthKey()}）。</span>
-                </div>
-                <div id="gcalEmbedHelp" class="hidden mb-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 space-y-1.5">
-                    <div class="font-bold">下方一片空白或顯示「無法顯示」——畫面來自 Google，登入與權限由 Google 判斷，本系統不讀取日曆內容。先按「在新分頁開啟」分辨：</div>
-                    <div><b>新分頁看得到、這裡空白</b>＝瀏覽器擋了第三方 Cookie（本頁是 127.0.0.1，日曆是 google.com）。Chrome：網址列右邊的眼睛／盾牌圖示 →「允許第三方 Cookie」，或設定 → 隱私權和安全性 → 第三方 Cookie 加入例外 <code>[*.]google.com</code>。無痕模式與 Safari 預設擋住，會一直空白。</div>
-                    <div><b>新分頁也看不到</b>＝日曆未公開，或瀏覽器目前的預設 Google 帳號沒有權限（同時登入多個帳號時，嵌入畫面用的是第一個登入的帳號）。要嘛切換帳號／改用只登入該帳號的瀏覽器設定檔，要嘛把日曆設為公開：Google 日曆 → 設定 → 該日曆 → <b>存取權限</b> → 勾「公開提供」→ 選「查看所有活動詳細資料」。<b>公開＝任何人拿到網址都看得到學生姓名與上課時間</b>，請自行斟酌。</div>
-                    <div><b>網址貼錯</b>：要用「整合日曆 → 嵌入程式碼」裡 <code>src="…"</code> 的網址（或直接貼日曆 ID）。日常開啟日曆的 <code>/calendar/u/0/r</code> 網址會被 Google 拒絕嵌入；<code>.../basic.ics</code> 是檔案不是網頁，兩者都會空白。</div>
-                    <div class="text-amber-700">不想公開又被 Cookie 擋住：這個視圖可以不用——日常看「📋 清單／📅 月曆」，與 Calendar 對帳用「匯入 ICS」（ICS 用私密網址或匯出檔，不必公開日曆）。</div>
-                </div>`;
-            if (box.__src === src && box.innerHTML) {
-                const h = document.getElementById('masterGcalHead');
-                if (h) h.innerHTML = head;
-                return;
-            }
-            box.__src = src;
-            box.innerHTML = `<div id="masterGcalHead">${head}</div><iframe src="${escapeHtml(src)}" style="border:0" width="100%" height="650" frameborder="0" scrolling="no" title="Google Calendar"></iframe>`;
-        }
-
-        function toggleGcalEmbedHelp() {
-            const el = document.getElementById('gcalEmbedHelp');
-            if (el) el.classList.toggle('hidden');
-        }
-
-        function showGcalEmbed(name) {
-            gcalEmbedTutor = name;
-            renderGcalEmbedView();
         }
 
         // ===== 總課表篩選：導師／學生（或小組班）——清單與月曆同時套用；批量確認出席亦以此範圍為準 =====
@@ -3215,33 +3138,27 @@
             renderBatchCheckboxes();
         }
 
-        // ===== 導師日曆（設定 → Google Calendar）：每位導師的嵌入連結／日曆 ID，存在導師名單上，改動即存 =====
+        // ===== 導師日曆 ID（設定 → Google Calendar）：同步時逐一讀取各導師的日曆，存在導師名單上，改動即存 =====
         function renderTutorCalendarList() {
             const box = document.getElementById('tutorCalendarList');
             if (!box) return;
-            const inp = 'w-full px-2 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none';
-            box.innerHTML = tutorsList.length ? tutorsList.map(t => `<div class="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1.5">
-                    <div class="font-bold text-slate-800">${escapeHtml(t.name)} ${t.calendarEmbed ? '<span class="text-emerald-600 font-normal">· 已設嵌入</span>' : '<span class="text-slate-400 font-normal">· 未設嵌入連結</span>'}</div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <label class="block"><span class="text-slate-500">嵌入連結（embed 的 src，或日曆 ID）</span>
-                            <input type="text" value="${escapeHtml(t.calendarEmbed || '')}" onchange="updateTutorCalendar('${jsStrAttr(t.name)}', 'calendarEmbed', this.value)" placeholder="https://calendar.google.com/calendar/embed?src=…" class="${inp}"></label>
-                        <label class="block"><span class="text-slate-500">日曆 ID（API 讀取用；留空＝預設日曆）</span>
-                            <input type="text" value="${escapeHtml(t.calendarId || '')}" onchange="updateTutorCalendar('${jsStrAttr(t.name)}', 'calendarId', this.value)" placeholder="xxx@group.calendar.google.com" class="${inp}"></label>
-                    </div>
+            const inp = 'flex-1 min-w-0 px-2 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none';
+            box.innerHTML = tutorsList.length ? tutorsList.map(t => `<div class="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+                    <span class="font-bold text-slate-800 w-28 shrink-0 truncate">${escapeHtml(t.name)}</span>
+                    <input type="text" value="${escapeHtml(t.calendarId || '')}" onchange="updateTutorCalendar('${jsStrAttr(t.name)}', 'calendarId', this.value)" placeholder="留空＝用預設日曆（xxx@group.calendar.google.com）" class="${inp}">
                 </div>`).join('') : '<div class="text-center py-3 text-slate-400 text-xs">尚未新增任何導師（在「導師管理」新增）。</div>';
         }
 
         function updateTutorCalendar(name, field, value) {
-            if (field !== 'calendarEmbed' && field !== 'calendarId') return;
+            if (field !== 'calendarId') return;
             const t = tutorsList.find(x => x.name === name);
             const v = String(value || '').trim();
-            if (!t || (t[field] || '') === v) return;
-            pushHistory(`導師日曆：${name}（${field === 'calendarEmbed' ? '嵌入連結' : '日曆 ID'}）`);
-            t[field] = v;
+            if (!t || (t.calendarId || '') === v) return;
+            pushHistory(`導師日曆 ID：${name}`);
+            t.calendarId = v;
             persistTutors();
             renderTutorCalendarList();
-            if (currentViewMode === 'gcal') renderGcalEmbedView();
-            showToast(`✅ 已更新 ${name} 的${field === 'calendarEmbed' ? '日曆嵌入連結' : '日曆 ID'}`);
+            showToast(`✅ 已更新 ${name} 的日曆 ID`);
         }
 
         // 學生／小組表單：選導師 → 自動帶出其等級（仍可手動改）

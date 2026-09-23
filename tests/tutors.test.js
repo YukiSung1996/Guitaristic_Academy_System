@@ -9,7 +9,7 @@ function fakeStorage(initial) {
     return { getItem: k => (map.has(k) ? map.get(k) : null), setItem: (k, v) => map.set(k, String(v)), removeItem: k => map.delete(k), _map: map };
 }
 const defaults = [{ name: 'Instructor A', tier: '普通導師' }, { name: 'Instructor B', tier: '資深導師' }];
-const withCal = list => list.map(t => Object.assign({ calendarEmbed: '', calendarId: '' }, t)); // 載入後一律補齊日曆欄位
+const withCal = list => list.map(t => Object.assign({ calendarId: '' }, t)); // 載入後一律補齊日曆 ID 欄位
 
 test('J1: loadTutors——沒有資料用預設並落盤；有資料則正規化 tier；壞資料回退預設', () => {
     const storage = fakeStorage();
@@ -67,11 +67,11 @@ test('J4: applyOverrides 就地套用、首次記住基準價、移除覆寫回�
     assert.strictEqual(R.findRate(table, { tutorLevel: '資深導師', program: 'Pop Guitar', level: 'Grade 1', type: '一對一', duration: 45 }), 420, '查價走覆寫後的值');
 });
 
-test('J5: 導師日曆欄位——calendarEmbed／calendarId 落盤後原樣載回、缺省補空字串、修剪空白', () => {
+test('J5: 導師日曆 ID——落盤後原樣載回、缺省補空字串、修剪空白、未知欄位不留', () => {
     const store = ST.createStore(fakeStorage());
-    store.saveTutors([{ name: 'A', tier: '普通導師', calendarEmbed: ' https://calendar.google.com/calendar/embed?src=x ', calendarId: 'x@group.calendar.google.com' }, { name: 'B', tier: '資深導師' }]);
+    store.saveTutors([{ name: 'A', tier: '普通導師', calendarId: ' x@group.calendar.google.com ', calendarEmbed: '舊欄位' }, { name: 'B', tier: '資深導師' }]);
     const t = store.loadTutors(defaults);
-    assert.strictEqual(t[0].calendarEmbed, 'https://calendar.google.com/calendar/embed?src=x');
     assert.strictEqual(t[0].calendarId, 'x@group.calendar.google.com');
-    assert.deepStrictEqual(t[1], { name: 'B', tier: '資深導師', calendarEmbed: '', calendarId: '' });
+    assert.deepStrictEqual(t[0], { name: 'A', tier: '普通導師', calendarId: 'x@group.calendar.google.com' }, '已移除的嵌入欄位不再載入');
+    assert.deepStrictEqual(t[1], { name: 'B', tier: '資深導師', calendarId: '' });
 });

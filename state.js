@@ -5,7 +5,7 @@
         let sendLog = {};               // gac_sendlog_v2：發送中心紀錄
         let appSettings = {};           // gac_settings_v2：設定
         let gacStore = null;            // lib/storage.js 的 store 實例（window.onload 時建立）
-        let currentViewMode = 'list';
+        let currentViewMode = 'calendar'; // 總課表預設月曆總覽；「📋 清單」一鍵切回（操作都在清單）
         let monthWeeksData = [];
         let manualMode = false;         // 手動模式：跳過狀態機限制、不觸發小組聯動（每次載入預設關閉，防誤觸）
         let pendingWaConfirmKeys = [];

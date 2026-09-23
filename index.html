@@ -254,9 +254,8 @@
 
                         <!-- View Switcher -->
                         <div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 text-xs font-semibold">
-                            <button id="btnListView" onclick="switchView('list')" class="px-3 py-1 rounded-md active bg-white text-sky-600 shadow-sm transition">📋 清單</button>
-                            <button id="btnCalView" onclick="switchView('calendar')" class="px-3 py-1 rounded-md text-slate-600 transition">📅 月曆</button>
-                            <button id="btnGcalView" onclick="switchView('gcal')" title="每位導師的 Google 日曆嵌入畫面（唯讀；連結在設定 → Google Calendar → 導師日曆）" class="px-3 py-1 rounded-md text-slate-600 transition">🌐 Google 日曆</button>
+                            <button id="btnListView" onclick="switchView('list')" class="px-3 py-1 rounded-md text-slate-600 transition">📋 清單</button>
+                            <button id="btnCalView" onclick="switchView('calendar')" class="px-3 py-1 rounded-md active bg-white text-sky-600 shadow-sm transition">📅 月曆</button>
                         </div>
                     </div>
 
@@ -293,9 +292,8 @@
                 <div id="groupWarnBanner" class="hidden p-3 bg-orange-50 border border-orange-300 rounded-xl text-orange-900 text-xs font-medium space-y-1.5"></div>
 
                 <!-- Views -->
-                <div id="masterScheduleList" class="space-y-3 max-h-[600px] overflow-y-auto pr-1"></div>
-                <div id="masterCalendarView" class="hidden overflow-x-auto"></div>
-                <div id="masterGcalView" class="hidden"></div>
+                <div id="masterScheduleList" class="hidden space-y-3 max-h-[600px] overflow-y-auto pr-1"></div>
+                <div id="masterCalendarView" class="overflow-x-auto"></div>
             </div>
         </section>
 
@@ -602,10 +600,10 @@
                         <label class="block text-xs font-bold text-slate-600 mb-1">公開 ICS 網址（高級薪酬「讀取公開 ICS」使用）</label>
                         <input type="url" id="setPublicIcsUrl" placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
-                    <!-- 導師日曆：一位導師一個 Google 日曆。嵌入連結供總課表「Google 日曆」視圖唯讀顯示；日曆 ID 供 API 讀取。存在導師名單（gac_tutors_v3）上 -->
+                    <!-- 導師日曆 ID：一位導師一個 Google 日曆，同步時逐一讀取（存在導師名單 gac_tutors_v3 上，改動即存） -->
                     <div class="pt-2 border-t border-slate-100 space-y-2">
-                        <div class="text-xs font-bold text-slate-700"><i class="fa-solid fa-calendar-days text-indigo-500 mr-1"></i>導師日曆（一位導師一個日曆）</div>
-                        <p class="text-[11px] text-slate-500">嵌入連結：Google 日曆 → 設定 → 該日曆「整合日曆」→「嵌入代碼」內 <code>src="…"</code> 的網址（或直接貼日曆 ID／電郵，系統自行組成）。總課表「🌐 Google 日曆」視圖按導師切換顯示，唯讀；瀏覽器需登入有權限的 Google 帳號（或日曆為公開）才會顯示內容。改動即時儲存。</p>
+                        <div class="text-xs font-bold text-slate-700"><i class="fa-solid fa-calendar-days text-indigo-500 mr-1"></i>導師日曆 ID（同步時逐一讀取）</div>
+                        <p class="text-[11px] text-slate-500">Google 日曆 → 設定 → 該日曆「整合日曆」→「日曆 ID」。填了的導師，同步 GCal 時會讀取各自的日曆並按導師配對；全部留空則只讀上面的預設日曆。改動即時儲存。</p>
                         <div id="tutorCalendarList" class="space-y-2"></div>
                     </div>
                     <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
