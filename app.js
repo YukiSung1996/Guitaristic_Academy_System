@@ -3006,11 +3006,31 @@
                 <td class="p-2.5 text-right font-bold whitespace-nowrap">${tuitionMoney(e.amount)}${e.amountEdited ? ' <i class="fa-solid fa-pen text-amber-500" title="金額已手改（發送中心可改）"></i>' : ''}</td>
                 <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${sent ? 'checked' : ''} onchange="paySetSent('${k}', this.checked)" class="w-4 h-4 accent-emerald-600" title="學費單已發送（與發送中心同步；勾＝手動已發，取消＝移回待發）">${waBtn}${remindNote}</td>
                 <td class="p-2.5 text-center whitespace-nowrap">${badge}${receiptNote}</td>
-                <td class="p-2.5"><input type="text" value="${escapeHtml(e.payNote || '')}" onchange="payUpdate('${k}', { payNote: this.value })" placeholder="備註" class="w-24 px-1.5 py-1 border border-slate-200 rounded-lg text-[11px] focus:w-40 focus:border-slate-300 transition-all" title="備註（如：分兩期、家長代付）。實收金額不同於應收時，到發送中心的學費卡片「登記繳費」改"></td>
                 <td class="p-2.5">${methodSel}</td>
                 <td class="p-2.5 whitespace-nowrap"><input type="date" value="${e.payDate || ''}" onchange="payUpdate('${k}', { payDate: this.value })" class="px-1.5 py-1 border border-slate-300 rounded-lg text-[11px]">${(Number(e.paidAmount) || 0) || e.payMethod ? `<button onclick="payUpdate('${k}', { clearPayment: true })" class="ml-1 px-1.5 py-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded" title="清除這筆繳費紀錄（實收與付款方式歸零，回到未繳）"><i class="fa-solid fa-eraser"></i></button>` : ''}</td>
                 <td class="p-2.5 text-right whitespace-nowrap"><button onclick="payPreview('${k}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold" title="查看／複製學費單"><i class="fa-solid fa-file-invoice"></i></button></td>
+                <td class="p-2.5 text-center">${payNoteCell(e)}</td>
             </tr>`;
+        }
+
+        // 多數學生沒有備註：平時只放一個淡圖示，有備註才顯示文字；一律按了才彈出輸入
+        function payNoteCell(e) {
+            const k = jsStrAttr(e.key);
+            if (!e.payNote) {
+                return `<button onclick="payEditNote('${k}')" class="px-1.5 py-1 text-slate-300 hover:text-sky-600 hover:bg-sky-50 rounded" title="加備註"><i class="fa-solid fa-note-sticky"></i></button>`;
+            }
+            return `<button onclick="payEditNote('${k}')" class="max-w-[10rem] truncate px-1.5 py-1 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[11px] hover:bg-amber-100" title="${jsStrAttr(e.payNote)}（點擊編輯）">${escapeHtml(e.payNote)}</button>`;
+        }
+
+        function payEditNote(key) {
+            const e = sendLog[key];
+            if (!e) return;
+            const cur = e.payNote || '';
+            const v = prompt(`備註 — ${e.studentName || e.studentId}（${e.month}）\n例如：分兩期、家長代付、下月補回。留空即刪除備註。`, cur);
+            if (v === null) return;                    // 取消
+            const next = String(v).trim();
+            if (next === cur) return;                  // 沒改就不拍快照
+            payUpdate(key, { payNote: next });
         }
 
         function payUpdate(key, fields) {
