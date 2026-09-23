@@ -221,11 +221,18 @@
                     </div>
                 </div>
 
-                <!-- Student Checklist Selector Box -->
+                <!-- 學生／小組勾選區：預設折疊（只有要改「生成哪些人」時才打開）；開合狀態記在本機 gac_batch_open -->
                 <div>
-                    <label class="block text-xs font-bold text-slate-600 mb-1">選取要包含在時間表內的學生（個別課）與小組班：</label>
-                    <div id="batchStudentGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 max-h-48 overflow-y-auto p-3 bg-slate-50 rounded-xl border border-slate-200">
-                        <!-- Checkboxes dynamically rendered -->
+                    <button type="button" onclick="toggleBatchSelector()" class="w-full flex items-center justify-between gap-2 text-left py-1">
+                        <span class="text-xs font-bold text-slate-600">選取要包含在時間表內的學生（個別課）與小組班
+                            <span id="batchSelectorSummary" class="ml-1 font-normal text-slate-400"></span>
+                        </span>
+                        <i id="batchSelectorChevron" class="fa-solid fa-chevron-down text-slate-400 text-xs shrink-0"></i>
+                    </button>
+                    <div id="batchSelectorBody" class="hidden">
+                        <div id="batchStudentGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 max-h-48 overflow-y-auto p-3 bg-slate-50 rounded-xl border border-slate-200">
+                            <!-- Checkboxes dynamically rendered -->
+                        </div>
                     </div>
                 </div>
             </div>

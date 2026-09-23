@@ -401,6 +401,37 @@
                     </button>`;
                 grid.appendChild(div);
             });
+            grid.onchange = updateBatchSelectorSummary; // 指派而非 addEventListener：每次重繪不會疊加
+            updateBatchSelectorSummary();
+            applyBatchSelectorState();
+        }
+
+        // ===== 學生／小組勾選區的折疊：預設收起，開合記在本機（純 UI，不入備份）=====
+        function batchSelectorIsOpen() {
+            try { return localStorage.getItem('gac_batch_open') === '1'; } catch (e) { return false; }
+        }
+
+        function applyBatchSelectorState() {
+            const open = batchSelectorIsOpen();
+            const body = document.getElementById('batchSelectorBody');
+            const chev = document.getElementById('batchSelectorChevron');
+            if (body) body.classList.toggle('hidden', !open);
+            if (chev) chev.classList.toggle('rotate-180', open);
+        }
+
+        function toggleBatchSelector() {
+            try { localStorage.setItem('gac_batch_open', batchSelectorIsOpen() ? '0' : '1'); } catch (e) { /* ignore */ }
+            applyBatchSelectorState();
+        }
+
+        // 折疊時標題列仍要看得出勾了多少（「生成」用的就是這些勾選）
+        function updateBatchSelectorSummary() {
+            const el = document.getElementById('batchSelectorSummary');
+            const grid = document.getElementById('batchStudentGrid');
+            if (!el || !grid) return;
+            const boxes = [...grid.querySelectorAll('.batch-student-chk, .batch-group-chk')];
+            const usable = boxes.filter(c => !c.disabled);
+            el.textContent = usable.length ? `· 已勾選 ${usable.filter(c => c.checked).length} / ${usable.length}` : '';
         }
 
         function hasIndividualSlot(sched) {
