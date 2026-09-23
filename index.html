@@ -631,7 +631,7 @@
                         <input type="checkbox" id="setGcalWrite" class="mt-0.5 w-4 h-4 accent-indigo-600">
                         <span>
                             <span class="font-bold text-slate-700">授權寫入 Google Calendar</span>
-                            <span class="block text-xs text-slate-500 mt-0.5"><b>開</b>＝同步時可推送事件、清殘留，清場會刪 GCal 事件（申請 calendar.events 權限）。<b>關＝唯讀</b>：只申請唯讀權限，同步面板只把 Calendar 上的改動拉回本地（時間變更／狀態碼／Calendar 沒有／手動新建，按學生 ID 或姓名、小組名稱配對），不推送不刪除；清場只清本地。唯讀時也可以完全不用 OAuth——總課表「匯入 ICS」上傳日曆匯出檔即可比對。</span>
+                            <span class="block text-xs text-slate-500 mt-0.5"><b>預設關（唯讀）</b>——建議保持：本機怎麼改都動不到 Calendar。<b>開</b>＝同步時可推送事件、清殘留，清場會刪 GCal 事件（申請 calendar.events 權限；推送目前只寫入「預設日曆 ID」那一本，多位導師各有日曆時不建議開）。<b>關＝唯讀</b>：只申請唯讀權限，同步面板只把 Calendar 上的改動拉回本地（時間變更／狀態碼／Calendar 沒有／手動新建，按學生 ID 或姓名、小組名稱配對），不推送不刪除；清場只清本地。唯讀時也可以完全不用 OAuth——總課表「匯入 ICS」上傳日曆匯出檔即可比對。</span>
                         </span>
                     </label>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -647,7 +647,7 @@
                     <!-- 導師日曆 ID：一位導師一個 Google 日曆，同步時逐一讀取（存在導師名單 gac_tutors_v3 上，改動即存） -->
                     <div class="pt-2 border-t border-slate-100 space-y-2">
                         <div class="text-xs font-bold text-slate-700"><i class="fa-solid fa-calendar-days text-indigo-500 mr-1"></i>導師日曆 ID（同步時逐一讀取）</div>
-                        <p class="text-[11px] text-slate-500">Google 日曆 → 設定 → 該日曆「整合日曆」→「日曆 ID」。填了的導師，同步 GCal 時會讀取各自的日曆並按導師配對；全部留空則只讀上面的預設日曆。改動即時儲存。</p>
+                        <p class="text-[11px] text-slate-500">Google 日曆 → 設定 → 該日曆「整合日曆」→「日曆 ID」（形如 <code>xxx@group.calendar.google.com</code>；個人主日曆就是該帳號的電郵）。填了的導師，同步時會<b>逐本讀取、只跟該導師的課比對</b>。<b>沒填的導師不會被比對</b>；若一位都沒填，系統不確定預設日曆屬於誰，會停用「Calendar 上沒有這堂」的判斷以免整批誤判。同一個 OAuth Client ID 可以讀多本日曆——決定讀得到什麼的是授權時登入的 Google 帳號。改動即時儲存。</p>
                         <div id="tutorCalendarList" class="space-y-2"></div>
                     </div>
                     <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
@@ -883,7 +883,7 @@
                 <button type="button" onclick="toggleSettingsModule('danger')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
                     <span class="min-w-0">
                         <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation text-rose-500"></i> <span class="text-rose-800">危險區：清場重來</span></span>
-                        <span class="block text-xs text-slate-500 mt-0.5">清空本月／全部清場／恢復預設學生名單（清場本地不可還原，請先備份）</span>
+                        <span class="block text-xs text-slate-500 mt-0.5">清空本月／全部清場／恢復預設學生名單（清場本地不可還原，請先備份）。唯讀模式下只清本地，Google Calendar 不動</span>
                     </span>
                     <i id="smodChev_danger" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
                 </button>

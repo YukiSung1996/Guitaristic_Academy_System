@@ -373,6 +373,12 @@ test('D9: reconcileByContent——無標籤事件按學生 ID／姓名／小組�
     // 刪除只看指定範圍
     const rW = G.reconcileByContent(all, events, { students: students, groups: groups, tutor: 'Instructor A', deleteTo: '2026-09-20' });
     assert.strictEqual(rW.deletions.length, 0);
+    // detectMissing:false → 完全不判斷「Calendar 沒有這堂」，其餘分類照常
+    const rM = G.reconcileByContent(all, events, { students: students, groups: groups, detectMissing: false });
+    assert.strictEqual(rM.deletions.length, 0, '不判斷缺席');
+    assert.strictEqual(rM.timeChanges.length, 2, '時間變更照常');
+    assert.strictEqual(rM.statusChanges.length, 1, '狀態碼照常');
+    assert.strictEqual(rM.manualNew.length, 1, '手動新建照常');
     // 已由標籤配對的課節跳過
     const skip = {}; skip[S.groupByCell([lessons[1]])[0].key] = true;
     const rS = G.reconcileByContent(all, events, { students: students, groups: groups, tutor: 'Instructor A', skipCellKeys: skip });

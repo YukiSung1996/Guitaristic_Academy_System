@@ -114,6 +114,14 @@ function monthLastDay(monthKey) {
     return monthKey + '-' + String(new Date(p[0], p[1], 0).getDate()).padStart(2, '0');
 }
 
+// 只有「知道這本日曆屬於哪位導師」時，才敢判斷「Calendar 上沒有這堂」＝這堂被取消。
+// 否則（多位導師、卻讀的是一本不知屬誰的日曆）整批課會被誤判成請假，寧可少報。
+function canDetectMissing(tutor) {
+    if (tutor) return true;
+    const names = (typeof allTutorNames === 'function') ? allTutorNames() : [];
+    return names.length <= 1; // 全校只有一位導師 → 那本日曆必然是他的
+}
+
 // 按內容對帳的選項：學生／小組名單、導師範圍、已配對課節、「Calendar 沒有」只看本月
 function contentOpts(tutor, skipKeys, monthKey) {
     return {
@@ -121,9 +129,22 @@ function contentOpts(tutor, skipKeys, monthKey) {
         groups: groupClasses.map(g => ({ id: g.id, name: g.name })),
         tutor: tutor || null,
         skipCellKeys: skipKeys || {},
+        detectMissing: canDetectMissing(tutor),
         deleteFrom: monthKey + '-01',
         deleteTo: monthLastDay(monthKey)
     };
+}
+
+// .ics 的日曆名稱（X-WR-CALNAME）裡有導師名字 → 自動認定這是誰的日曆（最長匹配優先）
+function detectIcsTutor(cal) {
+    const hay = String((cal && cal.name) || '').toLowerCase();
+    if (!hay) return '';
+    let best = '';
+    ((typeof allTutorNames === 'function') ? allTutorNames() : []).forEach(n => {
+        const name = String(n || '').trim();
+        if (name.length >= 2 && hay.indexOf(name.toLowerCase()) !== -1 && name.length > best.length) best = name;
+    });
+    return best;
 }
 
 function gcalTimeZone() {
@@ -191,7 +212,7 @@ function openGcalSync() {
                 .filter(c => !evByKey[c.key] && !delKeys.has(c.key));
             const writeOn = gcalWriteEnabled();
             let timeChanges = diff.timeChanges, statusChanges = diff.statusChanges, deletions = diff.deletions, manualNew = diff.manualNew;
-            let unmatched = 0;
+            let unmatched = 0, missingOff = false;
             if (!writeOn) {
                 // 唯讀模式：本系統沒寫過標籤 → 無標籤事件按內容（學生 ID／姓名、小組名稱）配對；有標籤的仍按標籤。
                 // 已由標籤配對／判定刪除的課節不再進內容配對（避免同一節兩行）。
@@ -202,6 +223,7 @@ function openGcalSync() {
                 events.forEach(ev => { const t = (ev && ev._tutor) || ''; if (!byTutor.has(t)) byTutor.set(t, []); byTutor.get(t).push(ev); });
                 manualNew = [];
                 byTutor.forEach((evs, tutor) => {
+                    if (!canDetectMissing(tutor || null)) missingOff = true;
                     const r = GACGcal.reconcileByContent(windowLessons, evs, contentOpts(tutor || null, skip, monthKey));
                     timeChanges = timeChanges.concat(r.timeChanges);
                     statusChanges = statusChanges.concat(r.statusChanges);
@@ -212,8 +234,8 @@ function openGcalSync() {
             }
             gcalSyncPlan = {
                 monthKey: monthKey,
-                source: 'gcal', readOnly: !writeOn, contentMode: !writeOn, unmatched: unmatched,
-                calendars: gcalCalendarsToRead().length,
+                source: 'gcal', readOnly: !writeOn, contentMode: !writeOn, unmatched: unmatched, missingOff: missingOff,
+                calendars: gcalCalendarsToRead().length, perTutor: gcalCalendarsToRead().filter(c => c.tutor).map(c => c.tutor),
                 toPush: writeOn ? toPush : [],
                 timeChanges: timeChanges,
                 statusChanges: statusChanges,
@@ -261,9 +283,18 @@ function renderGcalSyncModal() {
             : '<i class="fa-solid fa-rotate text-indigo-500 mr-1"></i>同步 Google Calendar' + (p.readOnly ? '（唯讀）' : '');
     }
     if (p.source === 'ics') {
-        parts.push(`<div class="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 text-xs">📄 來源：ICS 檔案${p.calName ? '「' + escapeHtml(p.calName) + '」' : ''}${p.tutor ? '（' + escapeHtml(p.tutor) + ' 的日曆）' : '（不按導師篩選）'}，視窗內 ${p.eventCount} 個事件。唯讀比對，只會更新本地。${p.unmatched ? ' 另有 ' + p.unmatched + ' 個事件無法歸屬學生／小組（略過）。' : ''}</div>`);
+        const whose = p.tutor
+            ? `（${escapeHtml(p.tutor)} 的日曆${p.tutorAuto ? '，由日曆名稱自動辨認' : ''}，只比對該導師的課）`
+            : '（未指定導師）';
+        parts.push(`<div class="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 text-xs">📄 來源：ICS 檔案${p.calName ? '「' + escapeHtml(p.calName) + '」' : ''}${whose}，視窗內 ${p.eventCount} 個事件。唯讀比對，只會更新本地。${p.unmatched ? ` 另有 ${p.unmatched} 個事件無法歸屬學生／小組（略過）。` : ''}</div>`);
     } else if (p.readOnly) {
-        parts.push(`<div class="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 text-xs">🔒 唯讀模式：只拉取 Calendar 上的改動，不推送、不刪除（設定 → Google Calendar 可開啟寫入授權）。${p.calendars > 1 ? '已讀取 ' + p.calendars + ' 位導師的日曆。' : ''}${p.unmatched ? ' 另有 ' + p.unmatched + ' 個事件無法歸屬學生／小組（略過）。' : ''}</div>`);
+        const who = (p.perTutor && p.perTutor.length)
+            ? `已按導師分別讀取：${p.perTutor.map(escapeHtml).join('、')}（各自的日曆 ID），比對時只比該導師的課。`
+            : '目前讀的是「預設日曆 ID」那一本；在設定填上每位導師的日曆 ID，就會分別讀取並按導師比對。';
+        parts.push(`<div class="p-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 text-xs">🔒 唯讀模式：只拉取 Calendar 上的改動，不推送、不刪除（設定 → Google Calendar 可開啟寫入授權）。${who}${p.unmatched ? ` 另有 ${p.unmatched} 個事件無法歸屬學生／小組（略過）。` : ''}</div>`);
+    }
+    if (p.missingOff) {
+        parts.push('<div class="p-2 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 text-xs">⚠️ 不確定這本日曆屬於哪位導師（未填導師日曆 ID），因此<b>不判斷「Calendar 上沒有這堂」</b>——以免把其他導師的課整批誤判成取消。要用這項檢查，請在設定填上該導師的日曆 ID，或匯入 ICS 時選好導師。</div>');
     }
     if (p.contentMode && total) {
         parts.push('<div class="text-[11px] text-slate-500">按內容配對：事件標題以學生 ID 開頭或含學生姓名／小組名稱；同一學生（小組）同一天＝同一節。改到別的日子的課會同時出現在「Calendar 沒有」與「手動新建」，勾選＝請假＋補堂。</div>');
@@ -761,15 +792,18 @@ function handleIcsFile(evt) {
 function icsImportFromText(text, tutorName, timeZone) {
     const cal = GACIcs.parse(text);
     if (!cal.events.length) { alert('檔案裡沒有任何事件（VEVENT），請確認是 Google 日曆匯出的 .ics。'); return null; }
+    let tutor = tutorName || '';
+    let tutorAuto = false;
+    if (!tutor) { const guess = detectIcsTutor(cal); if (guess) { tutor = guess; tutorAuto = true; } }
     const monthKey = currentMonthKey();
     const w = GACGcal.syncWindow(monthKey);
     const lo = w.timeMin.slice(0, 10), hi = w.timeMax.slice(0, 10);
     const events = GACIcs.toEvents(cal, { timeZone: timeZone || gcalTimeZone(), from: lo, to: hi });
     const windowLessons = GACLessonState.allLessons(lessonsByMonth).filter(l => l.date >= lo && l.date <= hi);
-    const diff = GACGcal.reconcileByContent(windowLessons, events, contentOpts(tutorName || null, {}, monthKey));
+    const diff = GACGcal.reconcileByContent(windowLessons, events, contentOpts(tutor || null, {}, monthKey));
     gcalSyncPlan = {
-        monthKey: monthKey, source: 'ics', calName: cal.name || '', tutor: tutorName || '',
-        readOnly: true, contentMode: true,
+        monthKey: monthKey, source: 'ics', calName: cal.name || '', tutor: tutor, tutorAuto: tutorAuto,
+        readOnly: true, contentMode: true, missingOff: !canDetectMissing(tutor || null),
         eventCount: events.filter(e => e.status !== 'cancelled').length, unmatched: diff.unmatched.length,
         toPush: [], orphans: [],
         timeChanges: diff.timeChanges, statusChanges: diff.statusChanges, deletions: diff.deletions, manualNew: diff.manualNew
