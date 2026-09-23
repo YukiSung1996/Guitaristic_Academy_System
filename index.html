@@ -888,7 +888,7 @@
                     <i id="smodChev_danger" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
                 </button>
                 <div id="smod_danger" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
-                    <p class="text-xs text-slate-500">測試點亂了想重來：兩個範圍可選——<b>清空本月</b>只清「總課表目前檢視的月份」（該月 GCal 帶標籤事件＋本地課堂連跨月補堂＋該月發送紀錄）；<b>全部清場</b>刪 GCal 上今天前後一年內所有帶標籤事件並清空本地全部月份（課堂／發送紀錄／薪酬調整與封存）。兩者都<b>絕不刪</b>你在 GCal 手動建立的事件（刪掉的可在 GCal 垃圾桶還原）；<b>本地部分不可還原，請先全量備份</b>。學生名單與設定（含 Client ID）一律保留。</p>
+                    <p class="text-xs text-slate-500">測試點亂了想重來：兩個範圍可選——<b>清空本月</b>只清「總課表目前檢視的月份」（該月 GCal 帶標籤事件＋本地課堂連跨月補堂＋該月發送紀錄）；<b>全部清場</b>刪 GCal 上今天前後一年內所有帶標籤事件並清空本地全部月份（課堂／發送紀錄／薪酬調整與封存）。兩者都<b>絕不刪</b>你在 GCal 手動建立的事件（刪掉的可在 GCal 垃圾桶還原）；<b>本地部分不可還原，請先全量備份</b>。兩者都只清課堂與發送紀錄：<b>學生名單、小組班、導師名單、費率與設定一律保留</b>；歷史快照預設也保留（所以清完仍可「撤銷」救回），全部清場會另外問你要不要一併清空快照——清了才算真正離開這部電腦。唯讀模式下 Google Calendar 完全不動，事件會在下次同步時以「手動新建」出現。</p>
                     <div class="flex items-center gap-2">
                         <button onclick="clearCurrentMonthData()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
                             <i class="fa-solid fa-broom"></i> 清空本月（GCal＋本地）

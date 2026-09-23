@@ -211,6 +211,17 @@
             showToast(`✅ 已還原至「${snap.description}」之前`);
         }
 
+        // 清空快照但不自己彈確認（清場流程已經問過）。回傳清掉的筆數。
+        function clearHistorySilently() {
+            const n = actionHistory.length;
+            actionHistory = [];
+            redoStack = [];
+            redoStackBackup = null;
+            gacStore.saveHistory(actionHistory);
+            renderHistoryUI();
+            return n;
+        }
+
         function clearHistory() {
             if (!actionHistory.length) return;
             if (!confirm('清空全部歷史快照？之後將無法撤銷此前的操作。')) return;

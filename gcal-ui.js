@@ -676,13 +676,32 @@ function clearCurrentMonthData() {
 // GCal 側：掃今天前後各一年，刪除「所有」帶 gacLessonId 標籤的事件（不限單月；手動事件一樣
 //          絕不刪，垃圾桶可還原）。
 // 本地側：清空全部課堂（所有月份）與發送紀錄。學生名單與設定保留。
+// 清場後仍留在本機的東西，講清楚免得以為沒清乾淨
+function resetKeptNote() {
+    const n = (typeof actionHistory !== 'undefined') ? actionHistory.length : 0;
+    return '清場後仍保留：學生名單、小組班、導師名單、費率與設定' +
+        (n ? `，以及 ${n} 筆歷史快照（快照裡仍有剛清掉的課表，可按「撤銷」救回；稍後會問是否一併清空）` : '');
+}
+
+// 清場／清月之後：問要不要連歷史快照一起清掉（清了才算真正離開這部電腦，但也無法再撤銷）
+function offerClearHistoryAfterWipe() {
+    if (typeof actionHistory === 'undefined' || !actionHistory.length) return 0;
+    const size = (typeof GACHistory !== 'undefined') ? GACHistory.formatSize(GACHistory.totalSize(actionHistory)) : '';
+    if (!confirm(`是否一併清空 ${actionHistory.length} 筆歷史快照（${size}）？\n\n` +
+        '快照裡仍保存著剛清掉的課表與發送紀錄。\n' +
+        '確定＝一併清空：資料真正離開這部電腦，但這次清場將無法「撤銷」。\n' +
+        '取消＝保留快照：按「撤銷」隨時可以把剛清掉的資料救回來。')) return 0;
+    return (typeof clearHistorySilently === 'function') ? clearHistorySilently() : 0;
+}
+
 function resetAllScheduleData() {
     const months = Object.keys(lessonsByMonth).sort();
     if (!confirm('🧨 全部清場重來——將執行：\n' +
-        '1) Google Calendar：刪除今天前後一年內、所有由本系統導入（帶標籤）的事件\n' +
-        '   （GCal 垃圾桶可還原；你手動建立的事件絕不刪）\n' +
+        (gcalWriteEnabled()
+            ? '1) Google Calendar：刪除今天前後一年內、所有由本系統導入（帶標籤）的事件\n   （GCal 垃圾桶可還原；你手動建立的事件絕不刪）\n'
+            : '1) Google Calendar：唯讀模式，一律不動（事件全部留著；之後同步時它們會以「手動新建」出現，不想要就別勾）\n') +
         `2) 本地：清空全部課堂（${months.length ? months.join('、') : '目前無資料'}）與發送紀錄——不可還原！\n\n` +
-        '學生名單與設定會保留。建議先按頂部「全量備份 (JSON)」保存現狀。\n\n確定清場？')) return;
+        resetKeptNote() + '。\n建議先按頂部「全量備份 (JSON)」保存現狀。\n\n確定清場？')) return;
 
     pushHistory('全部清場');
     const wipeLocal = () => {
@@ -710,9 +729,12 @@ function resetAllScheduleData() {
     // 未設定 GCal／唯讀模式 → 只清本地（不用走授權）
     if (!appSettings.gcalClientId || !gcalWriteEnabled()) {
         wipeLocal();
-        alert(gcalWriteEnabled()
-            ? '✅ 已清空本地課表與發送紀錄（未設定 GCal，Google Calendar 未動）。\n學生名單保留，可重新「生成」。'
-            : '✅ 已清空本地課表與發送紀錄（唯讀模式：未授權寫入，Google Calendar 未動）。\n學生名單保留，可重新「生成」。');
+        const cleared = offerClearHistoryAfterWipe();
+        alert('✅ 已清空本地課表與發送紀錄' +
+            (gcalWriteEnabled() ? '（未設定 GCal，Google Calendar 未動）' : '（唯讀模式：未授權寫入，Google Calendar 未動）') + '。\n' +
+            (cleared ? `已一併清空 ${cleared} 筆歷史快照（無法撤銷）。\n` : '歷史快照保留，可按「撤銷」救回剛清掉的資料。\n') +
+            '學生名單、小組、導師與設定保留，可重新「生成」。\n' +
+            '⚠️ Google Calendar 上的事件全部還在：下次同步它們會以「手動新建」列出，不想收編就別勾選。');
         return;
     }
 
@@ -736,9 +758,12 @@ function resetAllScheduleData() {
         })
         .then(r => {
             wipeLocal();
+            const cleared = offerClearHistoryAfterWipe();
             let msg = `✅ 清場完成：\n• GCal 刪除 ${r.deleted.length} 件（垃圾桶可還原）` +
                 (r.gone.length ? `、另 ${r.gone.length} 件本已不存在` : '') +
-                '\n• 本地課表與發送紀錄已清空（學生名單保留）\n\n現在可以重新：「生成」→「同步 GCal」推送。';
+                '\n• 本地課表與發送紀錄已清空（學生名單、小組、導師與設定保留）' +
+                (cleared ? `\n• 歷史快照已一併清空 ${cleared} 筆（無法撤銷）` : '\n• 歷史快照保留，可按「撤銷」救回') +
+                '\n\n現在可以重新：「生成」→「同步 GCal」推送。';
             if (r.failed.length) {
                 msg = `⚠️ GCal 有 ${r.failed.length} 件刪除失敗（首個錯誤：${r.failed[0].error}），其餘已完成：\n\n` + msg;
             }
@@ -747,7 +772,8 @@ function resetAllScheduleData() {
         .catch(e => {
             if (confirm(`⚠️ GCal 清理未完成：${(e && e.message) || e}\n\n仍要清空「本地」課表與發送紀錄嗎？\n（Google Calendar 上的事件會留著，之後可再清）`)) {
                 wipeLocal();
-                alert('✅ 已清空本地課表與發送紀錄（GCal 未清理）。');
+                const cleared = offerClearHistoryAfterWipe();
+                alert('✅ 已清空本地課表與發送紀錄（GCal 未清理）。' + (cleared ? `\n歷史快照已一併清空 ${cleared} 筆。` : ''));
             }
         })
         .finally(() => setGcalBusy(false));
