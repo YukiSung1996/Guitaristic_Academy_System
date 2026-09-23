@@ -1365,15 +1365,40 @@
             openMsgModal('leave', done);
         }
 
-        // 月曆色塊樣式
+        // 月曆色塊的顏色只代表「哪位導師」——一位導師一個顏色，和課堂狀態無關。
+        // 狀態（已上課／缺席／請假）改用小符號＋淡出表達，撞堂另外加紅框，這樣同一格裡誰的課一眼看得出。
+        const CAL_TUTOR_COLORS = 6;
+        function tutorPillClass(tutor) {
+            const names = allTutorNames();
+            let i = names.indexOf(tutor);
+            if (i < 0) {
+                // 名單以外的導師（例如只出現在舊資料裡）：用名字雜湊，至少同一個名字每次同色
+                let h = 0;
+                const str = String(tutor || '');
+                for (let c = 0; c < str.length; c++) h = (h * 31 + str.charCodeAt(c)) >>> 0;
+                i = h;
+            }
+            return 'cal-tutor-' + (i % CAL_TUTOR_COLORS + 1);
+        }
+
+        // 撞堂＝同一導師時段重疊（不同導師同時段是並行，不算撞）：保留導師顏色，另加紅框
         function lessonPillClass(lesson, isClash) {
-            let pill = lesson.tutor === 'Instructor A' ? 'cal-pill-eric' : 'cal-pill-tony';
-            if (lesson.isMakeup) pill = 'cal-pill-makeup';
-            if (lesson.status === 'ATTENDED') pill = 'cal-pill-attended';
-            if (lesson.status === 'NOSHOW') pill = 'cal-pill-noshow';
-            if (lesson.status === 'LEAVE') pill = 'cal-pill-leave';
-            if (isClash) pill = 'cal-pill-clash';
-            return pill;
+            return tutorPillClass(lesson.tutor) + (isClash ? ' cal-pill-clash' : '');
+        }
+
+        // 狀態不再搶走顏色：用一個小符號表示結果（請假只是灰標，不再紅底刪除線）
+        function lessonPillMark(lesson) {
+            if (lesson.status === 'ATTENDED') return '<span class="cal-mark cal-mark-ok">✓</span> ';
+            if (lesson.status === 'NOSHOW') return '<span class="cal-mark cal-mark-ns">✗</span> ';
+            if (lesson.status === 'LEAVE') return '<span class="cal-mark cal-mark-leave">請假</span> ';
+            return '';
+        }
+
+        function lessonStatusText(lesson) {
+            if (lesson.status === 'ATTENDED') return '已上課';
+            if (lesson.status === 'NOSHOW') return '缺席';
+            if (lesson.status === 'LEAVE') return '已請假';
+            return '已排課';
         }
 
         // 月曆色塊的「分明度」：已有結果 → 空心淡出；日期已過 → 再淡一層；已過期卻仍未確認 → 虛線框提醒
@@ -1387,6 +1412,26 @@
             return cls.join(' ');
         }
 
+        // 一個色塊。hideTime＝同時段已在上方印過時間，這裡省掉讓名字有位置顯示
+        function calPillHtml(cell, isClash, todayStr, hideTime) {
+            const lesson = cell.lessons[0];
+            const cls = (lessonPillClass(lesson, isClash) + ' ' + lessonPillState(lesson, todayStr)).trim();
+            const timeHtml = hideTime ? '' : `<strong>${lesson.time}</strong> `;
+            const clashNote = isClash ? ' · ⚠️ 與同一導師的另一堂重疊' : '';
+            const base = `onclick="openLessonModal('${jsStrAttr(cell.key)}')" class="${cls} text-[10px] p-1 rounded leading-tight truncate cursor-pointer hover:ring-2 hover:ring-sky-400"`;
+            if (cell.isGroup) {
+                const names = cell.lessons.map(l => l.studentName).join('、');
+                return `
+                        <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.program} 小組 ×${cell.lessons.length}（${lesson.tutor}）${clashNote}：${names}">
+                            ${timeHtml}${lessonPillMark(lesson)}👥 ${lesson.program} ×${cell.lessons.length}
+                        </div>`;
+            }
+            return `
+                        <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.studentName}（${lesson.tutor}）· ${lessonStatusText(lesson)}${clashNote}${lesson.phone ? ' | ' + lesson.phone : ''}">
+                            ${timeHtml}${lessonPillMark(lesson)}${lesson.isMakeup ? 'MU ' : ''}${lesson.studentName}
+                        </div>`;
+        }
+
         function renderMasterCalendarView() {
             const calContainer = document.getElementById('masterCalendarView');
             const batchMonthVal = currentMonthKey();
@@ -1395,15 +1440,28 @@
 
             const monthLessons = sortedMonthLessons();
             const clashIds = GACSchedule.detectClashes(monthLessons);
+            const cellHasClash = cell => cell.lessons.some(l => clashIds.has(l.lessonId));
             const [year, month] = batchMonthVal.split('-').map(Number);
             const firstDayIndex = new Date(year, month - 1, 1).getDay();
             const totalDaysInMonth = new Date(year, month, 0).getDate();
 
+            // 圖例：顏色一律是導師，狀態看符號
+            const tutorLegend = allTutorNames().map(n =>
+                `<span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm ${tutorPillClass(n)}"></span>${escapeHtml(n)}</span>`).join('');
+
             let gridHtml = `
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 text-[11px] text-slate-500">
-                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm cal-pill-tony"></span>待處理（未來）</span>
-                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm cal-pill-attended cal-pill-done"></span>已有結果（淡出）</span>
-                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm cal-pill-tony cal-pill-overdue"></span>已過期未確認</span>
+                    <span class="font-semibold text-slate-600">顏色＝導師</span>
+                    ${tutorLegend}
+                    <span class="text-slate-300">|</span>
+                    <span><span class="cal-mark cal-mark-ok">✓</span> 已上課</span>
+                    <span><span class="cal-mark cal-mark-ns">✗</span> 缺席</span>
+                    <span><span class="cal-mark cal-mark-leave">請假</span></span>
+                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm cal-tutor-1 cal-pill-done"></span>淡色＝已有結果</span>
+                    <span class="text-slate-300">|</span>
+                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm cal-tutor-1 cal-pill-overdue"></span>已過期未確認</span>
+                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm cal-tutor-1 cal-pill-clash"></span>撞堂（同一導師重疊）</span>
+                    <span class="flex items-center gap-1"><span class="cal-slot-chip">並行</span>不同導師同時段（正常）</span>
                     <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm border-2 border-blue-500"></span>今天</span>
                 </div>
                 <div class="grid grid-cols-7 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden min-w-[700px]">
@@ -1430,23 +1488,32 @@
                 `;
 
                 // 小組課一個時段一個色塊（×人數，成員列在 title）
-                filterCellsByScheduleFilters(GACSchedule.groupByCell(dayLessons)).forEach(cell => {
-                    const lesson = cell.lessons[0];
-                    const anyClash = cell.lessons.some(l => clashIds.has(l.lessonId));
-                    const pillStyle = lessonPillClass(lesson, anyClash) + ' ' + lessonPillState(lesson, todayStr);
-                    if (cell.isGroup) {
-                        const names = cell.lessons.map(l => l.studentName).join('、');
-                        gridHtml += `
-                        <div onclick="openLessonModal('${jsStrAttr(cell.key)}')" class="${pillStyle} text-[10px] p-1 rounded leading-tight truncate cursor-pointer hover:ring-2 hover:ring-sky-400" title="點擊開啟操作 — ${lesson.time} ${lesson.program} 小組 ×${cell.lessons.length}（${lesson.tutor}）：${names}">
-                            <strong>${lesson.time}</strong> 👥 ${lesson.program} ×${cell.lessons.length}
-                        </div>`;
+                const cells = filterCellsByScheduleFilters(GACSchedule.groupByCell(dayLessons));
+
+                // 同一開始時間的課併成一格「時段」：時間只印一次，下面掛該時段的所有課。
+                // 不同導師同時段＝並行（正常，標「並行」）；同一導師重疊才是撞堂（紅框＋「撞堂」）。
+                const slots = [];
+                cells.forEach(cell => {
+                    const t = cell.lessons[0].time;
+                    const slot = slots.find(s => s.time === t);
+                    if (slot) slot.cells.push(cell); else slots.push({ time: t, cells: [cell] });
+                });
+
+                slots.forEach(slot => {
+                    if (slot.cells.length === 1) {
+                        gridHtml += calPillHtml(slot.cells[0], cellHasClash(slot.cells[0]), todayStr, false);
                         return;
                     }
+                    const anyClash = slot.cells.some(cellHasClash);
+                    const tutorCount = new Set(slot.cells.map(c => c.lessons[0].tutor)).size;
+                    const chip = anyClash
+                        ? '<span class="cal-slot-chip cal-slot-chip-clash" title="同一導師在同一時段有重疊的課">⚠️ 撞堂</span>'
+                        : (tutorCount > 1 ? `<span class="cal-slot-chip" title="不同導師在同一時段各自上課，並不衝突">並行 ×${slot.cells.length}</span>` : '');
                     gridHtml += `
-                        <div onclick="openLessonModal('${jsStrAttr(cell.key)}')" class="${pillStyle} text-[10px] p-1 rounded leading-tight truncate cursor-pointer hover:ring-2 hover:ring-sky-400" title="點擊開啟操作 — ${lesson.time} ${lesson.studentName} (${lesson.tutor}) | Phone: ${lesson.phone}">
-                            <strong>${lesson.time}</strong> ${lesson.isMakeup ? 'MU ' : ''}${lesson.studentName}
-                        </div>
-                    `;
+                        <div class="cal-slot">
+                            <div class="cal-slot-head">${slot.time}${chip}</div>
+                            <div class="cal-slot-body">${slot.cells.map(c => calPillHtml(c, cellHasClash(c), todayStr, true)).join('')}</div>
+                        </div>`;
                 });
 
                 gridHtml += `</div>`;
