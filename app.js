@@ -3300,15 +3300,16 @@
             renderAll(); // 薪酬／分析／繳費顯示按新價；學費條目金額要重新「生成」才更新
         }
 
-        // ===== 設定頁模組摺疊：開合狀態只存本機 gac_settings_open（UI 便利，不入備份；預設只開「一般」）=====
-        const SETTINGS_MODULES = ['general', 'gcal', 'fee', 'templates', 'tutors', 'rates', 'backup', 'danger'];
+        // ===== 設定頁模組摺疊：開合狀態只存本機 gac_settings_open（UI 便利，不入備份；預設全部收起）=====
+        // 順序＝頁面順序：常用的在前，「一般」與危險區殿後
+        const SETTINGS_MODULES = ['gcal', 'fee', 'templates', 'tutors', 'rates', 'backup', 'general', 'danger'];
 
         function settingsOpenSet() {
             try {
                 const v = JSON.parse(localStorage.getItem('gac_settings_open') || 'null');
                 if (Array.isArray(v)) return new Set(v);
             } catch (e) { /* 無法讀取就用預設 */ }
-            return new Set(['general']);
+            return new Set();
         }
 
         function saveSettingsOpenSet(set) {

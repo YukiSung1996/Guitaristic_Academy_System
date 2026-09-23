@@ -573,39 +573,6 @@
                 <p class="text-xs text-slate-500 mt-0.5">按模組收合。設定儲存於本機（gac_settings_v2）並包含在全量備份內；表單類模組各有「儲存設定」，按任一個都會儲存全部欄位。</p>
             </div>
             <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm max-w-2xl">
-                <button type="button" onclick="toggleSettingsModule('general')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
-                    <span class="min-w-0">
-                        <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-sliders text-slate-500"></i> 一般</span>
-                        <span class="block text-xs text-slate-500 mt-0.5">薪酬口徑、發送中心 WhatsApp 行為</span>
-                    </span>
-                    <i id="smodChev_general" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
-                </button>
-                <div id="smod_general" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
-                    <label class="flex items-start gap-3 text-sm cursor-pointer">
-                        <input type="checkbox" id="setPayNoShow" class="mt-0.5 w-4 h-4 accent-sky-600">
-                        <span>
-                            <span class="font-bold text-slate-700">缺席（NOSHOW）計入導師薪酬</span>
-                            <!-- TODO(跟老闆確認)：NOSHOW 計薪預設值，目前預設計入 -->
-                            <span class="block text-xs text-slate-500 mt-0.5">學生無故缺席但導師已到場，該堂照計工資（高級薪酬「匯入學生及課堂」時生效）。</span>
-                        </span>
-                    </label>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">發送中心：點開 WhatsApp 後的處理</label>
-                        <select id="setWaSentMode" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white">
-                            <option value="confirm">安全（預設）：標記「已開啟」＋切回本頁時詢問是否已發</option>
-                            <option value="badge">最保守：只標記「已開啟」，不詢問、不自動移欄</option>
-                            <option value="auto">進取：點開 WhatsApp 即自動移到「已發送」（可移回撤銷）</option>
-                        </select>
-                        <p class="text-xs text-slate-500 mt-1">瀏覽器無法得知訊息在 WhatsApp 裡是否真的送出，此選項決定「點開連結」如何對應「已發送」。</p>
-                    </div>
-                    <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
-                        <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5"><i class="fa-solid fa-floppy-disk"></i> 儲存設定</button>
-                        <span class="settings-saved-hint hidden text-xs text-emerald-600 font-semibold"><i class="fa-solid fa-check"></i> 已儲存</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm max-w-2xl">
                 <button type="button" onclick="toggleSettingsModule('gcal')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
                     <span class="min-w-0">
                         <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-brands fa-google text-indigo-500"></i> Google Calendar</span>
@@ -833,6 +800,39 @@
                         <button onclick="document.getElementById('importJsonInput').click()" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
                             <i class="fa-solid fa-file-import"></i> 還原備份
                         </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm max-w-2xl">
+                <button type="button" onclick="toggleSettingsModule('general')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
+                    <span class="min-w-0">
+                        <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-sliders text-slate-500"></i> 一般</span>
+                        <span class="block text-xs text-slate-500 mt-0.5">薪酬口徑、發送中心 WhatsApp 行為</span>
+                    </span>
+                    <i id="smodChev_general" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
+                </button>
+                <div id="smod_general" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
+                    <label class="flex items-start gap-3 text-sm cursor-pointer">
+                        <input type="checkbox" id="setPayNoShow" class="mt-0.5 w-4 h-4 accent-sky-600">
+                        <span>
+                            <span class="font-bold text-slate-700">缺席（NOSHOW）計入導師薪酬</span>
+                            <!-- TODO(跟老闆確認)：NOSHOW 計薪預設值，目前預設計入 -->
+                            <span class="block text-xs text-slate-500 mt-0.5">學生無故缺席但導師已到場，該堂照計工資（高級薪酬「匯入學生及課堂」時生效）。</span>
+                        </span>
+                    </label>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">發送中心：點開 WhatsApp 後的處理</label>
+                        <select id="setWaSentMode" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white">
+                            <option value="confirm">安全（預設）：標記「已開啟」＋切回本頁時詢問是否已發</option>
+                            <option value="badge">最保守：只標記「已開啟」，不詢問、不自動移欄</option>
+                            <option value="auto">進取：點開 WhatsApp 即自動移到「已發送」（可移回撤銷）</option>
+                        </select>
+                        <p class="text-xs text-slate-500 mt-1">瀏覽器無法得知訊息在 WhatsApp 裡是否真的送出，此選項決定「點開連結」如何對應「已發送」。</p>
+                    </div>
+                    <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
+                        <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5"><i class="fa-solid fa-floppy-disk"></i> 儲存設定</button>
+                        <span class="settings-saved-hint hidden text-xs text-emerald-600 font-semibold"><i class="fa-solid fa-check"></i> 已儲存</span>
                     </div>
                 </div>
             </div>
