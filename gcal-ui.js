@@ -661,17 +661,16 @@ function resetAllScheduleData() {
         persistSendlog();
         // 高級薪酬一併歸零：匯入的行、調整項、封存糧單（拆帳％與深色模式屬設定，保留）
         if (typeof advancedPayrollState !== 'undefined') {
-            advancedPayrollState.rows = [];
+            advancedPayrollState.summary = null;
             advancedPayrollState.adjustments = [];
             advancedPayrollState.archives = [];
             try {
                 localStorage.removeItem('gac_adjustments');
                 localStorage.removeItem('gac_payroll_archives');
             } catch (e) { /* 忽略 */ }
-            if (typeof advancedRenderRows === 'function') advancedRenderRows();
             if (typeof advancedRenderAdjustments === 'function') advancedRenderAdjustments();
             if (typeof advancedRenderArchives === 'function') advancedRenderArchives();
-            if (typeof advancedCalculate === 'function') advancedCalculate();
+            if (typeof advancedRefresh === 'function') advancedRefresh();
         }
         rebuildMonthContext();
         renderAll();

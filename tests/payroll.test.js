@@ -95,3 +95,37 @@ test('E6: 導師節數——樂理五人小組同時段算 1 節；成員的一�
     });
     assert.strictEqual(P.tutorSessions(buckets, '2026-09')['Instructor B'], 3);
 });
+
+test('E7: monthPayroll——預期＝已確認＋待確認（請假不計）；按導師與報讀項目分組；小組同時段算一節；NOSHOW 開關', () => {
+    const buckets = { '2026-09': S.generateMonthLessons(student(), '2026-09') }; // S001 週二 ×5，Instructor A
+    LS.markStatus(buckets, 'S001-20260901-2130', 'ATTENDED');
+    LS.markStatus(buckets, 'S001-20260908-2130', 'NOSHOW');
+    LS.markStatus(buckets, 'S001-20260915-2130', 'LEAVE', { leaveType: 'L' });
+    // 另一位導師的小組課：兩位成員同時段兩堂
+    const g = (date, sid, status) => ({
+        lessonId: sid + '-G01-' + date, studentId: sid, studentName: sid, tutor: 'Instructor B', date: date, time: '15:00',
+        duration: 60, status: status, leaveType: '', isMakeup: false, groupId: 'G01', groupName: '樂理小組',
+        program: 'Music Theory', level: 'Grade 5'
+    });
+    buckets['2026-09'].push(g('2026-09-05', 'S020', 'ATTENDED'), g('2026-09-05', 'S021', 'ATTENDED'),
+        g('2026-09-12', 'S020', 'SCHEDULED'), g('2026-09-12', 'S021', 'SCHEDULED'));
+    const r = P.monthPayroll(buckets, '2026-09', { rateFn: l => (l.groupId ? 100 : 300) });
+    assert.deepStrictEqual(r.tutors.map(t => t.tutor), ['Instructor A', 'Instructor B']);
+    const a = r.tutors[0], b = r.tutors[1];
+    assert.deepStrictEqual([a.current, a.pending, a.expected], [2, 2, 4], '請假那堂不計；NOSHOW 預設算已確認');
+    assert.deepStrictEqual([a.currentGross, a.expectedGross], [600, 1200]);
+    assert.deepStrictEqual([a.currentSessions, a.expectedSessions], [2, 4], '一對一每堂一節');
+    assert.strictEqual(a.items.length, 1);
+    assert.deepStrictEqual([a.items[0].studentId, a.items[0].rate, a.items[0].current, a.items[0].pending], ['S001', 300, 2, 2]);
+    assert.deepStrictEqual([b.current, b.pending, b.expected], [2, 2, 4], '小組按人次');
+    assert.deepStrictEqual([b.currentSessions, b.expectedSessions], [1, 2], '小組同時段算一節');
+    assert.deepStrictEqual([b.currentGross, b.expectedGross], [200, 400]);
+    assert.deepStrictEqual(b.items.map(i => [i.studentId, i.groupName, i.current]), [['S020', '樂理小組', 1], ['S021', '樂理小組', 1]]);
+    assert.deepStrictEqual([r.totals.current, r.totals.pending, r.totals.expected], [4, 4, 8]);
+    assert.deepStrictEqual([r.totals.currentGross, r.totals.expectedGross], [800, 1600]);
+    assert.deepStrictEqual([r.totals.currentSessions, r.totals.expectedSessions], [3, 6]);
+    // NOSHOW 不計薪：那堂既非已確認也非待確認
+    const off = P.monthPayroll(buckets, '2026-09', { payNoShow: false, rateFn: () => 300 });
+    assert.deepStrictEqual([off.tutors[0].current, off.tutors[0].pending, off.tutors[0].expected], [1, 2, 3]);
+    assert.deepStrictEqual(P.monthPayroll(buckets, '2026-01', {}), { tutors: [], totals: { expected: 0, current: 0, pending: 0, expectedGross: 0, currentGross: 0, expectedSessions: 0, currentSessions: 0 } }, '空月份');
+});

@@ -308,6 +308,8 @@
                 renderSendCenter();
             } else if (tabId === 'paymentTab') {
                 renderPaymentTab();
+            } else if (tabId === 'advancedPayrollTab') {
+                advancedRefresh();
             } else if (tabId === 'analyticsTab') {
                 renderAnalytics();
             } else if (tabId === 'historyTab') {
@@ -813,9 +815,11 @@
             renderMasterCalendarView();
             renderSendCenter();
             renderPaymentTab();
-            // 數據分析只在頁籤可見時重算（圖表重建有成本）
+            // 數據分析與薪酬只在頁籤可見時重算（圖表重建／整月彙總有成本）
             const anaTab = document.getElementById('analyticsTab');
             if (anaTab && !anaTab.classList.contains('hidden')) renderAnalytics();
+            const payTab = document.getElementById('advancedPayrollTab');
+            if (payTab && !payTab.classList.contains('hidden') && typeof advancedRefresh === 'function') advancedRefresh();
         }
 
         // 兩種視圖：清單（操作）＋月曆（總覽）。原「週曆」已移除——清單按週次過濾＋月曆已完全覆蓋其用途。
@@ -3328,7 +3332,6 @@
             if (!chk) return;
             chk.checked = appSettings.payNoShow !== false;
             document.getElementById('setWaSentMode').value = appSettings.waSentMode || 'confirm';
-            document.getElementById('setPublicIcsUrl').value = appSettings.publicIcsUrl || '';
             document.getElementById('setGcalClientId').value = appSettings.gcalClientId || '';
             document.getElementById('setGcalCalendarId').value = appSettings.gcalCalendarId || 'primary';
             document.getElementById('setGcalWrite').checked = appSettings.gcalWrite !== false;
@@ -3385,7 +3388,6 @@
         function saveSettingsForm() {
             appSettings.payNoShow = document.getElementById('setPayNoShow').checked;
             appSettings.waSentMode = document.getElementById('setWaSentMode').value || 'confirm';
-            appSettings.publicIcsUrl = document.getElementById('setPublicIcsUrl').value.trim();
             appSettings.gcalClientId = document.getElementById('setGcalClientId').value.trim();
             appSettings.gcalCalendarId = document.getElementById('setGcalCalendarId').value.trim() || 'primary';
             appSettings.gcalWrite = !!document.getElementById('setGcalWrite').checked;

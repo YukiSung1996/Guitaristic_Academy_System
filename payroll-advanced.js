@@ -1,12 +1,17 @@
+// payroll-advanced.js — 高級薪酬管理頁
+// 一句話模型：**預期**＝本月排定的課全部上完能拿多少；**目前應付**＝已確認出席的課現在該付多少。
+// 數字全部由課表算出（lib/payroll.js monthPayroll），頁面不可手改堂數——要加減錢請用「額外津貼／扣款」。
+//   已確認＝ATTENDED（NOSHOW 依設定 payNoShow）；待確認＝SCHEDULED；請假不算（其補堂是另一筆課堂記錄，落在補堂當月）。
 const advancedPayrollState = {
-  rows: [],
   adjustments: JSON.parse(localStorage.getItem('gac_adjustments') || '[]'),
   archives: JSON.parse(localStorage.getItem('gac_payroll_archives') || '[]'),
   share: Number(localStorage.getItem('gac_tutor_share_pct') || 50),
-  events: []
+  summary: null,          // 最近一次 monthPayroll 的結果
+  openTutors: new Set()   // 明細展開中的導師
 };
 
-// 導師級別（計費用）：學生／小組／課堂記錄自帶 tutorLevel；缺少時回退示範對應（Instructor B＝資深）
+// ===== 查價（其他頁面也用：學費訊息 rateForLesson、數據分析、繳費表）=====
+// 導師級別（計費用）：學生／小組／課堂記錄自帶 tutorLevel；缺少時回退導師名單，再回退示範對應（Instructor B＝資深）
 function advancedTutor(student) {
   if (student && student.tutorLevel) return student.tutorLevel;
   const fromList = (typeof tutorTier === 'function') ? tutorTier(student && student.tutor) : null; // 導師名單（設定頁）
@@ -40,57 +45,207 @@ function advancedMoney(value) {
   return `HK$ ${Number(value || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 }
 
-// 按導師分組渲染：每位導師一行小計（學生行數／人次堂數／導師節數／課程總額／導師應得），
-// 「隱藏 0 堂學生」勾選時 0 堂行不顯示（仍在資料中，取消勾選即回來）。
-// 行內編輯用原始 index 映射回 state.rows，分組不影響編輯/刪除。
-function advancedRenderRows() {
-  const body = document.querySelector('#advancedPayrollBody');
-  if (!body) return;
-  const hideZero = !!document.getElementById('advancedHideZero')?.checked;
-  const share = advancedPayrollState.share;
-  const sessions = advancedPayrollState.sessions || null;
-  const groups = new Map();
-  advancedPayrollState.rows.forEach((row, index) => {
-    if (!groups.has(row.tutor)) groups.set(row.tutor, []);
-    groups.get(row.tutor).push({ row, index });
-  });
-  const parts = [];
-  let hiddenCount = 0;
-  groups.forEach((items, tutor) => {
-    const gross = items.reduce((s, x) => s + x.row.lessons * x.row.rate, 0);
-    const headcount = items.reduce((s, x) => s + x.row.lessons, 0);
-    const sess = sessions ? (sessions[tutor] || 0) : null;
-    parts.push(`<tr class="advanced-tutor-head"><td colspan="7"><b>👨‍🏫 ${tutor}</b>　學生 ${items.length} 行｜人次 ${headcount} 堂${sess !== null ? `｜導師節數 ${sess}（小組同時段算 1 節，按課表計）` : ''}｜課程總額 ${advancedMoney(gross)}｜導師應得（${share}%）<b>${advancedMoney(gross * share / 100)}</b></td></tr>`);
-    items.forEach(({ row, index }) => {
-      if (hideZero && !row.lessons) { hiddenCount++; return; }
-      parts.push(`<tr><td>${row.id}</td><td>${row.name}</td><td>${row.tutor}</td><td><input data-advanced-lessons="${index}" type="number" min="0" value="${row.lessons}"></td><td>${advancedMoney(row.rate)}</td><td>${advancedMoney(row.lessons * row.rate)}</td><td><button type="button" data-remove-advanced="${index}">刪除</button></td></tr>`);
-    });
-  });
-  if (hiddenCount) parts.push(`<tr><td colspan="7" style="color:#94a3b8;font-size:.72rem">已隱藏 ${hiddenCount} 行 0 堂學生（取消「隱藏 0 堂學生」勾選可顯示）。</td></tr>`);
-  body.innerHTML = parts.join('') || '<tr><td colspan="7">請從學生資料匯入薪酬資料。</td></tr>';
-  body.querySelectorAll('[data-advanced-lessons]').forEach(input => input.addEventListener('input', () => { advancedPayrollState.rows[Number(input.dataset.advancedLessons)].lessons = Number(input.value) || 0; advancedCalculate(); }));
-  body.querySelectorAll('[data-remove-advanced]').forEach(button => button.addEventListener('click', () => { advancedPayrollState.rows.splice(Number(button.dataset.removeAdvanced), 1); advancedRenderRows(); advancedCalculate(); }));
+function advancedMonth() {
+  return document.getElementById('advancedPayrollMonth')?.value || '';
 }
 
-function advancedRenderAdjustments() {
-  const body = document.querySelector('#advancedAdjustmentsBody');
-  if (!body) return;
-  body.innerHTML = advancedPayrollState.adjustments.map((item, index) => `<tr><td><input data-adjust-name="${index}" value="${item.name || ''}"></td><td><select data-adjust-type="${index}"><option value="add" ${item.type === 'add' ? 'selected' : ''}>津貼 / 獎金 (+)</option><option value="sub" ${item.type === 'sub' ? 'selected' : ''}>扣除款項 (-)</option></select></td><td><input data-adjust-amount="${index}" type="number" value="${item.amount || 0}"></td><td><button type="button" data-remove-adjust="${index}">刪除</button></td></tr>`).join('') || '<tr><td colspan="4">沒有調整項目。</td></tr>';
-  body.querySelectorAll('[data-adjust-name],[data-adjust-type],[data-adjust-amount]').forEach(input => input.addEventListener('change', () => { const index = Number(input.dataset.adjustName ?? input.dataset.adjustType ?? input.dataset.adjustAmount); const item = advancedPayrollState.adjustments[index]; item.name = body.querySelector(`[data-adjust-name="${index}"]`).value; item.type = body.querySelector(`[data-adjust-type="${index}"]`).value; item.amount = Number(body.querySelector(`[data-adjust-amount="${index}"]`).value) || 0; localStorage.setItem('gac_adjustments', JSON.stringify(advancedPayrollState.adjustments)); advancedCalculate(); }));
-  body.querySelectorAll('[data-remove-adjust]').forEach(button => button.addEventListener('click', () => { advancedPayrollState.adjustments.splice(Number(button.dataset.removeAdjust), 1); localStorage.setItem('gac_adjustments', JSON.stringify(advancedPayrollState.adjustments)); advancedRenderAdjustments(); advancedCalculate(); }));
+// ===== 調整項目：可指定導師（算進該導師的應付）或留空＝全月不分導師 =====
+function advancedAdjustFor(tutor) {
+  return advancedPayrollState.adjustments.reduce((sum, item) => {
+    if ((item.tutor || '') !== (tutor || '')) return sum;
+    return sum + (item.type === 'sub' ? -1 : 1) * (Number(item.amount) || 0);
+  }, 0);
 }
 
-function advancedCalculate() {
-  const gross = advancedPayrollState.rows.reduce((sum, row) => sum + row.lessons * row.rate, 0);
-  const adjustments = advancedPayrollState.adjustments.reduce((sum, item) => sum + (item.type === 'sub' ? -1 : 1) * Number(item.amount || 0), 0);
-  const payout = gross * advancedPayrollState.share / 100 + adjustments;
+function advancedAdjustTotal() {
+  return advancedPayrollState.adjustments.reduce((sum, item) => sum + (item.type === 'sub' ? -1 : 1) * (Number(item.amount) || 0), 0);
+}
+
+function advancedSaveAdjustments() {
+  localStorage.setItem('gac_adjustments', JSON.stringify(advancedPayrollState.adjustments));
+}
+
+// 某導師的應付：課程總額 × 拆帳 ％ ＋ 指名給他的調整項目
+function advancedTutorPayout(t, which) {
+  const gross = which === 'expected' ? t.expectedGross : t.currentGross;
+  return gross * advancedPayrollState.share / 100 + advancedAdjustFor(t.tutor);
+}
+
+function advancedTotalPayout(summary, which) {
+  const tutors = (summary && summary.tutors) || [];
+  const named = tutors.reduce((sum, t) => sum + advancedTutorPayout(t, which), 0);
+  const unassigned = advancedAdjustFor(''); // 沒指名導師的調整
+  return named + unassigned;
+}
+
+// ===== 主流程：重新由課表計算並重繪整頁 =====
+function advancedRefresh() {
+  const monthKey = advancedMonth();
+  if (!monthKey) return;
+  const payNoShow = typeof appSettings === 'undefined' || !appSettings || appSettings.payNoShow !== false;
+  advancedPayrollState.summary = GACPayroll.monthPayroll(lessonsByMonth, monthKey, { payNoShow, rateFn: rateForLesson });
+  advancedRenderExpiredWarning(monthKey);
+  advancedRenderSummary();
+  advancedRenderTutors();
+  advancedRenderAdjustments();
+  advancedRenderArchives();
+}
+
+function advancedRenderSummary() {
+  const s = advancedPayrollState.summary;
   const set = (id, value) => { const node = document.getElementById(id); if (node) node.textContent = value; };
-  const headcount = advancedPayrollState.rows.reduce((sum, row) => sum + row.lessons, 0);
-  const sess = advancedPayrollState.sessions;
-  const sessTotal = sess ? Object.keys(sess).reduce((sum, k) => sum + sess[k], 0) : null;
-  set('advancedGross', advancedMoney(gross)); set('advancedPayout', advancedMoney(payout));
-  set('advancedLessons', sessTotal !== null ? `${headcount}（節數 ${sessTotal}）` : String(headcount));
-  set('advancedAdjustmentTotal', advancedMoney(adjustments));
+  if (!s) return;
+  const t = s.totals;
+  set('advPayExpected', advancedMoney(advancedTotalPayout(s, 'expected')));
+  set('advPayCurrent', advancedMoney(advancedTotalPayout(s, 'current')));
+  set('advPayPending', `${t.pending} 堂`);
+  set('advPayAdjust', advancedMoney(advancedAdjustTotal()));
+  const pct = t.expected ? Math.round(t.current / t.expected * 100) : 0;
+  const bar = document.getElementById('advPayBar');
+  if (bar) bar.style.width = pct + '%';
+  set('advPayProgress', t.expected
+    ? `已確認 ${t.current} / 預期 ${t.expected} 堂（${pct}%）　·　導師節數 ${t.currentSessions} / ${t.expectedSessions}　·　課程總額 ${advancedMoney(t.currentGross)} / ${advancedMoney(t.expectedGross)}`
+    : '此月份沒有排定課堂——到「總課表」選月份並按「生成」。');
+}
+
+function toggleAdvTutor(name) {
+  const set = advancedPayrollState.openTutors;
+  if (set.has(name)) set.delete(name); else set.add(name);
+  advancedRenderTutors();
+}
+
+function advancedRenderTutors() {
+  const box = document.getElementById('advancedTutorList');
+  const s = advancedPayrollState.summary;
+  if (!box || !s) return;
+  const esc = (typeof escapeHtml === 'function') ? escapeHtml : (x => String(x));
+  const share = advancedPayrollState.share;
+  if (!s.tutors.length) {
+    box.innerHTML = '<div class="p-6 text-center text-slate-400 text-xs">📭 此月份沒有可計薪的課堂。</div>';
+    return;
+  }
+  box.innerHTML = s.tutors.map(t => {
+    const open = advancedPayrollState.openTutors.has(t.tutor);
+    const adj = advancedAdjustFor(t.tutor);
+    const rows = t.items.map(i => `<tr>
+        <td class="p-2">${esc(i.studentName)} <span class="text-slate-400">(${esc(i.studentId)})</span></td>
+        <td class="p-2 text-slate-600">${i.groupName ? esc(i.groupName) : '個別課'}<span class="text-slate-400"> · ${esc(i.program)} ${esc(i.level)}</span></td>
+        <td class="p-2 text-right">${advancedMoney(i.rate)}</td>
+        <td class="p-2 text-center font-semibold text-emerald-700">${i.current}</td>
+        <td class="p-2 text-center ${i.pending ? 'text-amber-600 font-semibold' : 'text-slate-400'}">${i.pending}</td>
+        <td class="p-2 text-right font-semibold">${advancedMoney(i.current * i.rate)}</td>
+        <td class="p-2 text-right text-slate-500">${advancedMoney(i.expected * i.rate)}</td>
+      </tr>`).join('');
+    return `<div class="border border-slate-200 rounded-xl overflow-hidden">
+        <button type="button" onclick="toggleAdvTutor('${esc(t.tutor).replace(/'/g, "\\'")}')" class="w-full flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-left text-xs hover:bg-slate-50">
+          <i class="fa-solid fa-chevron-${open ? 'down' : 'right'} text-slate-400 text-[10px]"></i>
+          <b class="text-slate-800">${esc(t.tutor)}</b>
+          <span class="text-slate-500">已確認 <b class="text-emerald-700">${t.current}</b> / 預期 ${t.expected} 堂${t.pending ? `　·　<b class="text-amber-600">${t.pending} 堂待確認</b>` : ''}　·　節數 ${t.currentSessions}/${t.expectedSessions}</span>
+          <span class="ml-auto text-right">
+            <span class="block text-slate-800 font-bold">目前應付 ${advancedMoney(advancedTutorPayout(t, 'current'))}</span>
+            <span class="block text-[10px] text-slate-400">預期 ${advancedMoney(advancedTutorPayout(t, 'expected'))}${adj ? `（含調整 ${advancedMoney(adj)}）` : ''}</span>
+          </span>
+        </button>
+        ${open ? `<div class="border-t border-slate-100 overflow-x-auto">
+          <table class="w-full text-xs text-left">
+            <thead class="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider">
+              <tr><th class="p-2">學生</th><th class="p-2">報讀項目</th><th class="p-2 text-right">每堂</th><th class="p-2 text-center">已確認</th><th class="p-2 text-center">待確認</th><th class="p-2 text-right">已確認金額</th><th class="p-2 text-right">預期金額</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">${rows}</tbody>
+            <tfoot class="bg-slate-50 font-bold text-slate-700">
+              <tr><td class="p-2" colspan="3">課程總額</td><td class="p-2 text-center">${t.current}</td><td class="p-2 text-center">${t.pending}</td><td class="p-2 text-right">${advancedMoney(t.currentGross)}</td><td class="p-2 text-right">${advancedMoney(t.expectedGross)}</td></tr>
+              <tr><td class="p-2" colspan="5">導師應得（拆帳 ${share}%${adj ? `，含指名調整 ${advancedMoney(adj)}` : ''}）</td><td class="p-2 text-right">${advancedMoney(advancedTutorPayout(t, 'current'))}</td><td class="p-2 text-right">${advancedMoney(advancedTutorPayout(t, 'expected'))}</td></tr>
+            </tfoot>
+          </table></div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+// ===== 額外津貼／扣款：頁面唯一可手改金額的地方 =====
+function advancedRenderAdjustments() {
+  const body = document.getElementById('advancedAdjustmentsBody');
+  if (!body) return;
+  const esc = (typeof escapeHtml === 'function') ? escapeHtml : (x => String(x));
+  const names = (typeof allTutorNames === 'function') ? allTutorNames() : [];
+  const inp = 'w-full px-2 py-1 border border-slate-300 rounded-lg text-xs';
+  body.innerHTML = advancedPayrollState.adjustments.map((item, index) => `<tr>
+      <td class="p-2"><input data-adjust-name="${index}" value="${esc(item.name || '')}" placeholder="例如：交通津貼" class="${inp}"></td>
+      <td class="p-2"><select data-adjust-tutor="${index}" class="${inp} bg-white"><option value="">全月（不分導師）</option>${names.map(n => `<option value="${esc(n)}"${(item.tutor || '') === n ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></td>
+      <td class="p-2"><select data-adjust-type="${index}" class="${inp} bg-white"><option value="add"${item.type === 'add' ? ' selected' : ''}>津貼／獎金 (+)</option><option value="sub"${item.type === 'sub' ? ' selected' : ''}>扣除款項 (−)</option></select></td>
+      <td class="p-2"><input data-adjust-amount="${index}" type="number" min="0" value="${Number(item.amount) || 0}" class="${inp} text-right"></td>
+      <td class="p-2 text-right"><button type="button" data-remove-adjust="${index}" class="px-2 py-1 text-rose-600 hover:bg-rose-50 rounded-lg" title="刪除此項"><i class="fa-solid fa-trash-can"></i></button></td>
+    </tr>`).join('') || '<tr><td colspan="5" class="p-4 text-center text-slate-400 text-xs">沒有調整項目。薪酬數字全部由課表計算，要加減錢（津貼、扣款、補回漏算的堂）就在這裡新增一筆。</td></tr>';
+  body.querySelectorAll('[data-adjust-name],[data-adjust-type],[data-adjust-amount],[data-adjust-tutor]').forEach(input => input.addEventListener('change', () => {
+    const index = Number(input.dataset.adjustName ?? input.dataset.adjustType ?? input.dataset.adjustAmount ?? input.dataset.adjustTutor);
+    const item = advancedPayrollState.adjustments[index];
+    item.name = body.querySelector(`[data-adjust-name="${index}"]`).value;
+    item.tutor = body.querySelector(`[data-adjust-tutor="${index}"]`).value;
+    item.type = body.querySelector(`[data-adjust-type="${index}"]`).value;
+    item.amount = Number(body.querySelector(`[data-adjust-amount="${index}"]`).value) || 0;
+    advancedSaveAdjustments();
+    advancedRenderSummary();
+    advancedRenderTutors();
+  }));
+  body.querySelectorAll('[data-remove-adjust]').forEach(button => button.addEventListener('click', () => {
+    advancedPayrollState.adjustments.splice(Number(button.dataset.removeAdjust), 1);
+    advancedSaveAdjustments();
+    advancedRenderAdjustments();
+    advancedRenderSummary();
+    advancedRenderTutors();
+  }));
+}
+
+function advancedAddAdjustment() {
+  advancedPayrollState.adjustments.push({ name: '額外調整', tutor: '', type: 'add', amount: 0 });
+  advancedSaveAdjustments();
+  advancedRenderAdjustments();
+  advancedRenderSummary();
+  advancedRenderTutors();
+}
+
+// ===== 歷史封存：把當下的「目前應付」存成一筆紀錄（發了薪就封存，之後可對照）=====
+function advancedSaveArchive() {
+  const s = advancedPayrollState.summary;
+  const monthKey = advancedMonth();
+  if (!s || !monthKey) return;
+  advancedPayrollState.archives.unshift({
+    savedAt: new Date().toLocaleString('zh-HK'),
+    month: monthKey,
+    share: advancedPayrollState.share,
+    lessons: s.totals.current,
+    gross: s.totals.currentGross,
+    payout: advancedTotalPayout(s, 'current'),
+    tutors: s.tutors.map(t => ({ tutor: t.tutor, lessons: t.current, gross: t.currentGross, payout: advancedTutorPayout(t, 'current') })),
+    adjustments: JSON.parse(JSON.stringify(advancedPayrollState.adjustments))
+  });
+  localStorage.setItem('gac_payroll_archives', JSON.stringify(advancedPayrollState.archives));
+  advancedRenderArchives();
+  if (typeof showToast === 'function') showToast(`✅ 已封存 ${monthKey} 糧單：${advancedMoney(advancedTotalPayout(s, 'current'))}`);
+}
+
+function advancedDeleteArchive(index) {
+  advancedPayrollState.archives.splice(index, 1);
+  localStorage.setItem('gac_payroll_archives', JSON.stringify(advancedPayrollState.archives));
+  advancedRenderArchives();
+}
+
+function advancedRenderArchives() {
+  const body = document.getElementById('advancedArchivesBody');
+  if (!body) return;
+  const esc = (typeof escapeHtml === 'function') ? escapeHtml : (x => String(x));
+  body.innerHTML = advancedPayrollState.archives.map((a, index) => {
+    const who = Array.isArray(a.tutors) && a.tutors.length
+      ? a.tutors.map(t => `${esc(t.tutor)} ${advancedMoney(t.payout)}`).join('、')
+      : '<span class="text-slate-400">舊格式紀錄</span>';
+    return `<tr>
+      <td class="p-2 whitespace-nowrap"><b>${esc(a.month || '—')}</b><div class="text-[10px] text-slate-400">${esc(a.savedAt || '')}</div></td>
+      <td class="p-2 text-center">${a.lessons === undefined ? '—' : a.lessons}</td>
+      <td class="p-2 text-right">${a.gross === undefined ? '—' : advancedMoney(a.gross)}</td>
+      <td class="p-2 text-right font-bold">${a.payout === undefined ? '—' : advancedMoney(a.payout)}</td>
+      <td class="p-2 text-slate-500">${who}</td>
+      <td class="p-2 text-right"><button type="button" onclick="advancedDeleteArchive(${index})" class="px-2 py-1 text-rose-600 hover:bg-rose-50 rounded-lg" title="刪除此封存"><i class="fa-solid fa-trash-can"></i></button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" class="p-4 text-center text-slate-400 text-xs">沒有封存紀錄。發了薪之後按「封存本月糧單」留一筆存底。</td></tr>';
 }
 
 function advancedTodayStr() {
@@ -98,45 +253,14 @@ function advancedTodayStr() {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
-// v2：工資只算實際上了的課（ATTENDED；NOSHOW 由設定 payNoShow 控制，預設計入 // TODO 跟老闆確認），
-// 按實際上課日期歸屬月份，數據源是 gac_lessons_v2（不再依賴內存課表）。
-function advancedImportStudents() {
-  const monthKey = document.getElementById('advancedPayrollMonth')?.value || '';
-  if (!monthKey) { alert('請先選擇薪酬月份！'); return; }
-  const payNoShow = !appSettings || appSettings.payNoShow !== false;
-  // 每個「報讀項目」一行：學生的個別課一行（有個別課或有個別可計薪堂數才列）＋ 每個小組的每位成員一行
-  const payable = GACPayroll.payableLessons(lessonsByMonth, monthKey, {payNoShow});
-  const rows = [];
-  studentDatabase.forEach(student => {
-    const n = payable.filter(l => l.studentId === student.id && !l.groupId).length;
-    if (student.weekday === null || student.weekday === undefined || student.weekday === '') { if (!n) return; }
-    rows.push({id: student.id, name: student.name, tutor: student.tutor, rate: advancedRate(student), lessons: n});
-  });
-  (typeof groupClasses !== 'undefined' ? groupClasses : []).forEach(g => {
-    const gRate = advancedRate({ program: g.program, level: g.level, type: (g.memberIds || []).length + '人小組', duration: g.duration, tutor: g.tutor, tutorLevel: g.tutorLevel });
-    (g.memberIds || []).forEach(sid => {
-      const stu = studentDatabase.find(s => s.id === sid);
-      if (!stu) return;
-      const n = payable.filter(l => l.studentId === sid && l.groupId === g.id).length;
-      rows.push({id: sid, name: `${stu.name} @ ${g.name}`, tutor: g.tutor, rate: gRate, lessons: n, groupId: g.id});
-    });
-  });
-  advancedPayrollState.rows = rows;
-  // 導師節數（小組同時段算 1 節）按課表計算；手改堂數只影響金額，不影響節數
-  advancedPayrollState.sessions = GACPayroll.tutorSessions(lessonsByMonth, monthKey, {payNoShow});
-  advancedRenderExpiredWarning(monthKey);
-  advancedRenderRows(); advancedCalculate();
-}
-
-// 計算前置檢查：列出「日期已過但仍是已排課」的課（即忘了確認出席的），可跳轉去批量確認。
-// 未確認完也允許繼續計算（堂數 input 手改仍是 escape hatch）。
+// 計算前置檢查：列出「日期已過但仍是已排課」的課（即忘了確認出席的）——這些課只在「預期」裡，不在「目前應付」
 function advancedRenderExpiredWarning(monthKey) {
   const box = document.getElementById('advancedExpiredWarning');
   if (!box) return;
   const expired = GACPayroll.expiredScheduled(lessonsByMonth, monthKey, advancedTodayStr());
   if (!expired.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
   box.classList.remove('hidden');
-  box.innerHTML = `<div class="font-bold">⚠️ ${monthKey} 有 ${expired.length} 堂課「日期已過但仍是已排課」，未確認出席的課不會計入工資：</div>` +
+  box.innerHTML = `<div class="font-bold">⚠️ ${monthKey} 有 ${expired.length} 堂課「日期已過但仍是已排課」，未確認出席前只算在「預期」、不算「目前應付」：</div>` +
     `<div>${expired.map(l => `${l.date} ${l.time} ${l.studentName}`).join('、')}</div>` +
     `<button onclick="advancedGoConfirm('${monthKey}')" class="mt-1 px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded font-bold">前往總表批量確認出席</button>`;
 }
@@ -149,68 +273,29 @@ function advancedGoConfirm(monthKey) {
   renderAll();
 }
 
-function advancedAddAdjustment() {
-  advancedPayrollState.adjustments.push({name: '額外調整', type: 'add', amount: 0});
-  localStorage.setItem('gac_adjustments', JSON.stringify(advancedPayrollState.adjustments)); advancedRenderAdjustments();
-}
-
-function advancedSaveArchive() {
-  const record = {savedAt: new Date().toLocaleString('zh-HK'), month: document.getElementById('advancedPayrollMonth').value, share: advancedPayrollState.share, rows: structuredClone(advancedPayrollState.rows), adjustments: structuredClone(advancedPayrollState.adjustments)};
-  advancedPayrollState.archives.unshift(record); localStorage.setItem('gac_payroll_archives', JSON.stringify(advancedPayrollState.archives)); advancedRenderArchives();
-}
-
-function advancedRenderArchives() {
-  const body = document.querySelector('#advancedArchivesBody'); if (!body) return;
-  body.innerHTML = advancedPayrollState.archives.map((archive, index) => `<tr><td>${archive.savedAt}</td><td>${archive.month}</td><td><button type="button" data-restore-advanced="${index}">載入</button><button type="button" data-delete-advanced="${index}">刪除</button></td></tr>`).join('') || '<tr><td colspan="3">沒有封存紀錄。</td></tr>';
-  body.querySelectorAll('[data-restore-advanced]').forEach(button => button.addEventListener('click', () => { const archive = advancedPayrollState.archives[Number(button.dataset.restoreAdvanced)]; advancedPayrollState.rows = structuredClone(archive.rows); advancedPayrollState.adjustments = structuredClone(archive.adjustments); advancedPayrollState.share = archive.share; advancedPayrollState.sessions = null; /* 封存不含節數，載入後不顯示以免誤導 */ document.getElementById('advancedShare').value = archive.share; advancedRenderRows(); advancedRenderAdjustments(); advancedCalculate(); }));
-  body.querySelectorAll('[data-delete-advanced]').forEach(button => button.addEventListener('click', () => { advancedPayrollState.archives.splice(Number(button.dataset.deleteAdvanced), 1); localStorage.setItem('gac_payroll_archives', JSON.stringify(advancedPayrollState.archives)); advancedRenderArchives(); }));
-}
-
-function advancedExport() {
-  const payload = {month: document.getElementById('advancedPayrollMonth').value, share: advancedPayrollState.share, rows: advancedPayrollState.rows, adjustments: advancedPayrollState.adjustments};
-  const link = document.createElement('a'); link.href = `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(payload, null, 2))}`; link.download = `Guitaristic_payroll_${payload.month}.json`; link.click();
-}
-
-function advancedParseManualLogs() {
-  const input = document.getElementById('advancedManualLogs');
-  const text = input?.value.trim(); if (!text) return;
-  const parsed = text.split(/\r?\n/).map(line => line.match(/(\d{1,2})[\/-](\d{1,2}).*?(\d+)\s*(?:堂|lesson)?/i)).filter(Boolean);
-  advancedPayrollState.events = parsed.map(match => ({date: `${match[1]}/${match[2]}`, lessons: Number(match[3]) || 1}));
-  const notice = document.getElementById('advancedSyncStatus'); if (notice) notice.textContent = `已解析 ${advancedPayrollState.events.length} 行手動紀錄。`;
-}
-
-async function advancedLoadPublicIcs() {
-  const notice = document.getElementById('advancedSyncStatus');
-  // v2：不再內建任何真實網址，改由設定（gac_settings_v2.publicIcsUrl）提供；未設定時提示輸入並保存
-  let url = ((appSettings && appSettings.publicIcsUrl) || '').trim();
-  if (!url) {
-    url = (prompt('請輸入公開 ICS 網址（將保存到設定，之後不需再輸入）：') || '').trim();
-    if (!url) { if (notice) notice.textContent = '未設定公開 ICS 網址，已取消。'; return; }
-    appSettings.publicIcsUrl = url;
-    if (gacStore) gacStore.saveSettings(appSettings);
-  }
-  try {
-    const response = await fetch(url, {cache: 'no-store'});
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const text = await response.text(); advancedPayrollState.events = [...text.matchAll(/DTSTART[^:]*:(\d{8})/g)].map(match => ({date: match[1], lessons: 1}));
-    if (notice) notice.textContent = `公開 ICS 讀取成功：${advancedPayrollState.events.length} 個事件。`;
-  } catch (error) { if (notice) notice.textContent = '公開 ICS 讀取失敗，請改用手動文字解析。'; }
-}
-
 function initAdvancedPayroll() {
-  const month = document.getElementById('advancedPayrollMonth'); if (month) month.value = new Date().toISOString().slice(0, 7);
-  const share = document.getElementById('advancedShare'); if (share) { share.value = advancedPayrollState.share; share.addEventListener('input', () => { advancedPayrollState.share = Math.max(0, Math.min(100, Number(share.value) || 0)); localStorage.setItem('gac_tutor_share_pct', advancedPayrollState.share); advancedCalculate(); }); }
-  document.getElementById('advancedImportStudents')?.addEventListener('click', advancedImportStudents);
-  document.getElementById('advancedHideZero')?.addEventListener('change', advancedRenderRows);
+  const month = document.getElementById('advancedPayrollMonth');
+  if (month) {
+    month.value = new Date().toISOString().slice(0, 7);
+    month.addEventListener('change', advancedRefresh);
+  }
+  const share = document.getElementById('advancedShare');
+  if (share) {
+    share.value = advancedPayrollState.share;
+    share.addEventListener('input', () => {
+      advancedPayrollState.share = Math.max(0, Math.min(100, Number(share.value) || 0));
+      localStorage.setItem('gac_tutor_share_pct', advancedPayrollState.share);
+      advancedRenderSummary();
+      advancedRenderTutors();
+    });
+  }
   document.getElementById('advancedAddAdjustment')?.addEventListener('click', advancedAddAdjustment);
   document.getElementById('advancedSaveArchive')?.addEventListener('click', advancedSaveArchive);
-  document.getElementById('advancedExport')?.addEventListener('click', advancedExport);
-  document.getElementById('advancedParseLogs')?.addEventListener('click', advancedParseManualLogs);
-  document.getElementById('advancedLoadIcs')?.addEventListener('click', advancedLoadPublicIcs);
   const darkButton = document.getElementById('advancedDarkMode');
   if (darkButton) darkButton.addEventListener('click', () => { document.documentElement.classList.toggle('dark'); localStorage.setItem('gac_dark_mode', document.documentElement.classList.contains('dark') ? 'true' : 'false'); });
   if (localStorage.getItem('gac_dark_mode') === 'true') document.documentElement.classList.add('dark');
-  advancedRenderRows(); advancedRenderAdjustments(); advancedRenderArchives(); advancedCalculate();
+  advancedRenderAdjustments();
+  advancedRenderArchives();
 }
 
 window.addEventListener('DOMContentLoaded', initAdvancedPayroll);

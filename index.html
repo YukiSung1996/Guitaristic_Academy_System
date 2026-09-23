@@ -365,56 +365,95 @@
             </div>
         </section>
 
+        <!-- TAB 4: 高級薪酬管理（預期 vs 目前應付；數字全部由課表算出，唯一可手改的是調整項目） -->
         <section id="advancedPayrollTab" class="tab-content hidden space-y-6">
             <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
-                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                    <div><h2 class="text-base font-bold text-slate-800">高級薪酬管理</h2><p class="text-xs text-slate-500">費率表、拆帳、調整項目、日曆紀錄與歷史封存。</p></div>
-                    <div class="flex flex-wrap items-center gap-2 text-xs"><label>月份 <input id="advancedPayrollMonth" type="month" class="p-2 border rounded-lg"></label><label>導師拆帳 <input id="advancedShare" type="number" min="0" max="100" class="w-20 p-2 border rounded-lg">%</label><label class="flex items-center gap-1 font-bold text-slate-600"><input type="checkbox" id="advancedHideZero" checked class="w-4 h-4 accent-amber-500"> 隱藏 0 堂學生</label></div>
+                <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-file-invoice-dollar text-amber-500"></i> 高級薪酬管理</h2>
+                        <p class="text-xs text-slate-500 mt-0.5"><b>預期應付</b>＝本月排定的課全部上完要付多少；<b>目前應付</b>＝已確認出席的課現在要付多少。數字全部由課表算出（請假不計，補堂算在補堂當月），要加減錢請用下面的「額外津貼／扣款」。</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3 text-xs">
+                        <label class="font-bold text-slate-600">月份 <input id="advancedPayrollMonth" type="month" class="ml-1 px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"></label>
+                        <label class="font-bold text-slate-600">導師拆帳 <input id="advancedShare" type="number" min="0" max="100" class="w-16 px-2 py-1.5 border border-slate-300 rounded-lg text-right focus:ring-2 focus:ring-amber-500 focus:outline-none">%</label>
+                    </div>
                 </div>
-                <!-- 計算前置警告：日期已過但未確認出席的課 -->
+                <!-- 計算前置警告：日期已過但未確認出席的課（只算在預期，不算目前應付） -->
                 <div id="advancedExpiredWarning" class="hidden p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 space-y-1"></div>
-                <div class="flex flex-wrap gap-2">
-                    <button id="advancedImportStudents" class="px-3 py-2 bg-sky-600 text-white rounded-lg text-xs font-bold" title="按薪酬月份從課表統計「已上課」堂數（NOSHOW 依設定）">匯入學生及課堂</button>
-                    <button id="advancedAddAdjustment" class="px-3 py-2 bg-amber-500 text-white rounded-lg text-xs font-bold">新增調整項目</button>
-                    <button id="advancedSaveArchive" class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold">封存本月糧單</button>
-                    <button id="advancedExport" class="px-3 py-2 bg-slate-700 text-white rounded-lg text-xs font-bold">導出薪酬 JSON</button>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div class="bg-emerald-50 p-3 rounded-xl border border-emerald-100"><div class="text-[11px] text-emerald-700 font-semibold">目前應付（已確認）</div><div id="advPayCurrent" class="text-lg font-bold text-emerald-800">HK$ 0.00</div></div>
+                    <div class="bg-sky-50 p-3 rounded-xl border border-sky-100"><div class="text-[11px] text-sky-700 font-semibold">本月預期應付</div><div id="advPayExpected" class="text-lg font-bold text-sky-800">HK$ 0.00</div></div>
+                    <div class="bg-amber-50 p-3 rounded-xl border border-amber-100"><div class="text-[11px] text-amber-700 font-semibold">待確認出席</div><div id="advPayPending" class="text-lg font-bold text-amber-800">0 堂</div></div>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200"><div class="text-[11px] text-slate-600 font-semibold">調整合計</div><div id="advPayAdjust" class="text-lg font-bold text-slate-700">HK$ 0.00</div></div>
                 </div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div class="space-y-2"><label class="text-xs font-bold">手動日曆文字</label><textarea id="advancedManualLogs" rows="4" class="w-full p-2 border rounded-lg text-xs" placeholder="8/12 Joseph 1 堂&#10;8/19 Ella 1 堂"></textarea><div class="flex gap-2"><button id="advancedParseLogs" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-xs">解析手動紀錄</button><button id="advancedLoadIcs" class="px-3 py-2 bg-slate-600 text-white rounded-lg text-xs">讀取公開 ICS</button></div><p id="advancedSyncStatus" class="text-xs text-slate-500"></p></div>
-                    <div class="grid grid-cols-3 gap-2 text-center"><div class="p-3 bg-slate-50 rounded-lg"><span class="block text-xs text-slate-500">堂數</span><strong id="advancedLessons">0</strong></div><div class="p-3 bg-slate-50 rounded-lg"><span class="block text-xs text-slate-500">課程總額</span><strong id="advancedGross">HK$ 0.00</strong></div><div class="p-3 bg-amber-50 rounded-lg"><span class="block text-xs text-slate-500">導師應得</span><strong id="advancedPayout">HK$ 0.00</strong></div><div class="p-3 bg-slate-50 rounded-lg col-span-3"><span class="block text-xs text-slate-500">調整合計</span><strong id="advancedAdjustmentTotal">HK$ 0.00</strong></div></div>
+                <div class="space-y-1">
+                    <div class="h-2 w-full bg-slate-100 rounded-full overflow-hidden"><div id="advPayBar" class="h-2 bg-emerald-500 rounded-full transition-all" style="width:0%"></div></div>
+                    <p id="advPayProgress" class="text-[11px] text-slate-500"></p>
                 </div>
-                <div class="table-wrap"><table><thead><tr><th>ID</th><th>學生</th><th>導師</th><th>堂數</th><th>每堂費率</th><th>課程總額</th><th>操作</th></tr></thead><tbody id="advancedPayrollBody"></tbody></table></div>
-                <h3 class="subheading">額外津貼 / 扣款</h3><div class="table-wrap"><table><thead><tr><th>項目</th><th>類型</th><th>金額</th><th>操作</th></tr></thead><tbody id="advancedAdjustmentsBody"></tbody></table></div>
-                <h3 class="subheading">歷史封存</h3><div class="table-wrap"><table><thead><tr><th>封存時間</th><th>月份</th><th>操作</th></tr></thead><tbody id="advancedArchivesBody"></tbody></table></div>
+                <!-- 每位導師一行，點開見每個報讀項目的已確認／待確認堂數與金額 -->
+                <div id="advancedTutorList" class="space-y-2"></div>
+            </div>
+            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-3">
+                <div class="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 pb-3">
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-plus-minus text-amber-500"></i> 額外津貼／扣款</h3>
+                        <p class="text-xs text-slate-500 mt-0.5">本頁唯一可手改金額的地方。指名導師的計入該導師的應付；選「全月」只計入總額。堂數算錯就在這裡補一筆，不要改課表。</p>
+                    </div>
+                    <button id="advancedAddAdjustment" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> 新增調整項目</button>
+                </div>
+                <div class="overflow-x-auto rounded-xl border border-slate-200">
+                    <table class="w-full text-xs text-left">
+                        <thead class="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider"><tr><th class="p-2">項目</th><th class="p-2">歸屬導師</th><th class="p-2">類型</th><th class="p-2">金額</th><th class="p-2"></th></tr></thead>
+                        <tbody id="advancedAdjustmentsBody" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-3">
+                <div class="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 pb-3">
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-box-archive text-emerald-500"></i> 歷史封存</h3>
+                        <p class="text-xs text-slate-500 mt-0.5">發了薪之後按一下，把當時的「目前應付」留一筆存底（只是紀錄，不影響課表）。</p>
+                    </div>
+                    <button id="advancedSaveArchive" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5"><i class="fa-solid fa-floppy-disk"></i> 封存本月糧單</button>
+                </div>
+                <div class="overflow-x-auto rounded-xl border border-slate-200">
+                    <table class="w-full text-xs text-left">
+                        <thead class="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider"><tr><th class="p-2">月份／封存時間</th><th class="p-2 text-center">已確認堂數</th><th class="p-2 text-right">課程總額</th><th class="p-2 text-right">應付</th><th class="p-2">各導師</th><th class="p-2"></th></tr></thead>
+                        <tbody id="advancedArchivesBody" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
             </div>
         </section>
 
         <!-- TAB 5: SEND CENTER 發送中心（雙欄 To-Send / Sent，按月獨立） -->
         <section id="sendTab" class="tab-content hidden space-y-6">
             <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <div class="border-b border-slate-100 pb-3 space-y-3">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
                     <div>
                         <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
                             <i class="fa-solid fa-paper-plane text-teal-500"></i> 發送中心
                         </h2>
                         <p class="text-xs text-slate-500 mt-0.5">學費、請假確認、補堂確認、催繳、收款確認訊息集中處理。訊息內文預設收起（只顯示首行），按卡片上的「訊息」一行展開，或用「展開全部訊息」。學費卡片：發出後可直接登記繳費（與「出席與繳費」同一筆紀錄），「類別」的「學費（全部）」下另有「學費 · 未繳清／已繳清」兩個子篩選。預設：開 WhatsApp 只會標記「已開啟」、切回本頁時詢問是否已發（可在「設定」改為自動移欄或只標記）。</p>
                     </div>
-                    <div class="flex items-center gap-2 text-xs">
-                        <button onclick="openBroadcastModal()" title="自訂訊息內容（支持 {name}／{id} 佔位符），按導師篩選、勾選學生後批量加入「待發送」欄，如調整學費通知" class="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
-                            <i class="fa-solid fa-bullhorn"></i> 自定義群發
-                        </button>
-                        <button id="sendMsgToggleAll" onclick="toggleSendMsgAll()" title="一鍵展開／收起所有卡片的訊息內文（個別卡片按「訊息」那一行亦可單獨開合）" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition flex items-center gap-1.5"></button>
-                        <label class="font-bold text-slate-600">類別：</label>
-                        <!-- 選項由 rebuildSendTypeOptions 動態生成：只列本月存在的類別，自定義按群發名稱列二級子分類 -->
-                        <select id="sendTypeFilter" onchange="renderSendCenter()" class="px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white">
+                    <button onclick="openBroadcastModal()" title="自訂訊息內容（支持 {name}／{id} 佔位符），按導師篩選、勾選學生後批量加入「待發送」欄，如調整學費通知" class="shrink-0 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
+                        <i class="fa-solid fa-bullhorn"></i> 自定義群發
+                    </button>
+                    </div>
+                    <!-- 篩選列：自成一行放在兩欄之上，免得擠在右邊看不見 -->
+                    <div class="flex flex-wrap items-center gap-2 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                        <label class="font-bold text-slate-600">月份：</label>
+                        <input type="month" id="sendMonth" onchange="renderSendCenter()" class="px-2 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:outline-none">
+                        <label class="font-bold text-slate-600 ml-1">類別：</label>
+                        <!-- 選項由 rebuildSendTypeOptions 動態生成：只列本月存在的類別，學費另有繳費狀態子項，自定義按群發名稱列二級子分類 -->
+                        <select id="sendTypeFilter" onchange="renderSendCenter()" class="px-2 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:outline-none bg-white">
                             <option value="ALL">全部類別</option>
                         </select>
                         <!-- 只在篩選到自定義（某批次或全部）時出現：整批刪除，含已發送紀錄 -->
-                        <button id="sendBatchDeleteBtn" onclick="sendDeleteCustomBatch()" title="批量刪除目前篩選的自定義群發條目（含已發送紀錄；其他類別的訊息由系統管理，不可批刪）" class="hidden px-3 py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl text-xs font-bold transition">
+                        <button id="sendBatchDeleteBtn" onclick="sendDeleteCustomBatch()" title="批量刪除目前篩選的自定義群發條目（含已發送紀錄；其他類別的訊息由系統管理，不可批刪）" class="hidden px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg text-xs font-bold transition">
                             <i class="fa-solid fa-trash-can"></i> 刪除此批
                         </button>
-                        <label class="font-bold text-slate-600">月份：</label>
-                        <input type="month" id="sendMonth" onchange="renderSendCenter()" class="px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none">
+                        <button id="sendMsgToggleAll" onclick="toggleSendMsgAll()" title="一鍵展開／收起所有卡片的訊息內文（個別卡片按「訊息」那一行亦可單獨開合）" class="ml-auto px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-600 rounded-lg text-xs font-bold transition flex items-center gap-1.5"></button>
                     </div>
                 </div>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -595,10 +634,6 @@
                             <label class="block text-xs font-bold text-slate-600 mb-1">預設日曆 ID（同步 GCal 用；導師未另設日曆時用此）</label>
                             <input type="text" id="setGcalCalendarId" placeholder="primary" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
                         </div>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">公開 ICS 網址（高級薪酬「讀取公開 ICS」使用）</label>
-                        <input type="url" id="setPublicIcsUrl" placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
                     <!-- 導師日曆 ID：一位導師一個 Google 日曆，同步時逐一讀取（存在導師名單 gac_tutors_v3 上，改動即存） -->
                     <div class="pt-2 border-t border-slate-100 space-y-2">
