@@ -268,9 +268,14 @@ function advancedRenderExpiredWarning(monthKey) {
   const expired = GACPayroll.expiredScheduled(lessonsByMonth, monthKey, advancedTodayStr());
   if (!expired.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
   box.classList.remove('hidden');
-  box.innerHTML = `<div class="font-bold">⚠️ ${monthKey} 有 ${expired.length} 堂課「日期已過但仍是已排課」，未確認出席前只算在「預期」、不算「目前應付」：</div>` +
-    `<div>${expired.map(l => `${l.date} ${l.time} ${l.studentName}`).join('、')}</div>` +
-    `<button onclick="advancedGoConfirm('${monthKey}')" class="mt-1 px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded font-bold">前往總表批量確認出席</button>`;
+  // 只給數字與範圍——逐堂列出來幾十行沒人看，要處理就按鈕過去批量確認
+  const dates = expired.map(l => l.date).sort();
+  const span = dates[0] === dates[dates.length - 1] ? dates[0] : `${dates[0]} ~ ${dates[dates.length - 1]}`;
+  box.innerHTML = `<div class="flex flex-wrap items-center gap-2">
+      <span class="font-bold">⚠️ ${monthKey} 有 ${expired.length} 堂「日期已過但仍是已排課」（${span}）</span>
+      <span class="text-amber-700">未確認出席前只算在「預期」，不算「目前應付」。</span>
+      <button onclick="advancedGoConfirm('${monthKey}')" class="ml-auto px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded font-bold whitespace-nowrap">前往總表批量確認出席</button>
+    </div>`;
 }
 
 function advancedGoConfirm(monthKey) {

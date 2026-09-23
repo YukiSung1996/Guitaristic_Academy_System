@@ -993,7 +993,9 @@
             const first = cell.lessons[0];
             document.getElementById('lessonModalTitle').innerHTML =
                 `<i class="fa-solid fa-calendar-check text-sky-500 mr-1"></i>${first.date}（${getWeekdayName(lessonStart(first).getDay())}）${first.time} · ` +
-                (cell.isGroup ? `${first.groupName || first.program} 小組課 ×${cell.lessons.length}` : `${first.studentName}（${first.studentId}）`);
+                (cell.isGroup
+                    ? `${first.groupName || first.program} 小組課 ×${cell.lessons.length}`
+                    : `${first.studentName}（${first.studentId}）${Number(first.totalRegular) ? ` (${first.lessonNum}/${first.totalRegular})` : ''}`);
             document.getElementById('lessonModalBody').innerHTML = cell.isGroup
                 ? renderGroupCard(cell, clashIds)
                 : renderLessonRow(first, clashIds.has(first.lessonId));
@@ -1234,6 +1236,13 @@
             return btns.join('');
         }
 
+        // (2/5)＝該生本月的第 2 節、共 5 節常規課。補堂／加課不編號（lessonNum=0），不顯示
+        function lessonNoBadge(lesson) {
+            const n = Number(lesson.lessonNum) || 0, total = Number(lesson.totalRegular) || 0;
+            if (!n || !total) return '';
+            return `<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-semibold text-[10px]" title="本月第 ${n} 節，共 ${total} 節常規課">(${n}/${total})</span>`;
+        }
+
         function dateHeading(lesson) {
             const start = lessonStart(lesson);
             return `${start.getFullYear()}年${start.getMonth() + 1}月${start.getDate()}日 (${getWeekdayName(start.getDay())})`;
@@ -1260,6 +1269,7 @@
                             <strong class="text-slate-800">${dateHeading(lesson)}</strong>
                             <span class="text-sky-700 font-bold">${lesson.time}</span>
                             <span class="font-bold text-slate-900">${lesson.studentName}</span> (${lesson.studentId})
+                            ${lessonNoBadge(lesson)}
                             ${lesson.phone ? `<span class="text-slate-500 text-[11px]"><i class="fa-solid fa-phone text-[10px] text-slate-400"></i> ${lesson.phone}</span>` : ''}
                         </div>
                         <div class="text-slate-500 text-[11px]">📅 ${title} ${locationStr ? `| 📍 地點: ${locationStr}` : ''} ${lesson.isMakeup ? `| ↩ 補 ${originDateText(lesson)} 的請假課` : ''} ${lesson.email ? `| ✉️ ${lesson.email}` : ''}</div>
@@ -1292,6 +1302,7 @@
                     <div class="flex-1 space-y-1">
                         <div class="flex items-center gap-1.5 flex-wrap">
                             <span class="font-bold text-slate-900">${l.studentName}</span> <span class="text-slate-500">(${l.studentId})</span>
+                            ${lessonNoBadge(l)}
                             ${lessonBadges(l, clashIds.has(l.lessonId))}
                             ${l.isMakeup ? `<span class="text-slate-500 text-[11px]">↩ 補 ${originDateText(l)} 的請假課</span>` : ''}
                             ${l.phone ? `<span class="text-slate-500 text-[11px]"><i class="fa-solid fa-phone text-[10px] text-slate-400"></i> ${l.phone}</span>` : ''}
@@ -2233,8 +2244,7 @@
                 studentId: lesson.studentId,
                 studentName: lesson.studentName,
                 tutor: lesson.tutor,
-                phone: lesson.phone,
-                email: lesson.email,
+                // 隱私：匯出到日曆的事件不帶學生電話／電郵（日曆可能被分享或同步到別的裝置）
                 start: lessonStart(lesson),
                 end: lessonEnd(lesson),
                 status: lesson.status,
@@ -2297,9 +2307,9 @@
                 String(d.getMinutes()).padStart(2, '0') + '00';
 
             events.forEach(ev => {
-                let desc = "Demo Music Academy Lesson";
-                if (ev.phone) desc += `\\nPhone: ${ev.phone}`;
-                if (ev.email) desc += `\\nEmail: ${ev.email}`;
+                // 只寫導師，不寫學生聯絡方式（與推送 GCal 的 description 一致）
+                let desc = "Guitaristic Academy Lesson";
+                if (ev.tutor) desc += `\\n導師：${ev.tutor}`;
 
                 // UID 必須存在且確定性：Google 依 UID 查重，重複導入同一檔案不會產生重複事件（P0-2）
                 const uid = ev.uid || `${String(ev.title || 'event').replace(/[^A-Za-z0-9]/g, '')}-${formatICSDate(ev.start)}@guitaristic`;
@@ -2992,7 +3002,7 @@
                 <td class="p-2.5 text-right font-bold whitespace-nowrap">${tuitionMoney(e.amount)}${e.amountEdited ? ' <i class="fa-solid fa-pen text-amber-500" title="金額已手改（發送中心可改）"></i>' : ''}</td>
                 <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${sent ? 'checked' : ''} onchange="paySetSent('${k}', this.checked)" class="w-4 h-4 accent-emerald-600" title="學費單已發送（與發送中心同步；勾＝手動已發，取消＝移回待發）">${waBtn}${remindNote}</td>
                 <td class="p-2.5 text-center whitespace-nowrap">${badge}${receiptNote}</td>
-                <td class="p-2.5 text-right"><input type="number" min="0" value="${Number(e.paidAmount) || 0}" onchange="payUpdate('${k}', { paidAmount: this.value })" class="w-20 px-1.5 py-1 border border-slate-300 rounded-lg text-right" title="實收金額（改動即更新已繳狀態）"></td>
+                <td class="p-2.5"><input type="text" value="${escapeHtml(e.payNote || '')}" onchange="payUpdate('${k}', { payNote: this.value })" placeholder="備註" class="w-24 px-1.5 py-1 border border-slate-200 rounded-lg text-[11px] focus:w-40 focus:border-slate-300 transition-all" title="備註（如：分兩期、家長代付）。實收金額不同於應收時，到發送中心的學費卡片「登記繳費」改"></td>
                 <td class="p-2.5">${methodSel}</td>
                 <td class="p-2.5 whitespace-nowrap"><input type="date" value="${e.payDate || ''}" onchange="payUpdate('${k}', { payDate: this.value })" class="px-1.5 py-1 border border-slate-300 rounded-lg text-[11px]">${(Number(e.paidAmount) || 0) || e.payMethod ? `<button onclick="payUpdate('${k}', { clearPayment: true })" class="ml-1 px-1.5 py-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded" title="清除這筆繳費紀錄（實收與付款方式歸零，回到未繳）"><i class="fa-solid fa-eraser"></i></button>` : ''}</td>
                 <td class="p-2.5 text-right whitespace-nowrap"><button onclick="payPreview('${k}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold" title="查看／複製學費單"><i class="fa-solid fa-file-invoice"></i></button></td>
