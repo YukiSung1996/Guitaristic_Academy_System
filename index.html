@@ -57,9 +57,16 @@
                         <span class="hidden sm:inline">還原資料</span>
                     </button>
                     <input type="file" id="importJsonInput" accept=".json" class="hidden" onchange="importJSONDatabase(event)">
-                    <button onclick="resetToDefaultData()" class="px-3 py-1.5 text-xs font-semibold bg-rose-900/40 hover:bg-rose-900/60 text-rose-300 rounded-lg border border-rose-800/50 transition flex items-center gap-1.5" title="恢復預設學生名單">
-                        <i class="fa-solid fa-rotate-left"></i>
-                        <span class="hidden md:inline">重置</span>
+                    <!-- 撤銷／重做：回到最近一次操作之前／再做回來（學生／小組／課表／發送紀錄／導師／費率覆寫）；詳見「歷史記錄」。原「重置」移到設定 → 危險區 -->
+                    <button onclick="undoLastAction()" id="undoBtn" disabled title="沒有可撤銷的操作" class="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+                        <i class="fa-solid fa-rotate-left text-amber-400"></i>
+                        <span class="hidden md:inline">撤銷</span>
+                        <span id="undoCount" class="hidden min-w-[18px] h-[18px] px-1 rounded-full bg-sky-500 text-white text-[10px] font-bold flex items-center justify-center">0</span>
+                    </button>
+                    <button onclick="redoLastAction()" id="redoBtn" disabled title="沒有可重做的操作" class="px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+                        <i class="fa-solid fa-rotate-right text-emerald-400"></i>
+                        <span class="hidden md:inline">重做</span>
+                        <span id="redoCount" class="hidden min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center">0</span>
                     </button>
                 </div>
             </div>
@@ -150,11 +157,6 @@
                     <i class="fa-solid fa-gear text-slate-500"></i>
                     <span>設定</span>
                 </button>
-                <!-- 撤銷上一步：回到最近一次操作之前的狀態（學生／小組／課表／發送紀錄），詳見「歷史記錄」 -->
-                <button onclick="undoLastAction()" id="undoBtn" disabled title="沒有可撤銷的操作" class="ml-auto self-center shrink-0 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap">
-                    <i class="fa-solid fa-rotate-left"></i> 撤銷
-                    <span id="undoCount" class="hidden min-w-[18px] h-[18px] px-1 rounded-full bg-sky-500 text-white text-[10px] font-bold flex items-center justify-center">0</span>
-                </button>
             </div>
         </div>
     </div>
@@ -183,7 +185,7 @@
                             <i class="fa-solid fa-file-import"></i> 匯入 ICS
                         </button>
                         <button onclick="downloadMasterICS()" title="在本地導出 .ics 文件，可用於 Google Calendar 批量導入" class="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2">
-                            <i class="fa-solid fa-file-arrow-down"></i> 導出 .ics（批量導入）
+                            <i class="fa-solid fa-file-arrow-down"></i> 導出 .ics
                         </button>
                     </div>
                 </div>
@@ -839,7 +841,7 @@
                 <button type="button" onclick="toggleSettingsModule('danger')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
                     <span class="min-w-0">
                         <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation text-rose-500"></i> <span class="text-rose-800">危險區：清場重來</span></span>
-                        <span class="block text-xs text-slate-500 mt-0.5">清空本月／全部清場（本地不可還原，請先備份）</span>
+                        <span class="block text-xs text-slate-500 mt-0.5">清空本月／全部清場／恢復預設學生名單（清場本地不可還原，請先備份）</span>
                     </span>
                     <i id="smodChev_danger" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
                 </button>
@@ -851,6 +853,9 @@
                         </button>
                         <button onclick="resetAllScheduleData()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
                             <i class="fa-solid fa-bomb"></i> 全部清場（GCal＋本地）
+                        </button>
+                        <button onclick="resetToDefaultData()" class="px-4 py-2 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5" title="恢復預設學生名單（含預設小組班）；課表與發送紀錄不動，可撤銷">
+                            <i class="fa-solid fa-user-group"></i> 恢復預設學生名單
                         </button>
                     </div>
                 </div>

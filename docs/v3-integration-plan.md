@@ -130,3 +130,8 @@ v2 現況：出席是完整狀態機（已上課／請假 L·SL·TL／缺席／�
 - `lib/ics.js`（新）：parse／toEvents（RRULE 展開、EXDATE、RECURRENCE-ID、時區換算）。`icsImportFromText(text, tutor, tz)` → 同一個 `gcalSyncPlan`（source 'ics'）→ `renderGcalSyncModal`。
 - `gcalCalendarsToRead()`：導師有日曆 ID 則逐一讀（事件 `_tutor`），否則預設日曆。
 - 不做：從 ICS 直接生成常規課（仍由「生成」產生，ICS 只作比對基準）；MONTHLY/YEARLY 的 BYDAY 進階規則。
+
+### Stage 8 — 撤銷／重做頂欄、清單 WhatsApp 聯動、補堂縮排（用戶 2026-09-23）
+- 頂欄「重置」位置 → 撤銷＋重做（`redoStack` 記憶體；`pushHistory` 清空並備份、`dropLastHistory` 還原；撤銷不彈確認）；「重置」→ 設定 → 危險區「恢復預設學生名單」。
+- `renderMasterScheduleList`：補堂節在原請假節之下縮排（`data-makeup-of`＋連接線）。
+- `openWhatsAppMessage` 有對應條目時走 `sendWhatsApp(key)`；列上 `lessonSendBadge`。「導出 .ics（批量導入）」→「導出 .ics」。

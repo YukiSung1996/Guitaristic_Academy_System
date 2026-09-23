@@ -130,6 +130,9 @@
         // 還原前會先自動備份現狀，因此還原本身也能撤銷。
         const HISTORY_CAP = 20;
         const STATUS_LABEL = { SCHEDULED: '已排課', ATTENDED: '已上課', LEAVE: '請假', NOSHOW: '缺席' };
+        // 重做堆疊：撤銷時把「撤銷前的現狀」推進來，重做即取回；任何新操作清空（操作在拍照後取消／失敗時還原）。只存記憶體，刷新即失。
+        let redoStack = [];
+        let redoStackBackup = null;
 
         function historyState() {
             return { students: studentDatabase, groups: groupClasses, lessons: lessonsByMonth, sendlog: sendLog, tutors: tutorsList, rateOverrides: rateOverrides };
@@ -140,12 +143,15 @@
             actionHistory = GACHistory.push(actionHistory, snap, HISTORY_CAP);
             const kept = gacStore.saveHistory(actionHistory);
             if (kept < actionHistory.length) actionHistory = actionHistory.slice(0, kept); // 配額不足：只留寫得進去的最新幾筆
+            redoStackBackup = redoStack; // 新操作 → 重做作廢；若操作隨後取消／失敗（dropLastHistory）則還原
+            redoStack = [];
             renderHistoryUI();
         }
 
         function dropLastHistory() {
             actionHistory = actionHistory.slice(1);
             gacStore.saveHistory(actionHistory);
+            if (redoStackBackup) { redoStack = redoStackBackup; redoStackBackup = null; }
             renderHistoryUI();
         }
 
@@ -170,15 +176,30 @@
             renderAll();
         }
 
+        // 撤銷不再彈確認——有「重做」兜底
         function undoLastAction() {
             if (!actionHistory.length) { showToast('ℹ️ 沒有可撤銷的操作'); return; }
             const snap = actionHistory[0];
-            if (!confirm(`撤銷上一步「${snap.description}」？\n會回到該操作之前的狀態（學生／小組／課表／發送紀錄）。`)) return;
+            // 撤銷前的現狀進重做堆疊（描述沿用被撤銷的操作，重做鈕提示「重做：…」）
+            redoStack = GACHistory.push(redoStack, GACHistory.makeSnapshot(historyState(), snap.description, new Date().toISOString()), HISTORY_CAP);
             actionHistory = actionHistory.slice(1);
             gacStore.saveHistory(actionHistory);
             applySnapshot(snap);
             renderHistoryUI();
-            showToast(`↶ 已撤銷：${snap.description}`);
+            showToast(`↶ 已撤銷：${snap.description}（可「重做」）`);
+        }
+
+        function redoLastAction() {
+            if (!redoStack.length) { showToast('ℹ️ 沒有可重做的操作'); return; }
+            const snap = redoStack[0];
+            // 重做前的現狀回到撤銷堆疊（之後仍可再撤銷）
+            actionHistory = GACHistory.push(actionHistory, GACHistory.makeSnapshot(historyState(), snap.description, new Date().toISOString()), HISTORY_CAP);
+            const kept = gacStore.saveHistory(actionHistory);
+            if (kept < actionHistory.length) actionHistory = actionHistory.slice(0, kept);
+            redoStack = redoStack.slice(1);
+            applySnapshot(snap);
+            renderHistoryUI();
+            showToast(`↷ 已重做：${snap.description}`);
         }
 
         function restoreSnapshot(id) {
@@ -194,6 +215,8 @@
             if (!actionHistory.length) return;
             if (!confirm('清空全部歷史快照？之後將無法撤銷此前的操作。')) return;
             actionHistory = [];
+            redoStack = [];
+            redoStackBackup = null;
             gacStore.saveHistory(actionHistory);
             renderHistoryUI();
         }
@@ -206,10 +229,17 @@
             }
             const cnt = document.getElementById('undoCount');
             if (cnt) { cnt.textContent = String(actionHistory.length); cnt.classList.toggle('hidden', !actionHistory.length); }
+            const rbtn = document.getElementById('redoBtn');
+            if (rbtn) {
+                rbtn.disabled = !redoStack.length;
+                rbtn.title = redoStack.length ? `重做：${redoStack[0].description}` : '沒有可重做的操作';
+            }
+            const rcnt = document.getElementById('redoCount');
+            if (rcnt) { rcnt.textContent = String(redoStack.length); rcnt.classList.toggle('hidden', !redoStack.length); }
             const list = document.getElementById('historyList');
             if (!list) return;
             const sizeEl = document.getElementById('historySize');
-            if (sizeEl) sizeEl.textContent = `${actionHistory.length} 筆 · ${GACHistory.formatSize(GACHistory.totalSize(actionHistory))}（上限 ${HISTORY_CAP} 筆）`;
+            if (sizeEl) sizeEl.textContent = `${actionHistory.length} 筆 · ${GACHistory.formatSize(GACHistory.totalSize(actionHistory))}（上限 ${HISTORY_CAP} 筆）${redoStack.length ? ` · 可重做 ${redoStack.length} 步` : ''}`;
             list.innerHTML = actionHistory.length ? actionHistory.map((h, i) => `
                 <div class="flex items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
                     <div class="min-w-0">
@@ -1046,9 +1076,47 @@
                 return;
             }
 
-            listContainer.innerHTML = cells.map(cell =>
-                cell.isGroup ? renderGroupCard(cell, clashIds) : renderLessonRow(cell.lessons[0], clashIds.has(cell.lessons[0].lessonId))
-            ).join('');
+            // 補堂節緊接在原請假節之下、縮排並以連接線標示——兩者都在本次清單內才如此排；否則各自留原位，靠徽章互指
+            const cellByLessonId = {};
+            cells.forEach(c => c.lessons.forEach(l => { cellByLessonId[l.lessonId] = c; }));
+            const nestedUnder = new Map(); // 原課節 key → [補堂節]
+            const nestedKeys = new Set();
+            cells.forEach(c => {
+                const f = c.lessons[0];
+                if (!f.isMakeup || !f.originLessonId) return;
+                const origin = cellByLessonId[f.originLessonId];
+                if (!origin || origin.key === c.key) return;
+                if (!nestedUnder.has(origin.key)) nestedUnder.set(origin.key, []);
+                nestedUnder.get(origin.key).push(c);
+                nestedKeys.add(c.key);
+            });
+            const cardHtml = c => (c.isGroup ? renderGroupCard(c, clashIds) : renderLessonRow(c.lessons[0], clashIds.has(c.lessons[0].lessonId)));
+            listContainer.innerHTML = cells.filter(c => !nestedKeys.has(c.key)).map(c => {
+                const kids = nestedUnder.get(c.key) || [];
+                if (!kids.length) return cardHtml(c);
+                return `<div class="space-y-2">${cardHtml(c)}${kids.map(k => `
+                    <div class="flex items-stretch" data-makeup-of="${jsStrAttr(c.key)}">
+                        <div class="w-8 shrink-0 relative" title="此補堂補上面那節請假課">
+                            <div class="absolute left-3 -top-2 h-[calc(50%+0.5rem)] w-4 border-l-2 border-b-2 border-emerald-400 rounded-bl-xl"></div>
+                        </div>
+                        <div class="flex-1 min-w-0">${cardHtml(k)}</div>
+                    </div>`).join('')}</div>`;
+            }).join('');
+        }
+
+        // 課堂列的訊息狀態徽章：對應發送中心條目（請假確認／補堂確認／改期通知）——待發／已開啟未標記／✓ 已發
+        function lessonEntryKey(lessonId, type) {
+            if (type === 'leave') return 'LEAVE_CONFIRM:' + lessonId;
+            if (type === 'move' || sendLog['MOVE_CONFIRM:' + lessonId]) return 'MOVE_CONFIRM:' + lessonId;
+            return 'MAKEUP_CONFIRM:' + lessonId;
+        }
+
+        function lessonSendBadge(lessonId, type) {
+            const e = sendLog[lessonEntryKey(lessonId, type)];
+            if (!e) return '';
+            if (e.status === 'SENT') return `<span class="px-1.5 py-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-semibold" title="發送中心：已發於 ${String(e.sentAt || '').replace('T', ' ').slice(0, 16)}">✓ 已發</span>`;
+            if (e.waOpenedAt) return '<span class="px-1.5 py-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-semibold" title="已開啟過 WhatsApp，尚未標記已發（切回頁面時會詢問，或到發送中心標記）"><i class="fa-brands fa-whatsapp"></i> 已開啟</span>';
+            return '<span class="px-1.5 py-1 rounded bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold" title="發送中心：待發送">待發</span>';
         }
 
         // 從補堂課的 originLessonId（"S001-20260908-2130"）還原出原課日期時間文字
@@ -1155,12 +1223,13 @@
                 btns.push(`<button onclick="markLessonStatus('${id}','SCHEDULED')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-semibold flex items-center gap-1" title="撤銷狀態，還原為已排課${lesson.status === 'LEAVE' && lesson.makeupLessonId ? '（會詢問是否一併取消補堂）' : ''}"><i class="fa-solid fa-rotate-left"></i> 還原</button>`);
             }
             if (lesson.status === 'LEAVE') {
-                btns.push(`<button onclick="copyLeaveMsgMaster('${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> 複製請假</button>`);
-                btns.push(`<button onclick="openWhatsAppMessage('${id}', 'leave')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填請假訊息"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`);
+                btns.push(`<button onclick="copyLessonMsg('leave', '${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> 複製請假</button>`);
+                btns.push(`<button onclick="openWhatsAppMessage('${id}', 'leave')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填請假訊息（與發送中心同一條目：點開即按設定標記已開啟／詢問／自動已發）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>${lessonSendBadge(id, 'leave')}`);
             }
             if (lesson.isMakeup && lesson.status !== 'LEAVE') {
-                btns.push(`<button onclick="copyMakeupMsgMaster('${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> 複製補堂</button>`);
-                btns.push(`<button onclick="openWhatsAppMessage('${id}', 'makeup')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填補堂訊息"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`);
+                const mkType = sendLog['MOVE_CONFIRM:' + id] ? 'move' : 'makeup'; // 改期過（有改期通知條目）→ 用改期通知文案
+                btns.push(`<button onclick="copyLessonMsg('${mkType}', '${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> ${mkType === 'move' ? '複製改期' : '複製補堂'}</button>`);
+                btns.push(`<button onclick="openWhatsAppMessage('${id}', '${mkType}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填${mkType === 'move' ? '改期通知' : '補堂訊息'}（與發送中心同一條目：點開即按設定標記已開啟／詢問／自動已發）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>${lessonSendBadge(id, mkType)}`);
             }
             return btns.join('');
         }
@@ -3388,6 +3457,13 @@
             const found = GACLessonState.findLesson(lessonsByMonth, lessonId);
             if (!found) return;
             const lesson = found.lesson;
+            // 有對應的發送中心條目 → 走同一條路（開 WhatsApp＋按 waSentMode 標記已開啟／切回詢問／自動已發），兩邊狀態一致
+            const key = lessonEntryKey(lessonId, messageType);
+            if (sendLog[key]) {
+                sendWhatsApp(key);
+                renderMasterScheduleList(); // 列上的「已開啟／✓ 已發」徽章
+                return;
+            }
             const phone = getWhatsAppPhone(lesson.phone);
             if (!phone) {
                 alert('此學生沒有可用的 WhatsApp 電話號碼。');
