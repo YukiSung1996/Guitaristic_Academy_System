@@ -182,39 +182,52 @@ test('C9: tuitionItems 按報讀項目分組（個別一項＋每小組一項）
     assert.strictEqual(log['TUITION:S001:2026-09'].items.length, 1, 'SENT 不改');
 });
 
-test('C10: 繳費紀錄——勾已繳預設整額＋今天；實收改動推導狀態；非學費條目拒絕；tuitionByMonth／paymentTotals', () => {
+test('C10: 繳費紀錄——已繳＝實收＋付款方式推導（缺方式一律未繳）；選方式自動補整額與今天；清除回未繳；tuitionByMonth／paymentTotals', () => {
     const log = {};
     SL.upsertTuition(log, params()); // amount 1500
     const key = 'TUITION:S001:2026-09';
     assert.strictEqual(SL.paymentStatus(log[key]), 'unpaid');
     assert.strictEqual(log[key].paid, false);
-    SL.setPayment(log, key, { paid: true }, '2026-09-19');
-    assert.strictEqual(log[key].paidAmount, 1500, '勾已繳 → 整額');
-    assert.strictEqual(log[key].payDate, '2026-09-19', '勾已繳 → 今天');
+    // 只填金額、沒選付款方式 → 不算收到錢
+    SL.setPayment(log, key, { paidAmount: 1500 }, '2026-09-19');
+    assert.strictEqual(log[key].paid, false, '沒有付款方式不算已繳');
+    assert.strictEqual(SL.paymentStatus(log[key]), 'unpaid');
+    assert.strictEqual(SL.paymentValid(log[key]), false);
+    assert.strictEqual(log[key].payDate, '', '未成為已繳 → 不補日期');
+    assert.deepStrictEqual(SL.paymentTotals([log[key]]), { due: 1500, paid: 0, outstanding: 1500 }, '未選方式不計入已收');
+    // 補上付款方式 → 立刻成立，日期補今天
+    SL.setPayment(log, key, { payMethod: '2' }, '2026-09-19');
+    assert.strictEqual(log[key].paid, true);
     assert.strictEqual(SL.paymentStatus(log[key]), 'paid');
+    assert.strictEqual(log[key].payDate, '2026-09-19');
+    // 清掉付款方式 → 回到未繳，金額保留以便修正
+    SL.setPayment(log, key, { payMethod: '' });
+    assert.strictEqual(log[key].paid, false);
+    assert.strictEqual(log[key].paidAmount, 1500, '金額保留');
+    // clearPayment：實收與方式一起歸零；之後只選方式 → 自動收足整額
+    SL.setPayment(log, key, { clearPayment: true });
+    assert.deepStrictEqual([log[key].paidAmount, log[key].payMethod], [0, '']);
+    SL.setPayment(log, key, { payMethod: '1' }, '2026-09-20');
+    assert.strictEqual(log[key].paidAmount, 1500, '選方式而實收為 0 → 自動整額');
+    // 部分繳交
     SL.setPayment(log, key, { paidAmount: 500, payMethod: '2', receipt: true });
     assert.strictEqual(SL.paymentStatus(log[key]), 'partial');
     assert.strictEqual(log[key].paid, true);
     assert.strictEqual(log[key].payMethod, '2');
     assert.strictEqual(log[key].receipt, true);
     assert.strictEqual(log[key].checked, undefined, '「核對」欄位已移除');
-    SL.setPayment(log, key, { paid: false });
-    assert.strictEqual(log[key].paidAmount, 0, '取消已繳 → 實收歸零');
-    assert.strictEqual(SL.paymentStatus(log[key]), 'unpaid');
-    SL.setPayment(log, key, { paidAmount: '1500' });
-    assert.strictEqual(log[key].paid, true, '實收 > 0 → 已繳');
-    assert.strictEqual(SL.paymentStatus(log[key]), 'paid');
     SL.setPayment(log, key, { paidAmount: 0 });
-    assert.strictEqual(log[key].paid, false, '實收 0 → 未繳');
-    assert.strictEqual(SL.setPayment(log, 'LEAVE_CONFIRM:x', { paid: true }), null, '非學費條目');
+    assert.strictEqual(log[key].paid, false, '實收 0 → 未繳（方式仍在）');
+    assert.strictEqual(SL.setPayment(log, 'LEAVE_CONFIRM:x', { payMethod: '1' }), null, '非學費條目');
     // 重新生成不會洗掉繳費欄位（TODO 條目只刷新堂數／日期／金額）
-    SL.setPayment(log, key, { paid: true, payMethod: '1' }, '2026-09-19');
+    SL.setPayment(log, key, { paidAmount: 1500, payMethod: '1' }, '2026-09-19');
     SL.upsertTuition(log, Object.assign(params(), { amount: 1800, count: 6 }));
     assert.strictEqual(log[key].paid, true);
     assert.strictEqual(log[key].payMethod, '1');
     assert.strictEqual(log[key].amount, 1800);
     assert.strictEqual(SL.paymentStatus(log[key]), 'partial', '應收升到 1800、實收仍 1500 → 部分');
     SL.upsertTuition(log, Object.assign(params(), { studentId: 'S002', amount: 1000 }));
+    SL.setPayment(log, 'TUITION:S002:2026-09', { paidAmount: 400 }); // 沒選方式 → 不計入已收
     const list = SL.tuitionByMonth(log, '2026-09');
     assert.deepStrictEqual(list.map(e => e.studentId), ['S001', 'S002']);
     assert.deepStrictEqual(SL.paymentTotals(list), { due: 2800, paid: 1500, outstanding: 1300 });
@@ -236,21 +249,21 @@ test('C11: 派生條目——催繳：學費單發出滿 N 天且未繳清才建
     assert.strictEqual(log[rk].status, 'TODO');
     assert.strictEqual(log[rk].createdAt, '2026-09-08T10:00:00.000Z');
     assert.deepStrictEqual(sync('2026-09-20T00:00:00.000Z'), { created: [], removed: [] }, '幂等：不重建');
-    SL.setPayment(log, tk, { paidAmount: 500 }, '2026-09-10');
+    SL.setPayment(log, tk, { paidAmount: 500, payMethod: '1' }, '2026-09-10');
     assert.deepStrictEqual(sync('2026-09-20T00:00:00.000Z').removed, [], '部分繳交仍催');
-    SL.setPayment(log, tk, { paid: true, paidAmount: 1500 }, '2026-09-10');
+    SL.setPayment(log, tk, { paidAmount: 1500, payMethod: '1' }, '2026-09-10');
     const r = sync('2026-09-20T00:00:00.000Z');
     assert.deepStrictEqual(r.removed, [rk], '繳清 → TODO 催繳刪除');
     assert.ok(!log[rk]);
     assert.deepStrictEqual(r.created, ['RECEIPT:S001:2026-09'], '繳清 → 建收款確認');
     // 取消已繳 → 催繳重建；已發出的催繳留作紀錄且不再建第二筆
-    SL.setPayment(log, tk, { paid: false });
+    SL.setPayment(log, tk, { clearPayment: true });
     assert.ok(sync('2026-09-20T00:00:00.000Z').created.includes(rk));
     SL.markSent(log, rk, 'wa_link', '2026-09-20T00:00:00.000Z');
-    SL.setPayment(log, tk, { paid: true }, '2026-09-21');
+    SL.setPayment(log, tk, { payMethod: '1' }, '2026-09-21');
     assert.deepStrictEqual(sync('2026-09-22T00:00:00.000Z').removed, [], 'SENT 催繳保留');
     assert.strictEqual(log[rk].status, 'SENT');
-    SL.setPayment(log, tk, { paid: false });
+    SL.setPayment(log, tk, { clearPayment: true });
     assert.strictEqual(sync('2026-10-01T00:00:00.000Z').created.length, 0, '已有 SENT 催繳 → 不建第二筆');
     // 不用發：刪除並略過；學費單移回待發後重置
     SL.markUnsent(log, rk);
@@ -275,27 +288,27 @@ test('C12: 派生條目——收款確認：繳清即建（不要求學費單已
     SL.upsertTuition(log, params());
     const tk = 'TUITION:S001:2026-09', ck = 'RECEIPT:S001:2026-09';
     const sync = extra => SL.syncDerived(log, Object.assign({ now: '2026-09-20T00:00:00.000Z' }, extra || {}));
-    SL.setPayment(log, tk, { paidAmount: 500 }, '2026-09-10');
+    SL.setPayment(log, tk, { paidAmount: 500, payMethod: '2' }, '2026-09-10');
     assert.deepStrictEqual(sync().created, [], '部分繳交不建收款確認');
-    SL.setPayment(log, tk, { paid: true, paidAmount: 1500, payMethod: '2' }, '2026-09-10');
+    SL.setPayment(log, tk, { paidAmount: 1500, payMethod: '2' }, '2026-09-10');
     assert.deepStrictEqual(sync().created, [ck], '繳清 → 建');
     assert.strictEqual(log[ck].type, 'RECEIPT');
     assert.strictEqual(log[ck].tuitionKey, tk);
     assert.strictEqual(log[tk].receipt, false);
     SL.markSent(log, ck, 'wa_link', '2026-09-20T01:00:00.000Z');
     assert.strictEqual(log[tk].receipt, true, '收款確認發出 → 學費條目「收據」勾上');
-    SL.setPayment(log, tk, { paid: false });
+    SL.setPayment(log, tk, { clearPayment: true });
     assert.deepStrictEqual(sync().removed, [], 'SENT 收款確認保留');
     SL.markUnsent(log, ck);
     assert.deepStrictEqual(sync().removed, [ck], '未繳 + TODO 收款確認 → 刪');
-    SL.setPayment(log, tk, { paid: true }, '2026-09-21');
+    SL.setPayment(log, tk, { payMethod: '2' }, '2026-09-21');
     assert.deepStrictEqual(sync().created, [ck]);
     SL.dismissDerived(log, ck);
     assert.ok(!log[ck] && log[tk].receiptSkipped === true);
     assert.deepStrictEqual(sync().created, [], '略過後不重建');
-    SL.setPayment(log, tk, { paid: false });
-    assert.strictEqual(log[tk].receiptSkipped, false, '取消已繳 → 重置略過');
-    SL.setPayment(log, tk, { paid: true }, '2026-09-22');
+    SL.setPayment(log, tk, { clearPayment: true });
+    assert.strictEqual(log[tk].receiptSkipped, false, '回到未繳 → 重置略過');
+    SL.setPayment(log, tk, { payMethod: '2' }, '2026-09-22');
     assert.deepStrictEqual(sync({ receiptAuto: false }).created, [], '關閉自動不建');
     assert.deepStrictEqual(sync().created, [ck]);
     assert.deepStrictEqual(SL.pruneOrphans(log, () => false), [], '派生條目沒有 lessonId，孤兒清理不碰');

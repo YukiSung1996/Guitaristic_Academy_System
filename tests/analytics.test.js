@@ -55,7 +55,8 @@ test('H2: 節數／工時／收入（缺席計薪 vs 不計）', () => {
 
 test('H3: 各導師／各課程分項與學費彙總', () => {
     const st = A.monthStats(buckets, '2026-09', { rateFn, tuitionEntries: [
-        { amount: 1200, paid: true, paidAmount: 1200 }, { amount: 500, paid: true, paidAmount: 200 }, { amount: 300, paid: false, paidAmount: 0 }
+        { amount: 1200, paid: true, paidAmount: 1200, payMethod: '1' }, { amount: 500, paid: true, paidAmount: 200, payMethod: '2' },
+        { amount: 300, paid: true, paidAmount: 300, payMethod: '' } // 填了金額但沒選付款方式 → 不算收到
     ] });
     assert.deepStrictEqual(st.byTutor.map(t => t.tutor), ['Instructor A', 'Instructor B']);
     const a = st.byTutor[0], b = st.byTutor[1];

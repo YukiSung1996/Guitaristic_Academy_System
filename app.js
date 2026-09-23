@@ -2635,8 +2635,7 @@
             const k = e.key;
             const inp = 'px-1.5 py-1 border border-slate-300 rounded-lg bg-white text-[11px]';
             return `<div class="flex items-center gap-x-3 gap-y-1.5 flex-wrap bg-purple-50/60 border border-purple-100 rounded-lg px-2.5 py-1.5">
-                       <label class="flex items-center gap-1 cursor-pointer font-semibold text-slate-700"><input type="checkbox" ${e.paid ? 'checked' : ''} onchange="payUpdate('${k}', { paid: this.checked })" class="w-3.5 h-3.5 accent-emerald-600" title="勾＝已繳（預設整額、今天）"> 已繳</label>
-                       <label class="flex items-center gap-1 text-slate-600">實收 <input type="number" min="0" value="${Number(e.paidAmount) || 0}" onchange="payUpdate('${k}', { paidAmount: this.value })" class="${inp} w-20 text-right" title="實收金額（改動即更新已繳狀態）"></label>
+                       <label class="flex items-center gap-1 text-slate-600">實收 <input type="number" min="0" value="${Number(e.paidAmount) || 0}" onchange="payUpdate('${k}', { paidAmount: this.value })" class="${inp} w-20 text-right" title="實收金額；選了付款方式而此欄為 0 會自動填整額"></label>
                        <label class="flex items-center gap-1 text-slate-600">方式 ${payMethodSelectHtml(e, inp)}</label>
                        <label class="flex items-center gap-1 text-slate-600">日期 <input type="date" value="${e.payDate || ''}" onchange="payUpdate('${k}', { payDate: this.value })" class="${inp}"></label>
                        <label class="flex items-center gap-1 cursor-pointer text-slate-600"><input type="checkbox" ${e.receipt ? 'checked' : ''} onchange="payUpdate('${k}', { receipt: this.checked })" class="w-3.5 h-3.5 accent-sky-600" title="已發收據"> 收據</label>
@@ -2848,7 +2847,12 @@
 
         function paymentBadge(e) {
             const st = GACSendlog.paymentStatus(e);
-            if (st === 'unpaid') return '<span class="px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-700 font-semibold text-[10px]">未繳</span>';
+            if (st === 'unpaid') {
+                // 填了金額卻沒選付款方式：不算收到錢，明說原因免得以為系統沒記住
+                return Number(e.paidAmount) > 0
+                    ? '<span class="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-300 text-amber-800 font-semibold text-[10px]" title="已填實收金額但未選付款方式——未選之前一律當未繳">未繳 · 待選付款方式</span>'
+                    : '<span class="px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-700 font-semibold text-[10px]">未繳</span>';
+            }
             const names = payMethodNames();
             const m = parseInt(e.payMethod, 10);
             const how = m >= 1 && m <= names.length ? ` · ${names[m - 1]}` : '';
@@ -2920,7 +2924,9 @@
             const st = GACSendlog.paymentStatus(e);
             const badge = st === 'paid' ? '<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold text-[10px]">已繳清</span>'
                 : st === 'partial' ? '<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[10px]">部分</span>'
-                : '<span class="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-bold text-[10px]">未繳</span>';
+                : (Number(e.paidAmount) > 0
+                    ? '<span class="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-300 text-amber-800 font-bold text-[10px]" title="已填實收金額但未選付款方式——未選之前一律當未繳">未繳 · 待選付款方式</span>'
+                    : '<span class="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-bold text-[10px]">未繳</span>');
             const methodSel = payMethodSelectHtml(e, 'px-1.5 py-1 border border-slate-300 rounded-lg bg-white text-[11px]');
             const rm = sendLog[GACSendlog.remindKey(e.studentId, e.month)];
             const remindNote = !rm ? '' : (rm.status === 'SENT'
@@ -2943,10 +2949,10 @@
                 <td class="p-2.5 text-center whitespace-nowrap">${attCell}</td>
                 <td class="p-2.5 text-right font-bold whitespace-nowrap">${tuitionMoney(e.amount)}${e.amountEdited ? ' <i class="fa-solid fa-pen text-amber-500" title="金額已手改（發送中心可改）"></i>' : ''}</td>
                 <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${sent ? 'checked' : ''} onchange="paySetSent('${k}', this.checked)" class="w-4 h-4 accent-emerald-600" title="學費單已發送（與發送中心同步；勾＝手動已發，取消＝移回待發）">${waBtn}${remindNote}</td>
-                <td class="p-2.5 text-center whitespace-nowrap"><input type="checkbox" ${e.paid ? 'checked' : ''} onchange="payUpdate('${k}', { paid: this.checked })" class="w-4 h-4 accent-emerald-600" title="勾＝已繳（預設整額、今天）"> ${badge}${receiptNote}</td>
+                <td class="p-2.5 text-center whitespace-nowrap">${badge}${receiptNote}</td>
                 <td class="p-2.5 text-right"><input type="number" min="0" value="${Number(e.paidAmount) || 0}" onchange="payUpdate('${k}', { paidAmount: this.value })" class="w-20 px-1.5 py-1 border border-slate-300 rounded-lg text-right" title="實收金額（改動即更新已繳狀態）"></td>
                 <td class="p-2.5">${methodSel}</td>
-                <td class="p-2.5"><input type="date" value="${e.payDate || ''}" onchange="payUpdate('${k}', { payDate: this.value })" class="px-1.5 py-1 border border-slate-300 rounded-lg text-[11px]"></td>
+                <td class="p-2.5 whitespace-nowrap"><input type="date" value="${e.payDate || ''}" onchange="payUpdate('${k}', { payDate: this.value })" class="px-1.5 py-1 border border-slate-300 rounded-lg text-[11px]">${(Number(e.paidAmount) || 0) || e.payMethod ? `<button onclick="payUpdate('${k}', { clearPayment: true })" class="ml-1 px-1.5 py-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded" title="清除這筆繳費紀錄（實收與付款方式歸零，回到未繳）"><i class="fa-solid fa-eraser"></i></button>` : ''}</td>
                 <td class="p-2.5 text-right whitespace-nowrap"><button onclick="payPreview('${k}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold" title="查看／複製學費單"><i class="fa-solid fa-file-invoice"></i></button></td>
             </tr>`;
         }
