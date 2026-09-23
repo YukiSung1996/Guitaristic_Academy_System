@@ -103,6 +103,14 @@ function advancedRenderSummary() {
   const pct = t.expected ? Math.round(t.current / t.expected * 100) : 0;
   const bar = document.getElementById('advPayBar');
   if (bar) bar.style.width = pct + '%';
+  // 待確認分兩種：日期已過但忘了確認（要去確認）／還沒到上課日（等上完課自然會確認）
+  const overdue = GACPayroll.expiredScheduled(lessonsByMonth, advancedMonth(), advancedTodayStr()).length;
+  const future = Math.max(0, t.pending - overdue);
+  const pendingNote = !t.pending ? '本月課堂已全部確認。'
+    : `待確認 ${t.pending} 堂＝${overdue ? `<b class="text-amber-700">${overdue} 堂日期已過但未確認</b>（到總課表按「批量確認出席」）` : ''}${overdue && future ? '＋' : ''}${future ? `${future} 堂尚未到上課日` : ''}。`;
+  set('advPayPending', `${t.pending} 堂`);
+  const noteEl = document.getElementById('advPayPendingNote');
+  if (noteEl) noteEl.innerHTML = t.expected ? pendingNote : '';
   set('advPayProgress', t.expected
     ? `已確認 ${t.current} / 預期 ${t.expected} 堂（${pct}%）　·　導師節數 ${t.currentSessions} / ${t.expectedSessions}　·　課程總額 ${advancedMoney(t.currentGross)} / ${advancedMoney(t.expectedGross)}`
     : '此月份沒有排定課堂——到「總課表」選月份並按「生成」。');

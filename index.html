@@ -270,7 +270,8 @@
                         <select id="weekSelect" onchange="onWeekSelectChange()" title="按週次篩選（清單）" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
                             <option value="ALL">全月</option>
                         </select>
-                        <button onclick="batchConfirmWeek()" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold transition flex items-center gap-1" title="把所選週次（或全月）、導師／學生篩選範圍內，今天（含）以前仍是「已排課」的課堂批量標記為已上課">
+                        <!-- 文字與停用狀態由 updateBatchConfirmBtn 依範圍內可確認堂數決定 -->
+                        <button id="batchConfirmBtn" onclick="batchConfirmWeek()" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:hover:bg-emerald-600 text-white rounded-lg font-bold transition flex items-center gap-1" title="把所選週次（或全月）、導師／學生篩選範圍內，今天（含）以前仍是「已排課」的課堂批量標記為已上課">
                             <i class="fa-solid fa-check-double"></i> 批量確認出席
                         </button>
                         <button id="manualModeBtn" onclick="toggleManualMode()" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-bold transition flex items-center gap-1" title="手動模式：每行出現直接改狀態控件（跳過流程限制、不觸發小組聯動），用於修正誤操作。每次載入預設關閉。">
@@ -389,6 +390,7 @@
                 <div class="space-y-1">
                     <div class="h-2 w-full bg-slate-100 rounded-full overflow-hidden"><div id="advPayBar" class="h-2 bg-emerald-500 rounded-full transition-all" style="width:0%"></div></div>
                     <p id="advPayProgress" class="text-[11px] text-slate-500"></p>
+                    <p id="advPayPendingNote" class="text-[11px] text-slate-500"></p>
                 </div>
                 <!-- 每位導師一行，點開見每個報讀項目的已確認／待確認堂數與金額 -->
                 <div id="advancedTutorList" class="space-y-2"></div>

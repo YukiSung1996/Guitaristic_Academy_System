@@ -813,6 +813,7 @@
             renderPendingPool();
             renderMasterScheduleList();
             renderMasterCalendarView();
+            updateBatchConfirmBtn();
             renderSendCenter();
             renderPaymentTab();
             // 數據分析與薪酬只在頁籤可見時重算（圖表重建／整月彙總有成本）
@@ -845,6 +846,7 @@
 
         function onWeekSelectChange() {
             if (currentViewMode === 'list') renderMasterScheduleList();
+            updateBatchConfirmBtn(); // 按鈕上的可確認堂數隨週次範圍變
         }
 
         // ===== 總課表篩選：導師／學生（或小組班）——清單與月曆同時套用；批量確認出席亦以此範圍為準 =====
@@ -908,6 +910,7 @@
         function onScheduleFilterChange() {
             renderMasterScheduleList();
             renderMasterCalendarView();
+            updateBatchConfirmBtn();
         }
 
         // ===== 課節操作彈窗：月曆色塊點開，內容就是清單那張卡片（同一套按鈕與流程）=====
@@ -1710,10 +1713,11 @@
         }
 
         // 整週/整月批量確認出席（只確認今天含以前、仍是 SCHEDULED 的課）
-        function batchConfirmWeek() {
+        // 批量確認的範圍：目前的週次（或全月）＋導師／學生篩選；只到今天為止（未來的課不確認）
+        function batchConfirmScope() {
             const monthKey = currentMonthKey();
-            if (!monthKey) return;
-            const weekVal = document.getElementById('weekSelect').value;
+            if (!monthKey) return null;
+            const weekVal = document.getElementById('weekSelect')?.value || 'ALL';
             let from = monthKey + '-01', to = monthKey + '-31', label = '全月';
             if (weekVal !== 'ALL' && monthWeeksData && monthWeeksData[parseInt(weekVal)]) {
                 const days = monthWeeksData[parseInt(weekVal)].filter(d => d !== null);
@@ -1721,17 +1725,57 @@
                 to = days[days.length - 1].dateString;
                 label = `第 ${parseInt(weekVal) + 1} 週`;
             }
-            const today = localDateStr(new Date());
             const f = scheduleFilterValues();
+            return { monthKey, from, to, label, today: localDateStr(new Date()),
+                opts: { maxDate: localDateStr(new Date()), filter: l => lessonMatchesScheduleFilters(l, f) } };
+        }
+
+        // 按鈕即狀態指示：可確認 N 堂就寫出來；沒有就停用，並說明是「都確認了」還是「只剩未來的課」
+        function updateBatchConfirmBtn() {
+            const btn = document.getElementById('batchConfirmBtn');
+            if (!btn) return;
+            const scope = batchConfirmScope();
+            if (!scope) return;
+            const n = GACLessonState.confirmableInRange(lessonsByMonth, scope.from, scope.to, scope.opts).length;
+            // 同範圍但不限日期的待確認：用來分辨「都確認完了」與「只剩未來的課」
+            const future = GACLessonState.confirmableInRange(lessonsByMonth, scope.from, scope.to,
+                { filter: scope.opts.filter }).length - n;
+            // 範圍內是否有任何課（不分狀態）：沒有課 ≠ 課都確認了
+            const inRange = GACLessonState.allLessons(lessonsByMonth).filter(l =>
+                l.date >= scope.from && l.date <= scope.to && scope.opts.filter(l)).length;
+            btn.disabled = n === 0;
+            btn.classList.toggle('opacity-40', n === 0);
+            btn.classList.toggle('cursor-not-allowed', n === 0);
+            let label, title;
+            if (n > 0) {
+                label = `批量確認出席（${n} 堂）`;
+                title = `把${scope.label}${scheduleFilterLabel() ? '、' + scheduleFilterLabel() : ''}範圍內、今天（含）以前仍是「已排課」的 ${n} 堂標記為已上課`;
+            } else if (!inRange) {
+                label = '範圍內沒有課堂';
+                title = '目前的週次／導師／學生篩選範圍內沒有任何課堂';
+            } else if (future > 0) {
+                label = `無待確認課堂（還有 ${future} 堂未到上課日）`;
+                title = `此範圍內今天以前的課都已確認；另有 ${future} 堂日期還沒到，上完課那天再確認`;
+            } else {
+                label = '全部已確認出席';
+                title = `此範圍內 ${inRange} 堂課都已有結果（已上課／請假／缺席），沒有待確認的`;
+            }
+            btn.innerHTML = `<i class="fa-solid fa-check-double"></i> ${label}`;
+            btn.title = title;
+        }
+
+        function batchConfirmWeek() {
+            const scope = batchConfirmScope();
+            if (!scope) return;
             const fLabel = scheduleFilterLabel();
-            if (!confirm(`將${label}（${from} ~ ${to}）${fLabel ? '、' + fLabel : ''}範圍內、今天（含）以前仍是「已排課」的課堂全部標記為「已上課」？`)) return;
-            pushHistory(`批量確認出席：${label}${fLabel ? '、' + fLabel : ''}`);
-            const res = GACLessonState.confirmScheduledInRange(lessonsByMonth, from, to, { maxDate: today, filter: l => lessonMatchesScheduleFilters(l, f) });
+            const n = GACLessonState.confirmableInRange(lessonsByMonth, scope.from, scope.to, scope.opts).length;
+            if (!n) { updateBatchConfirmBtn(); return; }
+            if (!confirm(`將${scope.label}（${scope.from} ~ ${scope.to}）${fLabel ? '、' + fLabel : ''}範圍內、今天（含）以前仍是「已排課」的 ${n} 堂課全部標記為「已上課」？`)) return;
+            pushHistory(`批量確認出席：${scope.label}${fLabel ? '、' + fLabel : ''}（${n} 堂）`);
+            const res = GACLessonState.confirmScheduledInRange(lessonsByMonth, scope.from, scope.to, scope.opts);
             persistLessons();
             renderAll();
-            showToast(res.count > 0
-                ? `✅ 已批量確認 ${res.count} 堂為「已上課」`
-                : 'ℹ️ 範圍內沒有可確認的課堂（只會確認今天或以前、仍為「已排課」的課）');
+            showToast(`✅ 已批量確認 ${res.count} 堂為「已上課」`);
         }
 
         // 待補堂池：跨月列出所有「已請假未排補堂」的課，按等待天數降序
