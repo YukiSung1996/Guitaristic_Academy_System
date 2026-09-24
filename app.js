@@ -3640,31 +3640,83 @@
         function applyRateOverridesToTable() { GACRates.applyOverrides(rateTable, rateOverrides); }
         function persistRateOverrides() { gacStore.saveRateOverrides(rateOverrides); }
 
+        // 每欄一個篩選（'' ＝全部）。選項是該欄的 unique 值，由左到右連動：只受左邊欄位影響——選了課程，級別只剩該課程有的；
+        // 右邊的選擇不會反過來鎖住左邊（否則選了級別，課程就改不回來）。改左邊令右邊失效時，右邊自動退回全部。
+        const RATE_FILTER_COLS = [
+            { key: 'tutor', label: '導師等級' },
+            { key: 'instrument', label: '課程' },
+            { key: 'grade', label: '級別' },
+            { key: 'classType', label: '授課形式' },
+            { key: 'duration', label: '時長', fmt: v => v + ' 分鐘' },
+            { key: 'changed', label: '改價', options: [['yes', '只看已改價'], ['no', '只看預設價']] }
+        ];
+        let rateFilter = {};
+
+        // upto：只比左邊前 upto 個欄位（「改價」篩選一律套用）；不給＝全部欄位
+        function rateRowMatches(r, upto) {
+            return RATE_FILTER_COLS.every((c, i) => {
+                const want = rateFilter[c.key];
+                if (!want) return true;
+                if (upto !== undefined && c.key !== 'changed' && i >= upto) return true;
+                if (c.key === 'changed') return (rateOverrides[GACRates.overrideKey(r)] !== undefined) === (want === 'yes');
+                return String(r[c.key]) === want;
+            });
+        }
+
+        function setRateFilter(key, value) {
+            rateFilter[key] = String(value || '');
+            renderRateTableEditor();
+        }
+
+        function resetRateFilters() {
+            rateFilter = {};
+            renderRateTableEditor();
+        }
+
+        function renderRateFilterRow() {
+            const row = document.getElementById('rateFilterRow');
+            if (!row) return;
+            const sel = 'w-full min-w-[5rem] p-1 border border-slate-300 rounded-md bg-white font-normal normal-case tracking-normal text-[11px]';
+            const cells = RATE_FILTER_COLS.filter(c => c.key !== 'changed').map((c, i) => {
+                const pool = rateTable.filter(r => rateRowMatches(r, i));
+                let vals = [...new Set(pool.map(r => String(r[c.key])))];
+                if (c.key === 'duration') vals.sort((a, b) => Number(a) - Number(b));
+                // 左邊改了、這欄選的值已不存在 → 退回全部，免得卡在「0 列」
+                if (rateFilter[c.key] && vals.indexOf(rateFilter[c.key]) === -1) rateFilter[c.key] = '';
+                const cur = rateFilter[c.key] || '';
+                const opts = `<option value="">全部（${vals.length}）</option>` + vals.map(v =>
+                    `<option value="${escapeHtml(v)}"${v === cur ? ' selected' : ''}>${escapeHtml(c.fmt ? c.fmt(v) : v)}</option>`).join('');
+                return `<th class="p-1.5${c.key === 'duration' ? ' text-center' : ''}"><select id="rateFlt_${c.key}" onchange="setRateFilter('${c.key}', this.value)" class="${sel}${cur ? ' border-sky-500 bg-sky-50' : ''}">${opts}</select></th>`;
+            });
+            const ch = RATE_FILTER_COLS.find(c => c.key === 'changed');
+            const chCur = rateFilter.changed || '';
+            cells.push(`<th class="p-1.5 text-right" colspan="2"><select id="rateFlt_changed" onchange="setRateFilter('changed', this.value)" class="${sel}${chCur ? ' border-sky-500 bg-sky-50' : ''}"><option value="">全部價格</option>` +
+                ch.options.map(([v, t]) => `<option value="${v}"${v === chCur ? ' selected' : ''}>${t}</option>`).join('') + '</select></th>');
+            row.innerHTML = cells.join('');
+        }
+
         function renderRateTableEditor() {
             const body = document.getElementById('rateTableEditorBody');
             if (!body) return;
-            const tierSel = document.getElementById('rateEditTier');
-            const progSel = document.getElementById('rateEditProgram');
-            const programs = [...new Set(rateTable.map(r => r.instrument))];
-            const curP = progSel.value;
-            progSel.innerHTML = programs.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
-            progSel.value = programs.indexOf(curP) !== -1 ? curP : programs[0];
-            const tier = tierSel.value || '資深導師';
-            const program = progSel.value;
-            const rows = rateTable.filter(r => r.tutor === tier && r.instrument === program);
+            renderRateFilterRow();   // 先跑：會把連動後不存在的選值退回全部
+            const rows = rateTable.filter(r => rateRowMatches(r));
             const cnt = document.getElementById('rateOverrideCount');
-            if (cnt) { const n = Object.keys(rateOverrides).length; cnt.textContent = n ? `已改價 ${n} 項` : '全部為預設價'; }
+            if (cnt) { const n = Object.keys(rateOverrides).length; cnt.textContent = n ? `· 已改價 ${n} 項` : '· 全部為預設價'; }
+            const rc = document.getElementById('rateRowCount');
+            if (rc) rc.textContent = `顯示 ${rows.length} / ${rateTable.length} 列`;
             body.innerHTML = rows.map(r => {
                 const key = GACRates.overrideKey(r);
                 const changed = rateOverrides[key] !== undefined;
                 return `<tr class="${changed ? 'bg-amber-50/60' : ''}">
+                    <td class="p-2 text-slate-600 whitespace-nowrap">${escapeHtml(r.tutor)}</td>
+                    <td class="p-2 text-slate-600">${escapeHtml(r.instrument)}</td>
                     <td class="p-2 font-semibold">${escapeHtml(r.grade)}</td>
                     <td class="p-2 text-slate-600">${escapeHtml(r.classType)}</td>
                     <td class="p-2 text-center">${r.duration} 分鐘</td>
                     <td class="p-2 text-right"><input type="number" min="0" value="${r.rate}" data-key="${escapeHtml(key)}" onchange="handleRateTableEdit(this)" class="w-24 text-right p-1.5 border ${changed ? 'border-amber-400' : 'border-slate-300'} rounded-lg"${changed ? ` title="預設 $${r.baseRate}"` : ''}></td>
                     <td class="p-2 text-right">${changed ? `<button onclick="resetRateRow('${jsStrAttr(key)}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-semibold" title="還原預設 $${r.baseRate}">還原</button>` : ''}</td>
                 </tr>`;
-            }).join('') || '<tr><td colspan="5" class="p-4 text-center text-slate-400">此組合暫無收費資料。</td></tr>';
+            }).join('') || '<tr><td colspan="7" class="p-4 text-center text-slate-400">沒有符合篩選的收費資料。</td></tr>';
         }
 
         function handleRateTableEdit(input) {

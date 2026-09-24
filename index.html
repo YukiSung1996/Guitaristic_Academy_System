@@ -811,19 +811,16 @@
                 <div id="smod_rates" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
                     <p class="text-xs text-slate-500">改價後立即生效：學生表單、薪酬與數據分析按新價查表。已生成月份的學費條目要重新按「生成」才會按新價（已發送的學費單不變）。改過的列會標示，可逐列還原預設。</p>
                     <div class="flex flex-wrap items-center gap-3 text-xs">
-                        <label class="font-bold text-slate-600">導師等級</label>
-                        <select id="rateEditTier" onchange="renderRateTableEditor()" class="p-2 border border-slate-300 rounded-lg bg-white">
-                            <option value="資深導師">資深導師</option>
-                            <option value="普通導師">普通導師</option>
-                        </select>
-                        <label class="font-bold text-slate-600">課程</label>
-                        <select id="rateEditProgram" onchange="renderRateTableEditor()" class="p-2 border border-slate-300 rounded-lg bg-white"></select>
+                        <span id="rateRowCount" class="text-slate-600 font-semibold"></span>
                         <span id="rateOverrideCount" class="text-slate-500"></span>
+                        <button type="button" onclick="resetRateFilters()" class="ml-auto px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-semibold"><i class="fa-solid fa-filter-circle-xmark"></i> 清除篩選</button>
                     </div>
-                    <div class="overflow-x-auto rounded-xl border border-slate-200">
+                    <!-- 每欄一個篩選：選項＝該欄 unique 值，只列符合其他欄篩選的（連動）；表頭固定、表身捲動 -->
+                    <div class="overflow-auto max-h-[28rem] rounded-xl border border-slate-200">
                         <table class="w-full text-left text-xs text-slate-700">
-                            <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
-                                <tr><th class="p-2">級別</th><th class="p-2">授課形式</th><th class="p-2 text-center">時長</th><th class="p-2 text-right">每堂學費</th><th class="p-2"></th></tr>
+                            <thead class="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-slate-600 font-bold text-[10px]">
+                                <tr class="uppercase tracking-wider"><th class="p-2">導師等級</th><th class="p-2">課程</th><th class="p-2">級別</th><th class="p-2">授課形式</th><th class="p-2 text-center">時長</th><th class="p-2 text-right">每堂學費</th><th class="p-2"></th></tr>
+                                <tr id="rateFilterRow" class="bg-white"></tr>
                             </thead>
                             <tbody id="rateTableEditorBody" class="divide-y divide-slate-100"></tbody>
                         </table>

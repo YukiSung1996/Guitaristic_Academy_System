@@ -95,6 +95,7 @@
 - `lib/`：無 DOM 依賴的純函數庫（`schedule.js` 生成與 merge、`lessonState.js` 狀態機與補堂鏈、`payroll.js` 計薪、`sendlog.js` 發送紀錄、`storage.js` 持久化與備份、`gcal.js` 日曆事件構造／查重導入／對帳 diff）
 - `tests/`：Node 內建 test runner 的單元測試
 - `styles.css`：頁面樣式
+- 設定 → 收費標準表：**每一欄一個篩選**（導師等級／課程／級別／授課形式／時長，選項＝該欄 unique 值；由左到右連動——每欄只列符合左邊欄位篩選的值，改左邊令右邊失效時右邊自動退回全部；另有「只看已改價／預設價」），表頭固定、表身捲動，上方顯示「顯示 N / 總列數」與「清除篩選」
 - `docs/calendar-guide.md`：**給導師看的 Google Calendar 操作指南**（唯讀模式）——事件格式、系統怎麼認人、狀態碼 L／SL／TL／NS／MU 寫在哪、「我想請假／排補堂／改時間」在 Calendar 各怎麼做、同步時會列出什麼
 
 ## 測試
