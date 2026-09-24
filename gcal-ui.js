@@ -40,10 +40,10 @@ function loadGisScript() {
 // 寫入授權開關（設定 → Google Calendar）：關閉＝只申請唯讀 scope、同步不推送不刪除、清場只清本地
 function gcalWriteEnabled() { return !appSettings || appSettings.gcalWrite !== false; }
 
+const GCAL_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+const GCAL_READ_SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
 function gcalScope() {
-    return gcalWriteEnabled()
-        ? 'https://www.googleapis.com/auth/calendar.events'
-        : 'https://www.googleapis.com/auth/calendar.events.readonly';
+    return gcalWriteEnabled() ? GCAL_WRITE_SCOPE : GCAL_READ_SCOPE;
 }
 
 // 總課表按鈕標示目前模式（載入與儲存設定時呼叫）
@@ -59,8 +59,9 @@ function applyGcalModeUi() {
     }
 }
 
-function ensureGcalToken() {
-    const scope = gcalScope();
+// scopeOverride：只有「強制清空（debug）」用——唯讀設定下這一次臨時要寫入授權
+function ensureGcalToken(scopeOverride) {
+    const scope = scopeOverride || gcalScope();
     if (gcalToken && gcalToken.scope === scope && Date.now() < gcalToken.expiresAt - 60000) {
         return Promise.resolve(gcalToken.accessToken);
     }
@@ -253,7 +254,8 @@ function openGcalSync() {
                 if (key) evByKey[key] = ev;
             });
             const delKeys = new Set(diff.deletions.map(d => d.cell.key));
-            const toPush = GACSchedule.groupByCell(lessonsByMonth[monthKey] || [])
+            // 本月的課＋視窗內（前後 7 天）別的月份的補堂：從待補堂池排到下個月初的補堂也推得到
+            const toPush = GACSchedule.groupByCell(windowLessons.filter(l => l.date.slice(0, 7) === monthKey || l.isMakeup))
                 .filter(c => !evByKey[c.key] && !diff.matchedKeys[c.key] && !moveKeys.has(c.key) && !delKeys.has(c.key));
             let timeChanges = diff.timeChanges, statusChanges = diff.statusChanges, deletions = diff.deletions, manualNew = diff.manualNew;
             let unmatched = 0, missingOff = false, staleMoves = writeOn ? [] : relinks.slice();
@@ -831,11 +833,13 @@ function forceWipeTargets() {
     return list;
 }
 
+// 唯讀設定下也能用：這一次臨時申請寫入授權（Google 會彈授權視窗），做完即丟棄，「授權寫入」開關不動——免得開了忘記關
 function forceWipeCalendarEvents() {
-    if (!appSettings.gcalClientId || !gcalWriteEnabled()) {
-        alert('強制清空 Calendar 需要：設定 → Google Calendar 開啟「授權寫入」並填好 OAuth Client ID。\n（唯讀模式下系統不寫 Calendar；要清請自行到 Google Calendar 刪。）');
+    if (!appSettings.gcalClientId) {
+        alert('強制清空 Calendar 需要先在 設定 → Google Calendar 填好 OAuth Client ID。');
         return;
     }
+    const tempWrite = !gcalWriteEnabled();
     const targets = forceWipeTargets();
     const now = Date.now();
     const timeMin = new Date(now - 366 * 86400000).toISOString();
@@ -844,12 +848,14 @@ function forceWipeCalendarEvents() {
         targets.map(t => '• ' + t.label).join('\n') +
         '\n\n匯入 .ics 的、手動建立的、私人約會，全部一起刪（GCal 垃圾桶 30 天內可還原）。\n' +
         '本地也一併清空：全部月份的課堂、發送紀錄、薪酬調整與封存——不可還原！\n' +
-        resetKeptNote() + '。\n建議先按頂部「全量備份 (JSON)」保存現狀。\n\n確定要繼續？')) return;
+        resetKeptNote() + '。\n建議先按頂部「全量備份 (JSON)」保存現狀。' +
+        (tempWrite ? '\n\n目前是唯讀模式：這次會臨時申請寫入授權（Google 會彈出授權視窗），只用於這次清空；設定仍保持唯讀，做完即丟棄這個授權。' : '') +
+        '\n\n確定要繼續？')) return;
     const typed = prompt('最後確認：請輸入 DELETE（大寫）才會執行。');
     if (typed !== 'DELETE') { alert('已取消（未輸入 DELETE）。'); return; }
 
     setGcalBusy(true);
-    ensureGcalToken()
+    ensureGcalToken(GCAL_WRITE_SCOPE)
         .then(token => {
             // 逐本日曆：列出視窗內所有事件 → 全刪（不看標籤）
             let chain = Promise.resolve([]);
@@ -888,7 +894,10 @@ function forceWipeCalendarEvents() {
                 '\n\nGCal 垃圾桶 30 天內可還原。現在可以重新「生成」。');
         })
         .catch(err => alert('強制清空失敗：' + ((err && err.message) || err)))
-        .then(() => setGcalBusy(false));
+        .then(() => {
+            if (tempWrite) gcalToken = null;   // 臨時的寫入授權用完即丟；之後同步照唯讀重新授權
+            setGcalBusy(false);
+        });
 }
 
 function resetAllScheduleData() {

@@ -23,6 +23,7 @@
         .cal-mark-ok { color: #059669; }
         .cal-mark-ns { color: #7c3aed; }
         .cal-mark-leave { font-size: 9px; font-weight: 600; padding: 0 3px; border-radius: 3px; background-color: #e2e8f0; color: #475569; }
+        .cal-mark-mu { font-size: 9px; font-weight: 700; padding: 0 3px; border-radius: 3px; background-color: #334155; color: #fff; }
 
         /* 色塊：名字可截斷，右邊 (n/總) 編號固定露出 */
         .cal-pill { display: flex; align-items: baseline; gap: 3px; min-width: 0; }

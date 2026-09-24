@@ -348,10 +348,16 @@
             window.open(`https://calendar.google.com/calendar/r/day/${y}/${m}/${d}`, '_blank', 'noopener');
         }
 
-        // 只在唯讀模式、且是仍排定的補堂／加課才顯示：常規課整月匯入 .ics 就有；開了寫入的話推送會自己建事件，再建就重複。
-        // 改期過、而舊時間的事件已在 Calendar → 顯示「改 GCal 舊事件」（打開舊那一天去改），不再鼓勵另建一個
+        // 仍排定的補堂／加課的 Calendar 聯動鈕（課卡、補堂確認／改期通知彈窗）：
+        // 寫入模式：還沒推送過、或改期後 Calendar 上還是舊時間 →「同步到 GCal」開同步面板（推送新事件／改原本那個事件）；
+        // 唯讀模式：「加進 GCal」開已填好的建立事件頁；改期過、而舊時間的事件已在 Calendar →「改 GCal 舊事件」（打開舊那一天去改），不再鼓勵另建一個
         function gcalAddButton(lesson) {
-            if (!gcalReadOnly() || !lesson.isMakeup || lesson.status !== 'SCHEDULED') return '';
+            if (!lesson.isMakeup || lesson.status !== 'SCHEDULED') return '';
+            if (!gcalReadOnly()) {
+                if (!appSettings.gcalClientId || (lesson.gcalEventId && !lesson.gcalMovedFrom)) return '';
+                const move = !!(lesson.gcalEventId && lesson.gcalMovedFrom);
+                return `<button onclick="openGcalSync()" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg font-semibold flex items-center gap-1" title="寫入模式：打開「同步 GCal」面板——${move ? '把 Calendar 上原本那個事件改到新時間' : '把這堂推送到 Google Calendar'}（面板勾選後執行）"><i class="fa-brands fa-google"></i> ${move ? '同步改 GCal 事件' : '同步到 GCal'}</button>`;
+            }
             const mf = lesson.gcalMovedFrom;
             if (mf && mf.inCal) {
                 return `<button onclick="openGcalDay('${lesson.lessonId}')" class="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg font-semibold flex items-center gap-1" title="這堂改期前已在 Calendar（${mf.date} ${mf.time}）。打開 Calendar 那一天，把該事件改到 ${lesson.date} ${lesson.time}——不要另建新事件。改好後下次同步會自動認得"><i class="fa-brands fa-google"></i> 改 GCal 舊事件（${mf.date.slice(5)} ${mf.time} → ${lesson.date.slice(5)} ${lesson.time}）</button>`;
@@ -1476,14 +1482,21 @@
         }
 
         // 一個色塊。hideTime＝同時段已在上方印過時間，這裡省掉讓名字有位置顯示
-        // 月曆色塊的 (2/5)：本月第 2 節、共 5 節常規課（小組成員同一日編號相同）。補堂／加課不編號，不顯示
+        // 月曆色塊的 (2/5)：本月第 2 節、共 5 節常規課（小組成員同一日編號相同）。
+        // 補堂沿用它補的那一堂的編號（配 MU 標籤＝補第 2 節）；獨立加課沒有編號，不顯示
         function calSeqHtml(lesson) {
             const n = Number(lesson.lessonNum) || 0, total = Number(lesson.totalRegular) || 0;
             return n && total ? `<span class="cal-seq">(${n}/${total})</span>` : '';
         }
         function calSeqTitle(lesson) {
             const n = Number(lesson.lessonNum) || 0, total = Number(lesson.totalRegular) || 0;
-            return n && total ? ` · 本月第 ${n}/${total} 節` : '';
+            if (!n || !total) return '';
+            return lesson.isMakeup ? ` · 補本月第 ${n}/${total} 節` : ` · 本月第 ${n}/${total} 節`;
+        }
+        // 補堂／加課標籤：深底白字，不管導師是什麼顏色都看得出來
+        function calMuHtml(lesson) {
+            if (!lesson.isMakeup) return '';
+            return `<span class="cal-mark cal-mark-mu">${lesson.isExtra ? '加課' : 'MU'}</span> `;
         }
 
         function calPillHtml(cell, isClash, todayStr, hideTime) {
@@ -1497,12 +1510,12 @@
                 const names = cell.lessons.map(l => l.studentName).join('、');
                 return `
                         <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.program} 小組 (${cell.lessons.length})（${lesson.tutor}）${calSeqTitle(lesson)}${clashNote}：${names}">
-                            <span class="cal-pill-text">${timeHtml}${lessonPillMark(lesson)}👥 ${lesson.program} (${cell.lessons.length})</span>${calSeqHtml(lesson)}
+                            <span class="cal-pill-text">${timeHtml}${lessonPillMark(lesson)}${calMuHtml(lesson)}👥 ${lesson.program} (${cell.lessons.length})</span>${calSeqHtml(lesson)}
                         </div>`;
             }
             return `
                         <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.studentName}（${lesson.tutor}）· ${lessonStatusText(lesson)}${calSeqTitle(lesson)}${clashNote}${lesson.phone ? ' | ' + lesson.phone : ''}">
-                            <span class="cal-pill-text">${timeHtml}${lessonPillMark(lesson)}${lesson.isMakeup ? 'MU ' : ''}${lesson.studentName}</span>${calSeqHtml(lesson)}
+                            <span class="cal-pill-text">${timeHtml}${lessonPillMark(lesson)}${calMuHtml(lesson)}${lesson.studentName}</span>${calSeqHtml(lesson)}
                         </div>`;
         }
 
@@ -1531,6 +1544,8 @@
                     <span><span class="cal-mark cal-mark-ok">✓</span> 已上課</span>
                     <span><span class="cal-mark cal-mark-ns">✗</span> 缺席</span>
                     <span><span class="cal-mark cal-mark-leave">請假</span></span>
+                    <span><span class="cal-mark cal-mark-mu">MU</span> 補堂</span>
+                    <span><span class="cal-seq">(2/5)</span> 本月第 2 節／共 5 節</span>
                     <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm cal-tutor-1 cal-pill-done"></span>淡色＝已有結果</span>
                     <span class="text-slate-300">|</span>
                     <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm cal-tutor-1 cal-pill-overdue"></span>已過期未確認</span>
