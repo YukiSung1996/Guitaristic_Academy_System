@@ -496,6 +496,18 @@
             banner.classList.toggle('hidden', clashCount === 0);
         }
 
+        // 上方「篩選導師」改了 → 下方清單／月曆的導師篩選跟著改（看同一位導師的預覽，不用再選一次）；反向不聯動
+        function onBatchTutorChange() {
+            renderBatchCheckboxes();
+            const from = document.getElementById('filterTutor'), to = document.getElementById('schedTutorFilter');
+            if (!from || !to) return;
+            const v = from.value || 'ALL';
+            if (v !== 'ALL' && allTutorNames().indexOf(v) === -1) return;
+            if ((to.value || 'ALL') === v) return;
+            to.value = v;
+            onScheduleFilterChange();
+        }
+
         function renderBatchCheckboxes() {
             const grid = document.getElementById('batchStudentGrid');
             const selectedTutor = document.getElementById('filterTutor').value;
