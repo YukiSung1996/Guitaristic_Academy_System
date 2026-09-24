@@ -518,13 +518,17 @@ test('restClient：listWindow 走分頁並合併結果', async () => {
         { items: [{ id: 'b' }, { id: 'c' }] }
     ];
     const client = G.createRestClient({
-        token: 'tok',
+        token: 'tok', timeZone: 'Asia/Hong_Kong',
         fetchFn: (url) => { calls.push(url); return Promise.resolve({ ok: true, json: () => Promise.resolve(pages.shift()) }); }
     });
     const items = await client.listWindow('2026-08-25T00:00:00Z', '2026-10-08T00:00:00Z');
     assert.deepStrictEqual(items.map(e => e.id), ['a', 'b', 'c']);
     assert.strictEqual(calls.length, 2);
     assert.ok(calls[1].includes('pageToken=p2'));
+    assert.ok(calls[0].includes('timeZone=Asia%2FHong_Kong') && calls[1].includes('timeZone=Asia%2FHong_Kong'), '回傳時間用瀏覽器時區');
+    const plain = G.createRestClient({ token: 'tok', fetchFn: (url) => { calls.push(url); return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) }); } });
+    await plain.listWindow('2026-08-25T00:00:00Z', '2026-10-08T00:00:00Z');
+    assert.ok(!calls[2].includes('timeZone='), '沒給時區就不帶');
 });
 
 test('D8: 小組課一節一個事件——importCells 全組一件、成員回填同一 id、precheck/reconcile 按課節', async () => {
@@ -663,11 +667,11 @@ test('D9: reconcileByContent——無標籤事件按學生 ID／姓名／小組�
     assert.strictEqual(delIds.filter(id => id.startsWith('S002')).length, 5);
     assert.strictEqual(r.matched, 4);
     assert.strictEqual(r.pairs.length, 4, '配對結果供狀態雙向用');
-    // 導師範圍：只比 Instructor A 的課 → S002／小組不在範圍（小組事件變成無法歸屬）
+    // 導師範圍：配對不分導師（S002／小組的事件就算來自 A 的日曆也配得上）；只有「Calendar 沒有這堂」限 Instructor A 的課
     const rA = G.reconcileByContent(all, events, { students: students, groups: groups, tutor: 'Instructor A' });
-    assert.strictEqual(rA.deletions.length, 1);
-    assert.strictEqual(rA.timeChanges.length, 1);
-    assert.deepStrictEqual(rA.unmatched.map(e => e.id), ['e5', 'e6', 'e7']);
+    assert.strictEqual(rA.deletions.length, 1, 'S002（B 的學生）不在 A 的日曆缺席範圍');
+    assert.strictEqual(rA.timeChanges.length, 2, '小組（B）的事件照樣配上');
+    assert.deepStrictEqual(rA.unmatched.map(e => e.id), ['e5', 'e7']);
     // 刪除只看指定範圍
     const rW = G.reconcileByContent(all, events, { students: students, groups: groups, tutor: 'Instructor A', deleteTo: '2026-09-20' });
     assert.strictEqual(rW.deletions.length, 0);
@@ -680,7 +684,7 @@ test('D9: reconcileByContent——無標籤事件按學生 ID／姓名／小組�
     // 已由標籤配對的課節跳過
     const skip = {}; skip[S.groupByCell([lessons[1]])[0].key] = true;
     const rS = G.reconcileByContent(all, events, { students: students, groups: groups, tutor: 'Instructor A', skipCellKeys: skip });
-    assert.strictEqual(rS.timeChanges.length, 0);
+    assert.strictEqual(rS.timeChanges.length, 1, '該節被跳過；小組（B）的事件仍配上（配對不分導師）');
     assert.deepStrictEqual(rS.manualNew.map(m => m.date), ['2026-09-08', '2026-09-10'], '該節被跳過 → 其事件成為手動新建');
     // 狀態已一致 → 不再提案
     lessons[2].status = 'LEAVE'; lessons[2].leaveType = 'SL';

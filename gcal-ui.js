@@ -99,6 +99,7 @@ function gcalClient(token, calendarId) {
             return fetch(u, init);
         },
         token: token,
+        timeZone: gcalTimeZone(),   // 回傳時間按瀏覽器時區，日曆本身的時區設定不影響
         calendarId: GACGcal.normalizeCalendarId(calendarId || appSettings.gcalCalendarId) || 'primary'
     });
 }
@@ -368,6 +369,7 @@ function openGcalSync() {
                             ({ cell: c.cell, lessons: c.lessons, lesson: c.lesson, event: c.event, from: { date: c.date, time: c.time }, duplicate: false, conflict: true })));
                     } else timeChanges = timeChanges.concat(r.timeChanges);
                     pairs = pairs.concat(r.pairs.filter(pr => !moveKeys.has(pr.cell.key)));
+                    r.pairs.forEach(pr => { skip[pr.cell.key] = true; });   // 配對不分導師：這本日曆配上的節，下一本不再配（免得一節兩行）
                     deletions = deletions.concat(r.deletions);
                     manualNew = manualNew.concat(r.manualNew);
                     unmatched += r.unmatched.length;
