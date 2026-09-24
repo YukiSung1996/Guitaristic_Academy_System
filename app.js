@@ -2237,7 +2237,17 @@
             document.getElementById('pendingPoolCount').textContent = pool.length;
             banner.classList.toggle('hidden', pool.length === 0);
             const list = document.getElementById('pendingPoolList');
-            list.innerHTML = pool.map(({ lesson, waitingDays }) => {
+            // 在 Google Calendar 手動建補堂事件也行：說清楚怎樣建、同步才認得（標題認學號／姓名；「➕ 手動新建」那行選「作為補堂 ←」收編）
+            const syncName = gcalReadOnly() ? '同步 GCal（唯讀）或匯入 ICS' : '同步 GCal';
+            const hint = `
+                <div class="bg-white/70 border border-amber-200 rounded-lg p-2.5 text-[11px] text-amber-900 space-y-0.5">
+                    <div class="font-bold"><i class="fa-brands fa-google mr-1"></i>想直接在 Google Calendar 建補堂事件？這樣建，同步時系統就認得：</div>
+                    <div>1. 在<b>該導師的日曆</b>新建事件，填補堂的日期與時間（不要全日事件）。</div>
+                    <div>2. 標題<b>以學號開頭</b>，例如 <code>S001 Student 001 補堂 ← 09/16</code>——按每行的「複製標題」直接貼上即可；小組補堂寫小組名。「狀態：」留空，地點欄可填 MU。</div>
+                    <div>3. 按「${syncName}」→ 在「➕ 手動新建」那一行選「作為補堂 ←（該次請假）」→ 勾選執行。系統會替這次請假建立補堂並連上該事件，這裡不用再排。</div>
+                    <div class="text-amber-700">或者直接在這裡「排補堂」，彈窗上按${gcalReadOnly() ? '「加進 GCal」' : '「推送到 GCal」'}放進 Calendar。</div>
+                </div>`;
+            list.innerHTML = hint + pool.map(({ lesson, waitingDays }) => {
                 const id = lesson.lessonId;
                 const waitHtml = waitingDays >= 0
                     ? `<span class="${waitingDays >= 14 ? 'text-rose-600 font-bold' : 'text-amber-700 font-semibold'}">已等待 ${waitingDays} 天</span>`
@@ -2256,11 +2266,24 @@
                             <input type="date" id="poolDate_${id}" class="p-1 border rounded bg-white">
                             <input type="time" id="poolTime_${id}" value="${lesson.time}" class="p-1 border rounded bg-white">
                             <button onclick="submitMakeup('${id}','poolDate_${id}','poolTime_${id}')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold">排補堂</button>
+                            <button onclick="copyPoolGcalTitle('${id}')" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-semibold" title="複製手動建 Google Calendar 補堂事件用的標題：以學號開頭，同步時認得是這位學生；「← 原課日期」給人看"><i class="fa-brands fa-google"></i> 複製標題</button>
                             ${lesson.phone ? `<button onclick="openWhatsAppMessage('${id}', 'leave')" class="px-2.5 py-1 bg-green-100 hover:bg-green-200 text-green-800 rounded font-semibold" title="WhatsApp 跟進"><i class="fa-brands fa-whatsapp"></i></button>` : ''}
                         </div>
                     </div>
                 `;
             }).join('');
+        }
+
+        // 待補堂池「複製標題」：手動建 Calendar 補堂事件用的標題。學號開頭＝同步認得是這位學生；← 原課日期只是給人看
+        //（鏈式請假：原課＝最初那堂常規課，與系統自己建的補堂標題一致）
+        function poolGcalTitle(lesson) {
+            const root = lesson.isMakeup ? (GACSchedule.originSlot(lesson) || lesson) : lesson;
+            return `${lesson.studentId} ${lesson.studentName} 補堂 ← ${String(root.date).slice(5).replace('-', '/')}`;
+        }
+        function copyPoolGcalTitle(lessonId) {
+            const f = GACLessonState.findLesson(lessonsByMonth, lessonId);
+            if (!f) return;
+            copyToClipboard(poolGcalTitle(f.lesson));
         }
 
         function togglePendingPool() {

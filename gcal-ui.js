@@ -769,7 +769,12 @@ function applyGcalSyncInner() {
             const originId = choice.slice(3);
             const r = GACLessonState.scheduleMakeup(lessonsByMonth, originId, { date: m.date, time: m.time });
             if (r.ok) {
+                // 連上那個手動事件：id（之後同步靠 id 認回、改期時 PATCH 它）、所在日曆、eid（唯讀的「改 GCal 舊事件」直接開它）
                 r.makeup.gcalEventId = m.event.id || null;
+                r.makeup.gcalAdded = true;
+                if (m.event._calendarId) r.makeup.gcalCalId = m.event._calendarId;
+                const eid = GACGcal.eidFromLink(m.event.htmlLink);
+                if (eid) r.makeup.gcalEid = eid;
                 GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', r.makeup, nowIso);
                 done.push(`補堂：${m.studentId} ${m.date} ${m.time}`);
             } else errs.push(`${m.studentId} ${m.date}：${r.error}`);
