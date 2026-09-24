@@ -700,6 +700,70 @@ function offerClearHistoryAfterWipe() {
     return (typeof clearHistorySilently === 'function') ? clearHistorySilently() : 0;
 }
 
+// ===== 強制清空 Calendar（debug 用）=====
+// 與「全部清場」的差別：清場只刪本系統帶標籤的事件並順便清本地；這個把日曆視窗內「所有」事件都刪——
+// 匯入 .ics 建立的、手動建立的、私人約會，一律刪（GCal 垃圾桶 30 天內可還原）。本地資料不動，
+// 只把課堂上的事件 id 連結清空，下次同步會把課當成未推送重新推。只在寫入模式可用；要打 DELETE 才執行。
+function forceWipeTargets() {
+    const seen = {};
+    const list = [];
+    const add = (id, label) => { if (id && !seen[id]) { seen[id] = true; list.push({ id, label }); } };
+    const def = appSettings.gcalCalendarId || 'primary';
+    add(def, `預設日曆（${def}）`);
+    (typeof tutorsList !== 'undefined' ? tutorsList : []).forEach(t => { if (t && t.calendarId) add(t.calendarId, `${t.name}（${t.calendarId}）`); });
+    return list;
+}
+
+function forceWipeCalendarEvents() {
+    if (!appSettings.gcalClientId || !gcalWriteEnabled()) {
+        alert('強制清空 Calendar 需要：設定 → Google Calendar 開啟「授權寫入」並填好 OAuth Client ID。\n（唯讀模式下系統不寫 Calendar；要清請自行到 Google Calendar 刪。）');
+        return;
+    }
+    const targets = forceWipeTargets();
+    const now = Date.now();
+    const timeMin = new Date(now - 366 * 86400000).toISOString();
+    const timeMax = new Date(now + 366 * 86400000).toISOString();
+    if (!confirm('🧨 強制清空 Calendar（debug 用）——將刪除以下日曆在今天前後一年內的「所有」事件，不論是否由本系統建立：\n' +
+        targets.map(t => '• ' + t.label).join('\n') +
+        '\n\n匯入 .ics 的、手動建立的、私人約會，全部一起刪（GCal 垃圾桶 30 天內可還原）。\n' +
+        '本地課表、學生、設定一律不動，只解除課堂與事件的連結，下次同步會重新推送。\n\n確定要繼續？')) return;
+    const typed = prompt('最後確認：請輸入 DELETE（大寫）才會執行。');
+    if (typed !== 'DELETE') { alert('已取消（未輸入 DELETE）。'); return; }
+
+    setGcalBusy(true);
+    ensureGcalToken()
+        .then(token => {
+            // 逐本日曆：列出視窗內所有事件 → 全刪（不看標籤）
+            let chain = Promise.resolve([]);
+            targets.forEach(t => {
+                chain = chain.then(acc => {
+                    const client = gcalClient(token, t.id);
+                    return client.listWindow(timeMin, timeMax).then(events => {
+                        const items = (events || [])
+                            .filter(ev => ev && ev.id && ev.status !== 'cancelled')
+                            .map(ev => ({ eventId: ev.id, lessonId: GACGcal.eventCellKey(ev) || '' }));
+                        if (!items.length) return acc.concat([{ label: t.label, deleted: 0, gone: 0, failed: 0 }]);
+                        return GACGcal.deleteEvents(client, items)
+                            .then(r => acc.concat([{ label: t.label, deleted: r.deleted.length, gone: r.gone.length, failed: r.failed.length }]));
+                    });
+                });
+            });
+            return chain;
+        })
+        .then(results => {
+            pushHistory('強制清空 Calendar：解除課堂與事件的連結');
+            let unlinked = 0;
+            GACLessonState.allLessons(lessonsByMonth).forEach(l => { if (l.gcalEventId) { l.gcalEventId = null; unlinked++; } });
+            persistLessons();
+            renderAll();
+            alert('🧨 強制清空完成：\n' +
+                results.map(r => `• ${r.label}：刪 ${r.deleted} 件` + (r.gone ? `、${r.gone} 件本已不存在` : '') + (r.failed ? `、${r.failed} 件失敗` : '')).join('\n') +
+                `\n\n本地 ${unlinked} 堂課解除了事件連結（課表資料未動）。GCal 垃圾桶 30 天內可還原。`);
+        })
+        .catch(err => alert('強制清空失敗：' + ((err && err.message) || err)))
+        .then(() => setGcalBusy(false));
+}
+
 function resetAllScheduleData() {
     const months = Object.keys(lessonsByMonth).sort();
     if (!confirm('🧨 全部清場重來——將執行：\n' +
