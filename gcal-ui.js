@@ -1105,8 +1105,8 @@ function wipeAllLocalData() {
         advancedPayrollState.adjustments = [];
         advancedPayrollState.archives = [];
         try {
-            localStorage.removeItem('gac_adjustments');
-            localStorage.removeItem('gac_payroll_archives');
+            gacStorage.removeItem('gac_adjustments');
+            gacStorage.removeItem('gac_payroll_archives');
         } catch (e) { /* 忽略 */ }
         if (typeof advancedRenderAdjustments === 'function') advancedRenderAdjustments();
         if (typeof advancedRenderArchives === 'function') advancedRenderArchives();

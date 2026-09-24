@@ -1,4 +1,7 @@
 // System State
+        // 資料存放：serve.cmd 啟動時是本資料夾的 local-state.json（serve.js 注入 window.__GAC_FILE_STATE），否則瀏覽器 localStorage。
+        // 名單／課表／設定／快照／薪酬調整全部經這個物件讀寫（介面同 localStorage）；UI 偏好（開合、深色）仍直接用 localStorage
+        const gacStorage = GACStorage.pickStorage(window);
         let studentDatabase = [];
         let groupClasses = [];          // gac_groups_v2：小組班 [{id,name,program,level,duration,tutor,weekday,time,memberIds}]
         let lessonsByMonth = {};        // gac_lessons_v2：{ "2026-09": [lesson, ...] }，v2 課表唯一事實來源

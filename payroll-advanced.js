@@ -2,10 +2,11 @@
 // 一句話模型：**預期**＝本月排定的課全部上完能拿多少；**目前應付**＝已確認出席的課現在該付多少。
 // 數字全部由課表算出（lib/payroll.js monthPayroll），頁面不可手改堂數——要加減錢請用「額外津貼／扣款」。
 //   已確認＝ATTENDED（NOSHOW 依設定 payNoShow）；待確認＝SCHEDULED；請假不算（其補堂是另一筆課堂記錄，落在補堂當月）。
+// 調整／封存／分成走 gacStorage（state.js：serve.cmd 模式是本資料夾的 local-state.json）；深色模式是 UI 偏好，仍在 localStorage
 const advancedPayrollState = {
-  adjustments: JSON.parse(localStorage.getItem('gac_adjustments') || '[]'),
-  archives: JSON.parse(localStorage.getItem('gac_payroll_archives') || '[]'),
-  share: Number(localStorage.getItem('gac_tutor_share_pct') || 50),
+  adjustments: JSON.parse(gacStorage.getItem('gac_adjustments') || '[]'),
+  archives: JSON.parse(gacStorage.getItem('gac_payroll_archives') || '[]'),
+  share: Number(gacStorage.getItem('gac_tutor_share_pct') || 50),
   summary: null,          // 最近一次 monthPayroll 的結果
   openTutors: new Set()   // 明細展開中的導師
 };
@@ -62,7 +63,7 @@ function advancedAdjustTotal() {
 }
 
 function advancedSaveAdjustments() {
-  localStorage.setItem('gac_adjustments', JSON.stringify(advancedPayrollState.adjustments));
+  gacStorage.setItem('gac_adjustments', JSON.stringify(advancedPayrollState.adjustments));
 }
 
 // 某導師的應付：課程總額 × 拆帳 ％ ＋ 指名給他的調整項目
@@ -226,14 +227,14 @@ function advancedSaveArchive() {
     tutors: s.tutors.map(t => ({ tutor: t.tutor, lessons: t.current, gross: t.currentGross, payout: advancedTutorPayout(t, 'current') })),
     adjustments: JSON.parse(JSON.stringify(advancedPayrollState.adjustments))
   });
-  localStorage.setItem('gac_payroll_archives', JSON.stringify(advancedPayrollState.archives));
+  gacStorage.setItem('gac_payroll_archives', JSON.stringify(advancedPayrollState.archives));
   advancedRenderArchives();
   if (typeof showToast === 'function') showToast(`✅ 已封存 ${monthKey} 糧單：${advancedMoney(advancedTotalPayout(s, 'current'))}`);
 }
 
 function advancedDeleteArchive(index) {
   advancedPayrollState.archives.splice(index, 1);
-  localStorage.setItem('gac_payroll_archives', JSON.stringify(advancedPayrollState.archives));
+  gacStorage.setItem('gac_payroll_archives', JSON.stringify(advancedPayrollState.archives));
   advancedRenderArchives();
 }
 
@@ -297,7 +298,7 @@ function initAdvancedPayroll() {
     share.value = advancedPayrollState.share;
     share.addEventListener('input', () => {
       advancedPayrollState.share = Math.max(0, Math.min(100, Number(share.value) || 0));
-      localStorage.setItem('gac_tutor_share_pct', advancedPayrollState.share);
+      gacStorage.setItem('gac_tutor_share_pct', advancedPayrollState.share);
       advancedRenderSummary();
       advancedRenderTutors();
     });

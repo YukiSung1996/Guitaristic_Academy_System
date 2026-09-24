@@ -10,5 +10,9 @@ Thumbs.db
 *.ics
 *.json
 
+# 本資料夾的資料檔（serve.cmd 模式；每個資料夾各自一份，含真實資料，絕不提交）
+local-state.json
+local-state.json.tmp
+
 # Local-only reference material (never pushed)
 zz_requests/

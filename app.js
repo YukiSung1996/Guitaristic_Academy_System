@@ -1,6 +1,9 @@
 ﻿window.onload = function() {
             // v2：所有資料經 lib/storage.js 讀寫（新 key；舊 key 兼容讀取自動遷移；損壞 JSON 不白屏）
-            gacStore = GACStorage.createStore(window.localStorage);
+            gacStore = GACStorage.createStore(gacStorage);
+            // 檔案模式第一次啟動（本資料夾還沒有 local-state.json）：瀏覽器 localStorage 若留有上一次的資料，問要不要搬進本資料夾；搬了就重開頁面
+            if (gacStorage.isFileBacked && gacStorage.length === 0 && offerLocalStorageMigration()) { gacStorage.flush().then(() => window.location.reload()); return; }
+            if (gacStorage.isFileBacked) installFileStoreHooks();
             // v3：導師名單與費率覆寫先載入（學生／課堂查價依賴）
             tutorsList = gacStore.loadTutors(typeof defaultTutors !== 'undefined' ? defaultTutors : []);
             rateOverrides = gacStore.loadRateOverrides();
@@ -27,6 +30,7 @@
             document.addEventListener('visibilitychange', handleWaReturnConfirm);
 
             loadSettingsForm();
+            renderStorageLocationNote();
             if (typeof applyGcalModeUi === 'function') applyGcalModeUi();
             populateTutorSelects();
             renderBatchCheckboxes();
@@ -36,6 +40,42 @@
             renderHistoryUI();
             installModalClose();
         };
+
+        // ===== 資料存放（檔案模式，見 lib/storage.js pickStorage）=====
+        // 瀏覽器 localStorage 裡的資料搬進本資料夾（只搬 gac_ 資料 key，不搬 UI 開合等偏好）；回傳是否搬了
+        function offerLocalStorageMigration() {
+            const PREF = ['gac_batch_open', 'gac_settings_open', 'gac_dark_mode'];
+            let keys = [];
+            try { keys = Object.keys(window.localStorage).filter(k => k.startsWith('gac_') && !PREF.includes(k)); } catch (e) { return false; }
+            if (!keys.includes(GACStorage.KEYS.students) && !keys.includes(GACStorage.KEYS.lessons)) return false;
+            if (!confirm('本資料夾還沒有資料檔（local-state.json）。\n瀏覽器裡留有上一次用這個網址時的資料（名單／課表／設定／快照）。\n要搬進本資料夾嗎？\n「確定」＝複製進來（瀏覽器那份不動）；「取消」＝從 data.js 的名單重新開始。')) return false;
+            keys.forEach(k => { try { gacStorage.setItem(k, window.localStorage.getItem(k)); } catch (e) { /* 忽略 */ } });
+            return true;
+        }
+
+        // 檔案模式：關頁／切頁前把未寫回的改動送出；寫回失敗提示一次（改動仍在記憶體，之後再改會重試）
+        function installFileStoreHooks() {
+            let warned = false;
+            gacStorage.onError = e => {
+                if (warned) return;
+                warned = true;
+                alert('⚠️ 寫回本資料夾的 local-state.json 失敗：' + (e && e.message ? e.message : e) + '\n改動暫時只在記憶體。請確認 serve.cmd 仍在執行；之後任何改動都會再試一次。');
+            };
+            const flush = () => { if (gacStorage.hasPending()) gacStorage.flush(); };
+            window.addEventListener('pagehide', flush);
+            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+        }
+
+        // 設定頁：說明資料存在哪
+        function renderStorageLocationNote() {
+            const el = document.getElementById('storageLocationNote');
+            if (!el) return;
+            const cfg = window.__GAC_FILE_STORE || {};
+            const origin = (typeof location !== 'undefined' && location.origin) ? location.origin : '';
+            el.innerHTML = gacStorage.isFileBacked
+                ? `<i class="fa-solid fa-folder-open mr-1"></i>資料存放：<b>本資料夾的 ${escapeHtml(cfg.file || 'local-state.json')}</b>（${escapeHtml(cfg.folder || '')}）——每個資料夾各自一份，開哪個資料夾就是哪個資料夾上次的狀態；改動 0.3 秒內寫回。換電腦或防手滑仍請用「全量備份」。`
+                : `<i class="fa-solid fa-globe mr-1"></i>資料存放：<b>瀏覽器 localStorage</b>——同一網址（${escapeHtml(origin)}）的所有資料夾共用同一份。用 serve.cmd 啟動即改存本資料夾的 local-state.json，各資料夾互不干擾。`;
+        }
 
         // ===== 彈窗通用關閉：點背景／Esc ＝ 關閉；表單類彈窗有未儲存改動時先確認（改動會丟失）=====
         // 各 open 函數在填好欄位、顯示後呼叫 markModalOpened(id) 拍一張「表單快照」；
