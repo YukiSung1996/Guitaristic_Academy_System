@@ -2780,29 +2780,45 @@
             event.target.value = ''; // 清空 input，允許重複選同一檔案
         }
 
-        // 設定頁「從 data.js 重新載入名單」：學生、小組班、導師都從 data.js 重讀，蓋過 localStorage 的版本
-        //（頁面平時只讀 localStorage，換了 data.js 要按這個才生效）。data.js 沒有 defaultTutors → 從學生／小組的 tutor／tutorLevel 推出；
-        // 已填的導師日曆 ID 按名字保留。課表、發送紀錄、設定不動（舊名單生成的課要清就用「全部清場」）；整個動作可撤銷
-        function resetToDefaultData() {
-            if (!confirm('從 data.js 重新載入學生名單、小組班與導師名單，蓋過目前的版本？\n（課表、發送紀錄、設定不動；導師日曆 ID 按名字保留；目前名單可按「撤銷」救回）')) return;
-            pushHistory('從 data.js 重新載入名單');
-            studentDatabase = defaultStudents.map(s => Object.assign({}, s));
-            groupClasses = (typeof defaultGroups !== 'undefined' ? defaultGroups : []).map(g => Object.assign({}, g, { memberIds: (g.memberIds || []).slice() }));
-            const fromFile = (typeof defaultTutors !== 'undefined' && Array.isArray(defaultTutors) && defaultTutors.length) ? defaultTutors : null;
-            const prevByName = {};
-            tutorsList.forEach(t => { prevByName[t.name] = t; });
+        // 設定頁「從 data.js 重新載入名單」／「還原演示名單」共用：學生、小組班、導師整套換成 src 的版本，蓋過 localStorage
+        //（頁面平時只讀 localStorage，換了 data.js 要按這個才生效）。src 沒有導師名單 → 從學生／小組的 tutor／tutorLevel 推出。
+        // 導師日曆 ID 按名字記在設定 tutorCalendarMemo：演示名單 ↔ 真實名單來回切換，各自的 ID 都不用重填。
+        // 課表、發送紀錄、設定不動（舊名單生成的課要清就用「全部清場」）；整個動作可撤銷
+        function applyRoster(src, label) {
+            pushHistory(label);
+            const memo = Object.assign({}, appSettings.tutorCalendarMemo || {});
+            tutorsList.forEach(t => { if (t.calendarId) memo[t.name] = t.calendarId; });
+            studentDatabase = (src.students || []).map(s => Object.assign({}, s));
+            groupClasses = (src.groups || []).map(g => Object.assign({}, g, { memberIds: (g.memberIds || []).slice() }));
+            const fromFile = (Array.isArray(src.tutors) && src.tutors.length) ? src.tutors : null;
             tutorsList = (fromFile || GACStorage.tutorsFromRoster(studentDatabase, groupClasses)).map(t => {
                 const out = { name: t.name, tier: t.tier === '資深導師' ? '資深導師' : '普通導師' };
-                const cal = (prevByName[t.name] && prevByName[t.name].calendarId) || t.calendarId || '';
+                const cal = memo[t.name] || t.calendarId || '';
                 if (cal) out.calendarId = cal;
                 return out;
             });
+            appSettings.tutorCalendarMemo = memo;
+            gacStore.saveSettings(appSettings);
             persistTutors();
             persistGroups();
             saveToLocalStorage();
             afterTutorsChanged();
             renderStudentTable();
-            showToast(`✅ 已從 data.js 重新載入：學生 ${studentDatabase.length}、小組班 ${groupClasses.length}、導師 ${tutorsList.length}${fromFile ? '' : '（data.js 沒有導師名單，已從學生資料推出）'}`, 6000);
+            return { students: studentDatabase.length, groups: groupClasses.length, tutors: tutorsList.length, derivedTutors: !fromFile };
+        }
+
+        function resetToDefaultData() {
+            if (!confirm('從 data.js 重新載入學生名單、小組班與導師名單，蓋過目前的版本？\n（課表、發送紀錄、設定不動；導師日曆 ID 按名字記住；目前名單可按「撤銷」救回）')) return;
+            const r = applyRoster({ students: defaultStudents, groups: typeof defaultGroups !== 'undefined' ? defaultGroups : [], tutors: typeof defaultTutors !== 'undefined' ? defaultTutors : [] }, '從 data.js 重新載入名單');
+            showToast(`✅ 已從 data.js 重新載入：學生 ${r.students}、小組班 ${r.groups}、導師 ${r.tutors}${r.derivedTutors ? '（data.js 沒有導師名單，已從學生資料推出）' : ''}`, 6000);
+        }
+
+        // 「還原演示名單」：demo_data.js 的脫敏演示名單（S001… 學生、Instructor A／B、樂理小組），與 data.js 無關；換了真實名單後想回到演示情境用
+        function restoreDemoRoster() {
+            if (typeof demoStudents === 'undefined') { alert('找不到 demo_data.js（index.html 應在 data.js 之後載入它）。'); return; }
+            if (!confirm('還原演示名單（demo_data.js：S001… 學生、Instructor A／B、樂理小組），蓋過目前的學生、小組班與導師名單？\n（課表、發送紀錄、設定不動；導師日曆 ID 按名字記住；目前名單可按「撤銷」救回。要演示課表請之後「全部清場」再「生成」）')) return;
+            const r = applyRoster({ students: demoStudents, groups: typeof demoGroups !== 'undefined' ? demoGroups : [], tutors: typeof demoTutors !== 'undefined' ? demoTutors : [] }, '還原演示名單');
+            showToast(`✅ 已還原演示名單：學生 ${r.students}、小組班 ${r.groups}、導師 ${r.tutors}`, 6000);
         }
 
         // ===== 課堂訊息（請假確認／補堂確認／改期通知）：文案在設定頁「訊息模板」，留空用預設；顯示時才組成 =====
