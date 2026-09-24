@@ -231,8 +231,7 @@ function contentOpts(tutor, skipKeys, monthKey) {
         skipCellKeys: skipKeys || {},
         detectMissing: canDetectMissing(tutor),
         deleteFrom: monthKey + '-01',
-        deleteTo: monthLastDay(monthKey),
-        now: new Date()   // 留空＝已上課：課已結束、「狀態：」空白 → 出席
+        deleteTo: monthLastDay(monthKey)
     };
 }
 
@@ -402,7 +401,7 @@ function openGcalSync() {
                 relinks.forEach(m => consider(m.cell, m.event));
             }
             // 狀態雙向：Calendar 的碼 → 本地（statusChanges）；本地的狀態 → Calendar（寫入：PATCH 一項勾選；唯讀：請到 Calendar 填）
-            const st = GACGcal.planStatusSync(pairs, rule, { now: new Date() });
+            const st = GACGcal.planStatusSync(pairs, rule);
             const statusChanges = st.toLocal;
             if (settleNow.length || pairs.length) persistLessons();   // 只是中繼資料（改期記號／事件 id、eid、碼），課堂本身沒變
             gcalSyncPlan = {
@@ -529,20 +528,26 @@ function renderGcalSyncModal() {
                 (m.conflict ? '（Calendar 上也被改過；設定為本系統為準 → 請把 Calendar 改成本地的時間）' : '') + link + '</div>');
         });
     }
+    // 衝突（系統已確認出席、Calendar 卻填了請假／缺席）：不論方向都集中列在下面的 ⚠️ 一組、預設不勾；勾選項目 id 不變，套用邏輯照舊
+    const conflictRows = [];
     if ((p.pushStatus || []).length) {
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">📤 寫回狀態到 GCal（本地標了請假／缺席，Calendar 沒填或不同 → 改該事件的地點欄與說明欄「狀態：」一行，其他內容保留）</div>');
-        p.pushStatus.forEach((s, i) => {
+        const row = (s, i, checked) => {
             const have = GACGcal.calStatusCode(s.event) || '';
-            parts.push(gcalSyncRow('gsW_' + i,
-                `${gcalCellLabel(s)} ${s.lesson.date} ${s.lesson.time}：Calendar「狀態：${have}」 → <b>狀態：${s.code || '（清空）'}</b>`, '', true));
-        });
+            return gcalSyncRow('gsW_' + i, `${gcalCellLabel(s)} ${s.lesson.date} ${s.lesson.time}：Calendar「狀態：${have}」 → <b>狀態：${s.code || '（清空）'}</b>${s.conflict ? '（系統已確認出席；本系統為準 → 寫回 A）' : ''}`, '', checked);
+        };
+        const normal = p.pushStatus.map((s, i) => ({ s, i })).filter(x => !x.s.conflict);
+        if (normal.length) {
+            parts.push('<div class="text-xs font-bold text-slate-700 mt-2">📤 寫回狀態到 GCal（本地標了請假／缺席，Calendar 沒填或不同 → 改該事件的地點欄與說明欄「狀態：」一行，其他內容保留）</div>');
+            normal.forEach(x => parts.push(row(x.s, x.i, true)));
+        }
+        p.pushStatus.forEach((s, i) => { if (s.conflict) conflictRows.push(row(s, i, false)); });
     }
     if ((p.fillStatus || []).length) {
         parts.push('<div class="text-xs font-bold text-slate-700 mt-2">📝 本地標了請假／缺席，Calendar 上還沒有（唯讀模式不會替你寫）→ 在 Calendar 打開該事件，說明欄「狀態：」填上；填好再同步就會消失</div>');
         p.fillStatus.forEach(s => {
             const url = gcalEventEditUrl(s.event);
             const link = url ? ` <a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="text-indigo-600 underline">在 Calendar 打開（編輯）</a>` : '';
-            parts.push(`<div class="p-2 border border-amber-200 bg-amber-50 rounded-lg text-xs text-amber-900">${gcalCellLabel(s)} ${s.lesson.date} ${s.lesson.time}：請填 <b>狀態：${s.code || '（清空）'}</b>${link}</div>`);
+            parts.push(`<div class="p-2 border border-amber-200 bg-amber-50 rounded-lg text-xs text-amber-900">${gcalCellLabel(s)} ${s.lesson.date} ${s.lesson.time}：請填 <b>狀態：${s.code || '（清空）'}</b>${s.conflict ? '（⚠️ 衝突：系統已確認出席，Calendar 卻填了「' + (GACGcal.calStatusCode(s.event) || '') + '」——先查清楚哪邊對）' : ''}${link}</div>`);
         });
     }
     if (p.timeChanges.length) {
@@ -553,22 +558,20 @@ function renderGcalSyncModal() {
         });
     }
     if (p.statusChanges.length) {
-        // 明確填了碼的一組；「留空而課已結束＝出席」另列一組（同一個 gsS_ 索引，套用邏輯不變）
-        const rows = p.statusChanges.map((s, i) => ({ s, i }));
-        const row = x => {
-            const s = x.s;
+        const row = (s, i, checked) => {
             const toLabel = s.to.status === 'NOSHOW' ? 'NS 缺席' : s.to.status === 'ATTENDED' ? '出席（已上課）' : getLeaveText(s.to.leaveType);
-            return gcalSyncRow('gsS_' + x.i, `${gcalCellLabel(s)} ${s.lesson.date} ${s.lesson.time}：${s.lesson.status} → <b>${toLabel}</b>`, '', true);
+            return gcalSyncRow('gsS_' + i, `${gcalCellLabel(s)} ${s.lesson.date} ${s.lesson.time}：${s.lesson.status} → <b>${toLabel}</b>${s.conflict ? '（系統已確認出席；Calendar 為準 → 本地改為 ' + toLabel + '）' : ''}`, '', checked);
         };
-        const explicit = rows.filter(x => !x.s.blank), blank = rows.filter(x => x.s.blank);
-        if (explicit.length) {
-            parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🏷️ 狀態碼變更（Calendar「狀態：」填了 A／L／SL／TL／NS → 更新本地；小組全體成員一併）</div>');
-            explicit.forEach(x => parts.push(row(x)));
+        const normal = p.statusChanges.map((s, i) => ({ s, i })).filter(x => !x.s.conflict);
+        if (normal.length) {
+            parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🏷️ 狀態碼變更（Calendar「狀態：」填了 A／L／SL／TL／NS → 更新本地；留空不算任何狀態；小組全體成員一併）</div>');
+            normal.forEach(x => parts.push(row(x.s, x.i, true)));
         }
-        if (blank.length) {
-            parts.push(`<div class="text-xs font-bold text-slate-700 mt-2">✅ 已上課：Calendar「狀態：」留空、而課已結束（留空＝出席）→ 本地標出席（${blank.length} 節；與系統「批量確認出席」效果相同）</div>`);
-            blank.forEach(x => parts.push(row(x)));
-        }
+        p.statusChanges.forEach((s, i) => { if (s.conflict) conflictRows.push(row(s, i, false)); });
+    }
+    if (conflictRows.length) {
+        parts.push(`<div class="text-xs font-bold text-amber-900 mt-2 p-2 bg-amber-50 border border-amber-300 rounded-lg">⚠️ 狀態衝突：系統已確認出席，Calendar 卻填了請假／缺席（${conflictRows.length} 節）。<b>預設不勾</b>——先查清楚哪邊對；勾選＝按「以 ${ruleName} 為準」處理（設定 → Google Calendar 可改）</div>`);
+        conflictRows.forEach(h => parts.push(h));
     }
     if (p.deletions.length) {
         // 防呆：大量刪除多半是「清場」而非逐堂取消——照套用會整批標請假、灌爆待補堂池。
@@ -739,14 +742,17 @@ function applyGcalSyncInner() {
         membersOf(s).forEach(l => {
             if (l.status === s.to.status && (s.to.status !== 'LEAVE' || (l.leaveType || '') === s.to.leaveType)) return; // 已一致的成員略過
             let r;
-            if (s.to.status === 'ATTENDED') {
-                // 出席：請假／缺席的先還原再標（已排補堂的請假還原會被擋 → 列入錯誤，請先取消補堂）
-                r = l.status === 'SCHEDULED' ? { ok: true } : GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'SCHEDULED');
-                if (r.ok) r = GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'ATTENDED');
+            if (l.status === 'LEAVE' && s.to.status === 'LEAVE') {
+                l.leaveType = s.to.leaveType;   // 只換假別，補堂鏈不動
+                r = { ok: true, lesson: l };
             } else {
-                r = s.to.status === 'NOSHOW'
-                    ? GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'NOSHOW')
-                    : GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'LEAVE', { leaveType: s.to.leaveType });
+                // 先還原為已排課再標新狀態（已排補堂的請假還原會被擋 → 列入錯誤，請先取消補堂）
+                r = l.status === 'SCHEDULED' ? { ok: true } : GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'SCHEDULED');
+                if (r.ok) {
+                    r = s.to.status === 'LEAVE'
+                        ? GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'LEAVE', { leaveType: s.to.leaveType })
+                        : GACLessonState.markStatus(lessonsByMonth, l.lessonId, s.to.status);
+                }
             }
             if (r.ok) {
                 if (s.to.status === 'LEAVE') GACSendlog.ensureLessonEntry(sendLog, 'LEAVE_CONFIRM', r.lesson, nowIso);
