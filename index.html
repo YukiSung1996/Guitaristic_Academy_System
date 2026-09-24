@@ -898,7 +898,7 @@
                 <button type="button" onclick="toggleSettingsModule('danger')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
                     <span class="min-w-0">
                         <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation text-rose-500"></i> <span class="text-rose-800">危險區：清場重來</span></span>
-                        <span class="block text-xs text-slate-500 mt-0.5">清空本月／全部清場／恢復預設學生名單（清場本地不可還原，請先備份）。唯讀模式下只清本地，Google Calendar 不動</span>
+                        <span class="block text-xs text-slate-500 mt-0.5">清空本月／全部清場／從 data.js 重新載入名單（清場本地不可還原，請先備份）。唯讀模式下只清本地，Google Calendar 不動</span>
                     </span>
                     <i id="smodChev_danger" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
                 </button>
@@ -914,8 +914,8 @@
                         <button onclick="forceWipeCalendarEvents()" class="px-4 py-2 bg-slate-800 hover:bg-black text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5" title="debug 用：刪掉日曆視窗內「所有」事件，不看標籤（匯入 .ics 的、手動建立的一起刪），本地也全部清空。需開啟寫入授權，並輸入 DELETE 確認">
                             <i class="fa-solid fa-skull-crossbones"></i> 強制清空 Calendar＋本地（debug）
                         </button>
-                        <button onclick="resetToDefaultData()" class="px-4 py-2 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5" title="恢復預設學生名單（含預設小組班）；課表與發送紀錄不動，可撤銷">
-                            <i class="fa-solid fa-user-group"></i> 恢復預設學生名單
+                        <button onclick="resetToDefaultData()" class="px-4 py-2 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5" title="學生、小組班、導師名單都從 data.js 重新讀入，蓋過目前的版本——頁面平時只讀 localStorage，換了 data.js 要按這個才生效。導師日曆 ID 按名字保留；課表、發送紀錄、設定不動；可撤銷；課表與發送紀錄不動，可撤銷">
+                            <i class="fa-solid fa-user-group"></i> 從 data.js 重新載入名單
                         </button>
                     </div>
                     <p class="text-[11px] text-slate-500"><b>強制清空 Calendar＋本地（debug）</b>：清場只刪本系統的事件（API 推送的，或本系統導出的 .ics 匯入的），手動建立的它不碰；這個鈕把預設日曆與每本導師日曆在今天前後一年內的<b>所有</b>事件都刪掉（GCal 垃圾桶 30 天內可還原），本地也跟全部清場一樣整個清空（學生名單、小組、導師與設定保留）。不必開「授權寫入」：唯讀模式下按它會臨時申請一次寫入授權，只用於這次清空、做完即丟，設定仍是唯讀。按下後要輸入 DELETE。</p>

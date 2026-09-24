@@ -2775,17 +2775,29 @@
             event.target.value = ''; // 清空 input，允許重複選同一檔案
         }
 
+        // 設定頁「從 data.js 重新載入名單」：學生、小組班、導師都從 data.js 重讀，蓋過 localStorage 的版本
+        //（頁面平時只讀 localStorage，換了 data.js 要按這個才生效）。data.js 沒有 defaultTutors → 從學生／小組的 tutor／tutorLevel 推出；
+        // 已填的導師日曆 ID 按名字保留。課表、發送紀錄、設定不動（舊名單生成的課要清就用「全部清場」）；整個動作可撤銷
         function resetToDefaultData() {
-            if (confirm('確定要恢復預設學生名單（含預設小組班）嗎？')) {
-                pushHistory('恢復預設學生名單與小組班');
-                studentDatabase = [...defaultStudents];
-                groupClasses = (typeof defaultGroups !== 'undefined' ? defaultGroups : []).map(g => Object.assign({}, g, { memberIds: (g.memberIds || []).slice() }));
-                persistGroups();
-                saveToLocalStorage();
-                renderBatchCheckboxes();
-                renderStudentTable();
-                showToast('✅ 已恢復預設學生名單與小組班');
-            }
+            if (!confirm('從 data.js 重新載入學生名單、小組班與導師名單，蓋過目前的版本？\n（課表、發送紀錄、設定不動；導師日曆 ID 按名字保留；目前名單可按「撤銷」救回）')) return;
+            pushHistory('從 data.js 重新載入名單');
+            studentDatabase = defaultStudents.map(s => Object.assign({}, s));
+            groupClasses = (typeof defaultGroups !== 'undefined' ? defaultGroups : []).map(g => Object.assign({}, g, { memberIds: (g.memberIds || []).slice() }));
+            const fromFile = (typeof defaultTutors !== 'undefined' && Array.isArray(defaultTutors) && defaultTutors.length) ? defaultTutors : null;
+            const prevByName = {};
+            tutorsList.forEach(t => { prevByName[t.name] = t; });
+            tutorsList = (fromFile || GACStorage.tutorsFromRoster(studentDatabase, groupClasses)).map(t => {
+                const out = { name: t.name, tier: t.tier === '資深導師' ? '資深導師' : '普通導師' };
+                const cal = (prevByName[t.name] && prevByName[t.name].calendarId) || t.calendarId || '';
+                if (cal) out.calendarId = cal;
+                return out;
+            });
+            persistTutors();
+            persistGroups();
+            saveToLocalStorage();
+            afterTutorsChanged();
+            renderStudentTable();
+            showToast(`✅ 已從 data.js 重新載入：學生 ${studentDatabase.length}、小組班 ${groupClasses.length}、導師 ${tutorsList.length}${fromFile ? '' : '（data.js 沒有導師名單，已從學生資料推出）'}`, 6000);
         }
 
         // ===== 課堂訊息（請假確認／補堂確認／改期通知）：文案在設定頁「訊息模板」，留空用預設；顯示時才組成 =====
