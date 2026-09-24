@@ -92,8 +92,9 @@ test('describeLesson／describeCell：第一行具體課程、導師、狀態：
     assert.ok(!one.includes('00000000') && !one.includes('example.com'));
     const mu = G.describeLesson({ studentId: 'S001', classType: '一對一', program: 'Pop Guitar', tutor: 'Instructor A', status: 'SCHEDULED', isMakeup: true, originLessonId: 'S001-20260916-1500' });
     assert.strictEqual(mu.split('\n')[0], '補堂 · 一對一 · Pop Guitar');
-    assert.strictEqual(mu.split('\n')[2], '狀態：MU');
-    assert.ok(mu.endsWith('↩ 補 2026-09-16 15:00 的請假課'));
+    assert.strictEqual(mu.split('\n')[1], '↩ 補的是：2026-09-16（三）15:00 請假的那一堂', '第二行就寫補哪一堂（含星期）');
+    assert.strictEqual(mu.split('\n')[3], '狀態：MU');
+    assert.strictEqual(G.statusFromDescription(mu), 'MU', '多了一行不影響讀狀態');
     const leave = G.describeLesson({ classType: '一對一', program: 'Pop Guitar', tutor: 'Instructor A', status: 'LEAVE', leaveType: 'SL' });
     assert.strictEqual(leave.split('\n')[2], '狀態：SL');
     const cell = { isGroup: true, lessons: [
@@ -105,6 +106,117 @@ test('describeLesson／describeCell：第一行具體課程、導師、狀態：
     assert.deepStrictEqual(g.slice(5), ['S030 Student 030', 'S031 Student 031']);
     // 自己寫出去的說明，自己讀回來：沒填狀態 → null
     assert.strictEqual(G.parseStatusCode({ description: one }), null);
+});
+
+test('補堂事件標題：「補堂」＋「← 原課 MM/DD」；常規課與加課不變；小組補堂同樣', () => {
+    const mu = { studentId: 'S001', studentName: 'Student 001', lessonNum: 2, totalRegular: 5, monthRef: '09/2026', isMakeup: true, originLessonId: 'S001-20260916-1500' };
+    assert.strictEqual(S.lessonTitle(mu), 'S001 Student 001 補堂([2/5] 09/2026 ← 09/16)');
+    assert.strictEqual(G.matchStudentPrefix(S.lessonTitle(mu), ['S001']), 'S001', '學號前綴錨點不變');
+    assert.strictEqual(G.parseStatusCode({ summary: S.lessonTitle(mu) }), null, '標題不會被讀成狀態碼');
+    assert.strictEqual(S.lessonTitle(Object.assign({}, mu, { isMakeup: false, originLessonId: null })), 'S001 Student 001([2/5] 09/2026)');
+    assert.strictEqual(S.lessonTitle({ studentId: 'S001', studentName: 'Student 001', lessonNum: 0, totalRegular: 0, monthRef: '09/2026', isMakeup: true, originLessonId: null }),
+        'S001 Student 001([0/0] 09/2026)', '加課沒有原課 → 不加');
+    const gm = (sid) => ({ lessonId: sid + '-20260926-1500-MU-20260905-1500', studentId: sid, studentName: sid, tutor: 'Instructor B', date: '2026-09-26', time: '15:00', duration: 60,
+        status: 'SCHEDULED', isMakeup: true, originLessonId: sid + '-20260905-1500', groupId: 'G01', groupName: '樂理 Grade 5 小組', monthRef: '09/2026' });
+    const cell = S.groupByCell([gm('S020'), gm('S021')])[0];
+    const p = G.cellToEventPayload(cell, IMPORT_OPTS);
+    assert.strictEqual(p.summary, '樂理 Grade 5 小組 補堂 ×2 (09/2026 ← 09/05)');
+    assert.ok(p.description.startsWith('補堂 · 小組課 · 樂理 Grade 5 小組\n↩ 補的是：2026-09-05（六）15:00 請假的那一堂'));
+});
+
+test('noteLocalMove：記下 Calendar 上原本的 key／時段；連改兩次只記第一次；搬回原時段就清掉', () => {
+    const l = { lessonId: 'S001-20260924-1000-MU-20260916-1500', studentId: 'S001', date: '2026-09-24', time: '10:00', isMakeup: true, gcalEventId: 'evMU' };
+    const snap = G.moveSnapshot(l);
+    const l2 = Object.assign({}, l, { lessonId: 'S001-20260925-1100-MU-20260916-1500', date: '2026-09-25', time: '11:00', gcalEventId: null });
+    G.noteLocalMove(l2, snap);
+    assert.deepStrictEqual(l2.gcalMovedFrom, { key: l.lessonId, date: '2026-09-24', time: '10:00', inCal: true });
+    assert.strictEqual(l2.gcalEventId, 'evMU', '事件 id 交接給新補堂');
+    const l3 = Object.assign({}, l2, { lessonId: 'S001-20260926-1400-MU-20260916-1500', date: '2026-09-26', time: '14:00' });
+    G.noteLocalMove(l3, G.moveSnapshot(l2));
+    assert.strictEqual(l3.gcalMovedFrom.key, l.lessonId, 'Calendar 上的仍是第一次的');
+    const back = Object.assign({}, l3, { lessonId: l.lessonId, date: '2026-09-24', time: '10:00' });
+    G.noteLocalMove(back, G.moveSnapshot(l3));
+    assert.strictEqual(back.gcalMovedFrom, undefined, '搬回原時段 → Calendar 不用改');
+    const fresh = { lessonId: 'S001-20260901-2130', studentId: 'S001', date: '2026-09-01', time: '21:30' };
+    const moved = Object.assign({}, fresh, { date: '2026-09-02' });
+    G.noteLocalMove(moved, G.moveSnapshot(fresh));
+    assert.strictEqual(moved.gcalMovedFrom.inCal, false, '沒推送過、沒按過加進 GCal → 不確定在 Calendar');
+});
+
+test('planLocalMoves：本地改期 ↔ Calendar 原事件——換了 key 靠舊 key／事件 id 認回；同 key 看時間；只差標籤；已好；Calendar 也改過不搶；舊 key 仍在用不搶', () => {
+    const ev = (id, key, dt) => ({ id: id, status: 'confirmed', summary: 'x', start: { dateTime: dt }, extendedProperties: { private: { gacLessonId: key } } });
+    const mk = (id, date, time, mf, extra) => Object.assign({ lessonId: id, studentId: 'S001', date: date, time: time, isMakeup: true, gcalMovedFrom: mf }, extra || {});
+    const oldMu = 'S001-20260924-1000-MU-20260916-1500';
+    // 補堂換了 id：舊 key 的事件還在舊時間 → move
+    let r = G.planLocalMoves([mk('S001-20260925-1100-MU-20260916-1500', '2026-09-25', '11:00', { key: oldMu, date: '2026-09-24', time: '10:00', inCal: true })],
+        [ev('evMU', oldMu, '2026-09-24T10:00:00+08:00')]);
+    assert.deepStrictEqual(r.moves.map(m => [m.event.id, m.from.date, m.from.time, m.tagOnly]), [['evMU', '2026-09-24', '10:00', false]]);
+    // 事件在 Calendar 上已被拖到新時間（只差標籤）→ tagOnly
+    r = G.planLocalMoves([mk('S001-20260925-1100-MU-20260916-1500', '2026-09-25', '11:00', { key: oldMu, date: '2026-09-24', time: '10:00', inCal: true })],
+        [ev('evMU', oldMu, '2026-09-25T11:00:00+08:00')]);
+    assert.strictEqual(r.moves[0].tagOnly, true);
+    // 舊 key 找不到，但成員記著事件 id（收編的手動事件／無標籤）→ 仍認得
+    r = G.planLocalMoves([mk('S001-20260925-1100-MU-20260916-1500', '2026-09-25', '11:00', { key: oldMu, date: '2026-09-24', time: '10:00', inCal: true }, { gcalEventId: 'm1' })],
+        [{ id: 'm1', status: 'confirmed', summary: 'S001 補課', start: { dateTime: '2026-09-24T10:00:00+08:00' } }]);
+    assert.strictEqual(r.moves.length, 1);
+    // 常規課改期（id 不變）：事件在舊時間 → move；在新時間 → settled；在第三個時間（Calendar 也改過）→ 都不列
+    const reg = () => ({ lessonId: 'S001-20260901-2130', studentId: 'S001', date: '2026-09-02', time: '20:00', gcalMovedFrom: { key: 'S001-20260901-2130', date: '2026-09-01', time: '21:30', inCal: true } });
+    r = G.planLocalMoves([reg()], [ev('e1', 'S001-20260901-2130', '2026-09-01T21:30:00+08:00')]);
+    assert.strictEqual(r.moves.length, 1);
+    r = G.planLocalMoves([reg()], [ev('e1', 'S001-20260901-2130', '2026-09-02T20:00:00+08:00')]);
+    assert.deepStrictEqual([r.moves.length, r.settled.length], [0, 1]);
+    r = G.planLocalMoves([reg()], [ev('e1', 'S001-20260901-2130', '2026-09-03T09:00:00+08:00')]);
+    assert.deepStrictEqual([r.moves.length, r.settled.length], [0, 0], 'Calendar 也改過 → 交給時間變更');
+    // 舊 key 仍是本地的一節（例如小組只搬了部分成員）→ 那個事件屬於留下的課
+    const stay = { lessonId: oldMu, studentId: 'S001', date: '2026-09-24', time: '10:00', isMakeup: true };
+    r = G.planLocalMoves([stay, mk('S001-20260925-1100-MU-20260916-1500', '2026-09-25', '11:00', { key: oldMu, date: '2026-09-24', time: '10:00', inCal: true })],
+        [ev('evMU', oldMu, '2026-09-24T10:00:00+08:00')]);
+    assert.strictEqual(r.moves.length, 0);
+    // PATCH 內容：新時間＋新標籤，另一型態的標籤設 null
+    const cell = S.groupByCell([mk('S001-20260925-1100-MU-20260916-1500', '2026-09-25', '11:00', null, { studentName: 'Student 001', lessonNum: 2, totalRegular: 5, monthRef: '09/2026', duration: 45, originLessonId: 'S001-20260916-1500' })])[0];
+    const pp = G.movePatchPayload(cell, IMPORT_OPTS);
+    assert.strictEqual(pp.start.dateTime, '2026-09-25T11:00:00');
+    assert.deepStrictEqual(pp.extendedProperties.private, { gacLessonId: 'S001-20260925-1100-MU-20260916-1500', gacCellKey: null, gacLessonIds: null });
+});
+
+test('reconcile：key 對不上時靠成員記著的事件 id 認回（小組在 Calendar 被挪過 key 換了、收編的手動事件）；認回的不算手動新建', () => {
+    const g = (sid) => ({ lessonId: sid + '-20260905-1500', studentId: sid, studentName: sid, tutor: 'Instructor B', date: '2026-09-06', time: '16:00', duration: 60,
+        status: 'SCHEDULED', leaveType: '', groupId: 'G01', groupName: '樂理 Grade 5 小組', gcalEventId: 'evG' });
+    const lessons = [g('S020'), g('S021')];
+    const events = [{ id: 'evG', status: 'confirmed', summary: '樂理', start: { dateTime: '2026-09-06T16:00:00+08:00' },
+        extendedProperties: { private: { gacCellKey: 'G|G01|2026-09-05|15:00', gacLessonIds: 'S020-20260905-1500,S021-20260905-1500' } } },
+        { id: 'm1', status: 'confirmed', summary: 'S001 補課', start: { dateTime: '2026-09-10T18:00:00+08:00' } }];
+    const extra = { lessonId: 'S001-20260910-1800-XT', studentId: 'S001', date: '2026-09-10', time: '18:00', status: 'SCHEDULED', isMakeup: true, gcalEventId: 'm1' };
+    const r = G.reconcile(lessons.concat([extra]), events, ['S001', 'S020', 'S021']);
+    assert.deepStrictEqual([r.timeChanges.length, r.deletions.length, r.manualNew.length], [0, 0, 0]);
+    assert.ok(r.matchedKeys['G|G01|2026-09-06|16:00'] && r.matchedKeys['S001-20260910-1800-XT']);
+    assert.ok(r.matchedEventIds.evG && r.matchedEventIds.m1);
+});
+
+test('D10: reconcileByContent——本地改期過的課：Calendar 仍在舊時段 → staleMoves（不是手動新建、不是 Calendar 沒有、不改回本地）；新時間也有事件 → 舊的是重複；改好 → settled', () => {
+    const base = { studentId: 'S001', studentName: 'Student 001', tutor: 'Instructor A', duration: 45, status: 'SCHEDULED', leaveType: '', isMakeup: true, originLessonId: 'S001-20260916-2130' };
+    const mu = Object.assign({ lessonId: 'S001-20260926-1400-MU-20260916-2130', date: '2026-09-26', time: '14:00',
+        gcalMovedFrom: { key: 'S001-20260925-1100-MU-20260916-2130', date: '2026-09-25', time: '11:00', inCal: true } }, base);
+    const students = [{ id: 'S001', name: 'Student 001' }];
+    const ev = (id, dt) => ({ id: id, status: 'confirmed', summary: 'S001 Student 001 補堂', htmlLink: 'https://calendar.google.com/event?eid=' + id, start: { dateTime: dt } });
+    // 換了日子：舊事件在 9/25
+    let r = G.reconcileByContent([mu], [ev('t1', '2026-09-25T11:00:00')], { students: students });
+    assert.deepStrictEqual(r.staleMoves.map(m => [m.event.id, m.from.date, m.from.time, m.duplicate]), [['t1', '2026-09-25', '11:00', false]]);
+    assert.deepStrictEqual([r.manualNew.length, r.deletions.length, r.timeChanges.length], [0, 0, 0]);
+    // 新時間也已有一個（又按了加進 GCal）→ 舊的是重複
+    r = G.reconcileByContent([mu], [ev('t2', '2026-09-26T14:00:00'), ev('t1', '2026-09-25T11:00:00')], { students: students });
+    assert.deepStrictEqual(r.staleMoves.map(m => [m.event.id, m.duplicate]), [['t1', true]]);
+    // 同一天只改時間：不當「Calendar 改了時間」
+    const same = Object.assign({}, mu, { date: '2026-09-25', time: '15:00' });
+    r = G.reconcileByContent([same], [ev('t1', '2026-09-25T11:00:00')], { students: students });
+    assert.deepStrictEqual([r.staleMoves.length, r.timeChanges.length], [1, 0]);
+    // 導師在 Calendar 改好了 → settled
+    r = G.reconcileByContent([mu], [ev('t1', '2026-09-26T14:00:00')], { students: students });
+    assert.deepStrictEqual([r.staleMoves.length, r.settled.length, r.manualNew.length, r.deletions.length], [0, 1, 0, 0]);
+    // 沒有改期記號的課，照舊：不同日子的事件是手動新建、本地那節是 Calendar 沒有
+    const plain = Object.assign({}, mu, { gcalMovedFrom: undefined });
+    r = G.reconcileByContent([plain], [ev('t1', '2026-09-25T11:00:00')], { students: students });
+    assert.deepStrictEqual([r.staleMoves.length, r.manualNew.length, r.deletions.length], [0, 1, 1]);
 });
 
 test('導出 .ics 的 UID ↔ 課節 key：一對一與小組都能從 iCalUID 認回；手動事件 null', () => {
@@ -257,6 +369,22 @@ test('restClient：remove 走 DELETE，204 空回應視為成功', async () => {
     assert.strictEqual(out, null);
     assert.strictEqual(calls[0].method, 'DELETE');
     assert.ok(calls[0].url.endsWith('/events/ev123'));
+});
+
+test('restClient：patch 走 PATCH 到該事件，body 是 JSON', async () => {
+    const calls = [];
+    const client = G.createRestClient({
+        token: 'tok', calendarId: 'abc@group.calendar.google.com',
+        fetchFn: (url, opts) => {
+            calls.push({ url, method: opts.method, body: opts.body });
+            return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: 'ev1' }) });
+        }
+    });
+    const out = await client.patch('ev1', { summary: 'x' });
+    assert.strictEqual(out.id, 'ev1');
+    assert.strictEqual(calls[0].method, 'PATCH');
+    assert.ok(calls[0].url.endsWith('/calendars/' + encodeURIComponent('abc@group.calendar.google.com') + '/events/ev1'));
+    assert.deepStrictEqual(JSON.parse(calls[0].body), { summary: 'x' });
 });
 
 test('restClient：非 2xx 回應帶狀態碼與 Google 錯誤訊息', async () => {

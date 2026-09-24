@@ -332,13 +332,38 @@
         function openGcalTemplate(lessonId) {
             const f = GACLessonState.findLesson(lessonsByMonth, lessonId);
             if (!f) return;
+            const mf = f.lesson.gcalMovedFrom;
+            if (mf && mf.inCal && !confirm(`這堂補堂改期前已加進 Calendar（舊時間 ${mf.date} ${mf.time}）。\n再「加進 GCal」會多出一個事件——建議改用「改 GCal 舊事件」，把舊的那個拖到新時間。\n\n仍要另建一個新事件嗎？（建好後記得刪掉舊的）`)) return;
             window.open(gcalTemplateUrl(f.lesson), '_blank', 'noopener');
+            f.lesson.gcalAdded = true;   // 記下已加：之後再改期，按鈕會換成「改 GCal 舊事件」
+            persistLessons();
         }
 
-        // 只在唯讀模式、且是仍排定的補堂／加課才顯示：常規課整月匯入 .ics 就有；開了寫入的話推送會自己建事件，再建就重複
+        // 打開 Calendar 上舊事件那一天，讓導師把它拖／改到新時間（唯讀：寫的動作由人做）
+        function openGcalDay(lessonId) {
+            const f = GACLessonState.findLesson(lessonsByMonth, lessonId);
+            const mf = f && f.lesson.gcalMovedFrom;
+            if (!mf) return;
+            const [y, m, d] = mf.date.split('-').map(Number);
+            window.open(`https://calendar.google.com/calendar/r/day/${y}/${m}/${d}`, '_blank', 'noopener');
+        }
+
+        // 只在唯讀模式、且是仍排定的補堂／加課才顯示：常規課整月匯入 .ics 就有；開了寫入的話推送會自己建事件，再建就重複。
+        // 改期過、而舊時間的事件已在 Calendar → 顯示「改 GCal 舊事件」（打開舊那一天去改），不再鼓勵另建一個
         function gcalAddButton(lesson) {
             if (!gcalReadOnly() || !lesson.isMakeup || lesson.status !== 'SCHEDULED') return '';
+            const mf = lesson.gcalMovedFrom;
+            if (mf && mf.inCal) {
+                return `<button onclick="openGcalDay('${lesson.lessonId}')" class="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg font-semibold flex items-center gap-1" title="這堂改期前已在 Calendar（${mf.date} ${mf.time}）。打開 Calendar 那一天，把該事件改到 ${lesson.date} ${lesson.time}——不要另建新事件。改好後下次同步會自動認得"><i class="fa-brands fa-google"></i> 改 GCal 舊事件（${mf.date.slice(5)} ${mf.time} → ${lesson.date.slice(5)} ${lesson.time}）</button>`;
+            }
             return `<button onclick="openGcalTemplate('${lesson.lessonId}')" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg font-semibold flex items-center gap-1" title="唯讀模式：開 Google Calendar 已填好的建立事件頁，選日曆、按儲存即可（不需寫入授權）"><i class="fa-brands fa-google"></i> 加進 GCal</button>`;
+        }
+
+        // 改期彈窗的 Calendar 提示：寫入模式同步會改原本那個事件；唯讀模式請導師自己在 Calendar 拖過去
+        function gcalMoveNote() {
+            return gcalReadOnly()
+                ? '<div class="mt-1 text-sky-700"><i class="fa-brands fa-google"></i> Calendar 上已有這堂的話：請在 Calendar 把原本那個事件改到新時間（不要另建一個）；下次同步會自動認得。</div>'
+                : '<div class="mt-1 text-sky-700"><i class="fa-brands fa-google"></i> Calendar 上已有這堂的話：下次「同步 GCal」會把原本那個事件改到新時間（不另建新事件）。</div>';
         }
 
         // Navigation Tab Switching
@@ -1661,7 +1686,9 @@
                 const ex = res.existingMakeup;
                 const info = ex ? `${ex.date} ${ex.time}` : '（資料缺失）';
                 if (!confirm(`此請假已排過補堂：${info}\n\n確定要「取消原補堂並重排」到 ${date} ${time} 嗎？\n（按「取消」則保留原補堂，放棄本次操作）`)) { dropLastHistory(); return; }
+                const snap = ex ? GACGcal.moveSnapshot(ex) : null;
                 res = GACLessonState.scheduleMakeup(lessonsByMonth, lessonId, { date, time }, { replaceExisting: true });
+                if (res.ok && snap) GACGcal.noteLocalMove(res.makeup, snap);
             }
             if (!res.ok) { dropLastHistory(); alert('⚠️ ' + res.error); return; }
             const scheduledIds = [res.makeup.lessonId];
@@ -1766,7 +1793,7 @@
                 const copyFn = `copyLessonMsg('${type}', `;
                 // 補堂確認：唯讀模式下順手把補堂放進 Calendar（彈窗收到的可能是補堂課本身，也可能是掛著補堂的請假原課）
                 let gcalBtn = '';
-                if (type === 'makeup') {
+                if (type === 'makeup' || (type === 'move' && l.isMakeup)) {
                     const mu = l.isMakeup ? l : (GACLessonState.findLesson(lessonsByMonth, l.makeupLessonId) || {}).lesson;
                     if (mu) gcalBtn = gcalAddButton(mu);
                 }
@@ -1816,7 +1843,7 @@
             moveModalLessonId = null;
             setMoveModalTitle('補堂改期');
             document.getElementById('moveModalInfo').innerHTML =
-                `${f.lesson.studentName} (${f.lesson.studentId})<br>原課：${f.lesson.date} ${f.lesson.time}<br>目前補堂：<b>${mk.lesson.date} ${mk.lesson.time}</b>`;
+                `${f.lesson.studentName} (${f.lesson.studentId})<br>原課：${f.lesson.date} ${f.lesson.time}<br>目前補堂：<b>${mk.lesson.date} ${mk.lesson.time}</b>` + gcalMoveNote();
             document.getElementById('moveDate').value = mk.lesson.date;
             document.getElementById('moveTime').value = mk.lesson.time;
             document.getElementById('moveModal').classList.remove('hidden');
@@ -1847,9 +1874,7 @@
                 notes.push('<div class="mt-1 text-indigo-700"><i class="fa-solid fa-user-group"></i> 小組課：此時段另 ' +
                     mates.length + ' 位學生（' + mates.map(x => escapeHtml(x.studentName)).join('、') + '）會一併改期。</div>');
             }
-            if (l.gcalEventId) {
-                notes.push('<div class="mt-1 text-amber-700"><i class="fa-solid fa-triangle-exclamation"></i> 這堂已推送到 Google Calendar：改期後請一併在 Calendar 改時間，否則下次同步會以 Calendar 為準改回來。</div>');
-            }
+            notes.push(gcalMoveNote());
             document.getElementById('moveModalInfo').innerHTML =
                 escapeHtml(l.studentName) + ' (' + escapeHtml(l.studentId) + ')<br>目前時間：<b>' +
                 l.date + ' ' + l.time + '</b>（' + l.duration + ' 分鐘）' + notes.join('');
@@ -1895,8 +1920,10 @@
             const moved = [];
             targets.forEach(t => {
                 const from = { date: t.date, time: t.time };
+                const snap = GACGcal.moveSnapshot(t);
                 const r = GACLessonState.moveLessonDateTime(lessonsByMonth, t.lessonId, date, time);
                 if (r.ok) {
+                    GACGcal.noteLocalMove(r.lesson, snap);   // 同步時改 Calendar 上原本那個事件，而不是以 Calendar 為準改回來
                     GACSendlog.ensureMoveEntry(sendLog, r.lesson, from, nowIso);
                     moved.push(t.lessonId);
                 } else alert('⚠️ ' + t.studentName + '：' + r.error);
@@ -1967,8 +1994,10 @@
                 const oldMkF = oldId ? GACLessonState.findLesson(lessonsByMonth, oldId) : null;
                 const from = oldMkF ? { date: oldMkF.lesson.date, time: oldMkF.lesson.time } : null;
                 const told = !!oldId && ['MAKEUP_CONFIRM:', 'MOVE_CONFIRM:'].some(p => sendLog[p + oldId] && sendLog[p + oldId].status === 'SENT');
+                const snap = oldMkF ? GACGcal.moveSnapshot(oldMkF.lesson) : null;   // 舊補堂在 Calendar 的事件，新補堂接手
                 const r = GACLessonState.scheduleMakeup(lessonsByMonth, t.lessonId, { date, time }, { replaceExisting: true });
                 if (r.ok) {
+                    if (snap) GACGcal.noteLocalMove(r.makeup, snap);
                     // 舊補堂的 TODO 確認條目會被 syncSendlog 孤兒清理，這裡為新補堂建新條目
                     if (told && from) { GACSendlog.ensureMoveEntry(sendLog, r.makeup, from, nowIso); anyMove = true; }
                     else GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', r.makeup, nowIso);
