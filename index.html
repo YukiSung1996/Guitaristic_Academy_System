@@ -957,39 +957,44 @@
                     <label class="block font-bold text-slate-600 mb-1">電郵地址 Email</label>
                     <input type="email" id="modalEmail" placeholder="student@example.com" class="w-full p-2 border border-slate-300 rounded-lg">
                 </div>
-                <div>
+                <!-- 只上小組的學生：不勾「有常規私教課」→ 下面導師／課程／費率／星期／時間整組隱藏，儲存時不填、不查價；學費按所屬小組計 -->
+                <div class="sm:col-span-2 flex flex-wrap items-center gap-x-2 gap-y-1 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+                    <input type="checkbox" id="modalHasSlot" checked onchange="onModalHasSlotChange()" class="accent-sky-600 rounded">
+                    <label for="modalHasSlot" class="font-bold text-slate-700 cursor-pointer">有常規私教課（固定導師、星期、時間）</label>
+                    <span class="text-slate-500">不勾＝只上小組課：學費按所屬小組計，下面不用填</span>
+                </div>
+                <div class="modal-slot-field">
                     <label class="block font-bold text-slate-600 mb-1">負責導師</label>
                     <select id="modalTutor" onchange="onModalTutorChange()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
                 </div>
                 <!-- 費率連動：導師級別 → 課程 → 級別 → 上課形式 → 時長，只列費率表（art-rate-data.js）有定價的組合；每堂學費唯讀自動帶出 -->
-                <div>
+                <div class="modal-slot-field">
                     <label class="block font-bold text-slate-600 mb-1">導師級別</label>
                     <select id="modalTutorLevel" onchange="renderStudentFeeSelects()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
                 </div>
-                <div>
+                <div class="modal-slot-field">
                     <label class="block font-bold text-slate-600 mb-1">課程類別 (Program)</label>
                     <select id="modalProgram" onchange="renderStudentFeeSelects()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
                 </div>
-                <div>
+                <div class="modal-slot-field">
                     <label class="block font-bold text-slate-600 mb-1">級別 (Level)</label>
                     <select id="modalLevel" onchange="renderStudentFeeSelects()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
                 </div>
-                <div>
+                <div class="modal-slot-field">
                     <label class="block font-bold text-slate-600 mb-1">授課形式</label>
                     <select id="modalType" onchange="renderStudentFeeSelects()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
                 </div>
-                <div>
+                <div class="modal-slot-field">
                     <label class="block font-bold text-slate-600 mb-1">課堂時長</label>
                     <select id="modalDuration" onchange="renderStudentFeeSelects()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
                 </div>
-                <div class="sm:col-span-2">
+                <div class="sm:col-span-2 modal-slot-field">
                     <label class="block font-bold text-slate-600 mb-1">每堂學費（依費率表自動帶出，不可修改）</label>
                     <div id="modalRate" class="w-full p-2 bg-slate-100 border border-slate-200 rounded-lg font-bold text-emerald-700">—</div>
                 </div>
-                <div>
+                <div class="modal-slot-field">
                     <label class="block font-bold text-slate-600 mb-1">常規星期</label>
                     <select id="modalWeekday" class="w-full p-2 border border-slate-300 rounded-lg bg-white">
-                        <option value="">— 無個別課（只上小組）</option>
                         <option value="1">星期一</option>
                         <option value="2">星期二</option>
                         <option value="3">星期三</option>
@@ -999,12 +1004,13 @@
                         <option value="0">星期日</option>
                     </select>
                 </div>
-                <div>
+                <div class="modal-slot-field">
                     <label class="block font-bold text-slate-600 mb-1">上課時間 (HH:MM)</label>
                     <input type="time" id="modalTime" value="16:00" class="w-full p-2 border border-slate-300 rounded-lg">
                 </div>
                 <div class="sm:col-span-2">
                     <label class="block font-bold text-slate-600 mb-1">所屬小組（可多選；小組本身在本頁「+ 新增小組」建立）</label>
+                    <p id="modalGroupsHint" class="hidden text-[11px] text-sky-700 mb-1">只上小組的學生：在這裡勾選所屬小組即可，課表與學費都跟小組走。</p>
                     <div id="modalGroups" class="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg min-h-[2.2rem]"></div>
                 </div>
             </div>

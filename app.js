@@ -516,7 +516,7 @@
             grid.innerHTML = '';
 
             studentDatabase.forEach((student, index) => {
-                if (selectedTutor !== 'ALL' && student.tutor !== selectedTutor) return;
+                if (selectedTutor !== 'ALL' && student.tutor !== selectedTutor && !groupsOfStudent(student.id).some(g => g.tutor === selectedTutor)) return;
                 
                 // Enhanced Search including phone and email
                 const matchSearch = !searchKeyword || 
@@ -538,9 +538,9 @@
                         <span class="font-bold text-slate-800">${student.id}</span> ${student.name}
                         ${hasSlot ? `<span class="text-sky-600 font-semibold">(${getWeekdayName(sched.weekday)} ${sched.time})</span>` : '<span class="text-slate-400">（只上小組）</span>'}
                     </label>
-                    <button onclick="openQuickEdit(${index})" class="shrink-0 px-1.5 py-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition" title="調整常規時間／升班（含撞堂預覽）">
+                    ${hasSlot ? `<button onclick="openQuickEdit(${index})" class="shrink-0 px-1.5 py-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition" title="調整常規時間／升班（含撞堂預覽）">
                         <i class="fa-solid fa-pen"></i>
-                    </button>
+                    </button>` : ''}
                 `;
                 grid.appendChild(div);
             });
@@ -2345,12 +2345,12 @@
                     </td>
                     <td class="p-3">${hasSlot ? `${student.program} - ${student.level}` : '<span class="text-slate-400">—</span>'}</td>
                     <td class="p-3"><span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full text-[11px] font-medium">${hasSlot ? student.type : '只上小組'}</span></td>
-                    <td class="p-3 font-medium text-sky-700">${student.tutor}</td>
+                    <td class="p-3 font-medium text-sky-700">${hasSlot ? student.tutor : `<span class="text-slate-400">${[...new Set(myGroups.map(g => g.tutor))].join('、') || '—'}</span>`}</td>
                     <td class="p-3 font-medium space-y-1">${enrollments.join('')}</td>
                     <td class="p-3 text-right whitespace-nowrap">
-                        <button onclick="scheduleStudentFromDb(${index})" class="text-sky-600 hover:text-sky-800 px-2 py-1 font-semibold hover:bg-sky-50 rounded-lg transition" title="調整常規時間／升班（含撞堂預覽）">
+                        ${hasSlot ? `<button onclick="scheduleStudentFromDb(${index})" class="text-sky-600 hover:text-sky-800 px-2 py-1 font-semibold hover:bg-sky-50 rounded-lg transition" title="調整常規時間／升班（含撞堂預覽）">
                             <i class="fa-solid fa-clock"></i> 改時間/升班
-                        </button>
+                        </button>` : ''}
                         <button onclick="openStudentModal(${index})" class="text-amber-600 hover:text-amber-800 px-2 py-1 font-semibold hover:bg-amber-50 rounded-lg transition" title="編輯學生與電話電郵">
                             <i class="fa-solid fa-pen-to-square"></i> 編輯
                         </button>
@@ -2424,8 +2424,9 @@
                 document.getElementById('modalEmail').value = s.email || '';
                 populateTutorSelects();
                 document.getElementById('modalTutor').value = s.tutor || (allTutorNames()[0] || '');
-                document.getElementById('modalWeekday').value = hasIndividualSlot(s) ? s.weekday : '';
-                document.getElementById('modalTime').value = s.time || '';
+                document.getElementById('modalHasSlot').checked = hasIndividualSlot(s);
+                document.getElementById('modalWeekday').value = hasIndividualSlot(s) ? s.weekday : 1;
+                document.getElementById('modalTime').value = s.time || '16:00';
                 // 費率欄位：舊資料的組合不在費率表時會被修正成第一個可選（儲存後即為修正值）
                 renderStudentFeeSelects({ tutorLevel: s.tutorLevel || advancedTutor(s), program: s.program, level: s.level, type: s.type, duration: s.duration });
                 renderModalGroups(s.id);
@@ -2437,11 +2438,13 @@
                 document.getElementById('modalEmail').value = '';
                 populateTutorSelects();
                 document.getElementById('modalTutor').value = allTutorNames()[0] || '';
+                document.getElementById('modalHasSlot').checked = true;
                 document.getElementById('modalWeekday').value = 1;
                 document.getElementById('modalTime').value = '16:00';
                 renderStudentFeeSelects({ tutorLevel: tutorTier(allTutorNames()[0]) || '普通導師', program: 'Pop Guitar', level: 'Elementary 初級', type: '一對一', duration: 45 });
                 renderModalGroups(null);
             }
+            onModalHasSlotChange();
 
             modal.classList.remove('hidden');
             markModalOpened('studentModal');
@@ -2499,26 +2502,27 @@
             const name = document.getElementById('modalName').value.trim();
             const phone = document.getElementById('modalPhone').value.trim();
             const email = document.getElementById('modalEmail').value.trim();
-            const type = document.getElementById('modalType').value;
-            const program = document.getElementById('modalProgram').value.trim();
-            const level = document.getElementById('modalLevel').value.trim();
-            const tutor = document.getElementById('modalTutor').value;
-            const tutorLevel = document.getElementById('modalTutorLevel').value;
-            const weekdayRaw = document.getElementById('modalWeekday').value;
-            const weekday = weekdayRaw === '' ? null : parseInt(weekdayRaw); // null＝無個別課（只上小組）
-            const time = weekday === null ? '' : document.getElementById('modalTime').value;
-            const duration = parseInt(document.getElementById('modalDuration').value);
+            // 「有常規私教課」不勾＝只上小組：導師／課程／級別／形式／時長／星期／時間一律留空（weekday null＝無個別課），學費按所屬小組計，不查費率表
+            const hasSlot = document.getElementById('modalHasSlot').checked;
+            const type = hasSlot ? document.getElementById('modalType').value : '';
+            const program = hasSlot ? document.getElementById('modalProgram').value.trim() : '';
+            const level = hasSlot ? document.getElementById('modalLevel').value.trim() : '';
+            const tutor = hasSlot ? document.getElementById('modalTutor').value : '';
+            const tutorLevel = hasSlot ? document.getElementById('modalTutorLevel').value : '';
+            const weekday = hasSlot ? parseInt(document.getElementById('modalWeekday').value) : null;
+            const time = hasSlot ? document.getElementById('modalTime').value : '';
+            const duration = hasSlot ? parseInt(document.getElementById('modalDuration').value) : null;
             const chosenGroups = [...document.querySelectorAll('.modal-group-chk')].filter(c => c.checked).map(c => c.value);
 
             if (!id || !name) {
                 alert('請完整填寫學生 ID 與姓名！');
                 return;
             }
-            if (weekday !== null && !time) {
-                alert('請填寫上課時間，或把常規星期選為「無個別課（只上小組）」！');
+            if (hasSlot && (isNaN(weekday) || !time)) {
+                alert('請選擇常規星期與上課時間；只上小組的學生請取消勾選「有常規私教課」。');
                 return;
             }
-            if (GACRates.findRate(rateTable, { tutorLevel, program, level, type, duration }) === null) {
+            if (hasSlot && GACRates.findRate(rateTable, { tutorLevel, program, level, type, duration }) === null) {
                 alert('費率表沒有這個組合（導師級別／課程／級別／授課形式／時長）的定價，請重新選擇。');
                 return;
             }
@@ -2539,6 +2543,7 @@
                 student.weekday = weekday;
                 student.time = time;
                 student.duration = duration;
+                if (!hasSlot) { student.effectiveMonth = ''; student.futureWeekday = null; student.futureTime = ''; } // 沒有個別課就沒有「未來時段」
 
                 showToast(`✅ 已更新學生 ${name}（${id}）`);
             } else {
@@ -3650,11 +3655,11 @@
             const list = document.getElementById('bcList');
             const rows = [];
             studentDatabase.forEach((s, idx) => {
-                if (tutor !== 'ALL' && s.tutor !== tutor) return;
+                if (tutor !== 'ALL' && s.tutor !== tutor && !groupsOfStudent(s.id).some(g => g.tutor === tutor)) return;
                 rows.push(`
                     <label class="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 cursor-pointer hover:border-violet-300 transition">
                         <input type="checkbox" value="${idx}" checked class="accent-violet-600 rounded">
-                        <span class="truncate"><b>${s.id}</b> ${s.name} <span class="text-slate-400">· ${s.tutor}</span>
+                        <span class="truncate"><b>${s.id}</b> ${s.name} <span class="text-slate-400">· ${s.tutor || '只上小組'}</span>
                         ${s.phone ? '' : '<span class="text-amber-600 font-semibold">（無電話，僅可複製）</span>'}</span>
                     </label>`);
             });
@@ -3843,6 +3848,14 @@
             persistTutors();
             renderTutorCalendarList();
             showToast(v && v !== String(value || '').trim() ? `✅ 已整理成日曆 ID：${v}` : `✅ 已更新 ${name} 的日曆 ID`);
+        }
+
+        // 學生表單「有常規私教課」：不勾＝只上小組（學費按小組計）→ 導師／課程／費率／星期／時間整組隱藏，改為提示勾所屬小組
+        function onModalHasSlotChange() {
+            const has = document.getElementById('modalHasSlot').checked;
+            document.querySelectorAll('.modal-slot-field').forEach(el => el.classList.toggle('hidden', !has));
+            const hint = document.getElementById('modalGroupsHint');
+            if (hint) hint.classList.toggle('hidden', has);
         }
 
         // 學生／小組表單：選導師 → 自動帶出其等級（仍可手動改）
