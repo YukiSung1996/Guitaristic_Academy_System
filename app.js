@@ -3606,19 +3606,21 @@
             box.innerHTML = tutorsList.length ? tutorsList.map(t => `<div class="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
                     <span class="font-bold text-slate-800 w-28 shrink-0 truncate">${escapeHtml(t.name)}</span>
                     <input type="text" value="${escapeHtml(t.calendarId || '')}" onchange="updateTutorCalendar('${jsStrAttr(t.name)}', 'calendarId', this.value)" placeholder="留空＝用預設日曆（xxx@group.calendar.google.com）" class="${inp}">
+                    <button type="button" onclick="testTutorCalendar('${jsStrAttr(t.name)}')" class="shrink-0 px-2 py-1 rounded-lg bg-slate-200 hover:bg-sky-100 text-slate-700 font-semibold" title="用目前授權的 Google 帳號試讀這本日曆（只取 1 件事件）：404＝ID 不對或帳號沒被分享"><i class="fa-solid fa-plug-circle-check"></i> 測試</button>
                 </div>`).join('') : '<div class="text-center py-3 text-slate-400 text-xs">尚未新增任何導師（在「導師管理」新增）。</div>';
         }
 
         function updateTutorCalendar(name, field, value) {
             if (field !== 'calendarId') return;
             const t = tutorsList.find(x => x.name === name);
-            const v = String(value || '').trim();
-            if (!t || (t.calendarId || '') === v) return;
+            // 貼整條網址／%40 也行：整理成 API 用的 ID 再存
+            const v = GACGcal.normalizeCalendarId(value);
+            if (!t || (t.calendarId || '') === v) { renderTutorCalendarList(); return; }
             pushHistory(`導師日曆 ID：${name}`);
             t.calendarId = v;
             persistTutors();
             renderTutorCalendarList();
-            showToast(`✅ 已更新 ${name} 的日曆 ID`);
+            showToast(v && v !== String(value || '').trim() ? `✅ 已整理成日曆 ID：${v}` : `✅ 已更新 ${name} 的日曆 ID`);
         }
 
         // 學生／小組表單：選導師 → 自動帶出其等級（仍可手動改）
@@ -3805,7 +3807,7 @@
             appSettings.payNoShow = document.getElementById('setPayNoShow').checked;
             appSettings.waSentMode = document.getElementById('setWaSentMode').value || 'confirm';
             appSettings.gcalClientId = document.getElementById('setGcalClientId').value.trim();
-            appSettings.gcalCalendarId = document.getElementById('setGcalCalendarId').value.trim() || 'primary';
+            appSettings.gcalCalendarId = GACGcal.normalizeCalendarId(document.getElementById('setGcalCalendarId').value) || 'primary';
             appSettings.gcalWrite = !!document.getElementById('setGcalWrite').checked;
             appSettings.fpsId = document.getElementById('setFpsId').value.trim();
             appSettings.infoUrl = document.getElementById('setInfoUrl').value.trim();

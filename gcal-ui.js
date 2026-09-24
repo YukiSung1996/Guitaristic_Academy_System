@@ -98,7 +98,7 @@ function gcalClient(token, calendarId) {
             return fetch(u, init);
         },
         token: token,
-        calendarId: calendarId || (appSettings.gcalCalendarId || 'primary')
+        calendarId: GACGcal.normalizeCalendarId(calendarId || appSettings.gcalCalendarId) || 'primary'
     });
 }
 
@@ -117,9 +117,22 @@ function gcalCalendarErrorText(label, e) {
 }
 
 function gcalCalendarsToRead() {
-    const withId = (typeof tutorsList !== 'undefined' ? tutorsList : []).filter(t => t && t.calendarId);
-    if (withId.length) return withId.map(t => ({ tutor: t.name, calendarId: t.calendarId }));
-    return [{ tutor: null, calendarId: appSettings.gcalCalendarId || 'primary' }];
+    const withId = (typeof tutorsList !== 'undefined' ? tutorsList : []).filter(t => t && GACGcal.normalizeCalendarId(t.calendarId));
+    if (withId.length) return withId.map(t => ({ tutor: t.name, calendarId: GACGcal.normalizeCalendarId(t.calendarId) }));
+    return [{ tutor: null, calendarId: GACGcal.normalizeCalendarId(appSettings.gcalCalendarId) || 'primary' }];
+}
+
+// 設定頁「測試」：用目前授權的帳號試讀某位導師的日曆（只取 1 件）。404／403 直接把原因寫出來
+function testTutorCalendar(name) {
+    const t = (typeof tutorsList !== 'undefined' ? tutorsList : []).find(x => x.name === name);
+    const id = t ? GACGcal.normalizeCalendarId(t.calendarId) : '';
+    if (!id) { alert(`${name} 尚未填日曆 ID。`); return; }
+    if (!appSettings.gcalClientId) { alert('先填 Google OAuth Client ID（並儲存設定）才能測試讀取。'); return; }
+    const label = `導師 ${name} 的日曆（${id}）`;
+    ensureGcalToken()
+        .then(token => gcalClient(token, id).probe())
+        .then(r => alert(`✅ 讀得到${label}。${r.sample ? '' : '（這本日曆目前沒有事件）'}`))
+        .catch(e => alert('❌ ' + gcalCalendarErrorText(label, e)));
 }
 
 function monthLastDay(monthKey) {
@@ -746,9 +759,12 @@ function forceWipeTargets() {
     const seen = {};
     const list = [];
     const add = (id, label) => { if (id && !seen[id]) { seen[id] = true; list.push({ id, label }); } };
-    const def = appSettings.gcalCalendarId || 'primary';
+    const def = GACGcal.normalizeCalendarId(appSettings.gcalCalendarId) || 'primary';
     add(def, `預設日曆（${def}）`);
-    (typeof tutorsList !== 'undefined' ? tutorsList : []).forEach(t => { if (t && t.calendarId) add(t.calendarId, `${t.name}（${t.calendarId}）`); });
+    (typeof tutorsList !== 'undefined' ? tutorsList : []).forEach(t => {
+        const id = t ? GACGcal.normalizeCalendarId(t.calendarId) : '';
+        if (id) add(id, `${t.name}（${id}）`);
+    });
     return list;
 }
 
@@ -777,26 +793,33 @@ function forceWipeCalendarEvents() {
             targets.forEach(t => {
                 chain = chain.then(acc => {
                     const client = gcalClient(token, t.id);
+                    // 這本讀不到（404＝ID 不對／帳號沒被分享）→ 記下來繼續下一本，別讓一本壞的擋住其他的
                     return client.listWindow(timeMin, timeMax)
-                        .catch(e => { throw new Error(gcalCalendarErrorText(t.label, e)); })
                         .then(events => {
-                        const items = (events || [])
-                            .filter(ev => ev && ev.id && ev.status !== 'cancelled')
-                            .map(ev => ({ eventId: ev.id, lessonId: GACGcal.eventCellKey(ev) || '' }));
-                        if (!items.length) return acc.concat([{ label: t.label, deleted: 0, gone: 0, failed: 0 }]);
-                        return GACGcal.deleteEvents(client, items)
-                            .then(r => acc.concat([{ label: t.label, deleted: r.deleted.length, gone: r.gone.length, failed: r.failed.length }]));
-                    });
+                            const items = (events || [])
+                                .filter(ev => ev && ev.id && ev.status !== 'cancelled')
+                                .map(ev => ({ eventId: ev.id, lessonId: GACGcal.eventCellKey(ev) || '' }));
+                            if (!items.length) return acc.concat([{ label: t.label, deleted: 0, gone: 0, failed: 0 }]);
+                            return GACGcal.deleteEvents(client, items)
+                                .then(r => acc.concat([{ label: t.label, deleted: r.deleted.length, gone: r.gone.length, failed: r.failed.length }]));
+                        })
+                        .catch(e => acc.concat([{ label: t.label, deleted: 0, gone: 0, failed: 0, error: gcalCalendarErrorText(t.label, e) }]));
                 });
             });
             return chain;
         })
         .then(results => {
+            const broken = results.filter(r => r.error);
+            if (broken.length && !confirm(`⚠️ 有 ${broken.length} 本日曆讀不到，沒有清：\n\n` + broken.map(r => r.error).join('\n\n') +
+                '\n\n其餘日曆已清。仍要清空「本地」課表與發送紀錄嗎？')) {
+                alert('已清的日曆：\n' + results.filter(r => !r.error).map(r => `• ${r.label}：刪 ${r.deleted} 件`).join('\n') + '\n\n本地未動。修好日曆 ID 後可再按一次。');
+                return;
+            }
             pushHistory('強制清空 Calendar＋本地');
             wipeAllLocalData();
             const cleared = offerClearHistoryAfterWipe();
             alert('🧨 強制清空完成：\n' +
-                results.map(r => `• ${r.label}：刪 ${r.deleted} 件` + (r.gone ? `、${r.gone} 件本已不存在` : '') + (r.failed ? `、${r.failed} 件失敗` : '')).join('\n') +
+                results.map(r => r.error ? `• ❌ ${r.error}` : `• ${r.label}：刪 ${r.deleted} 件` + (r.gone ? `、${r.gone} 件本已不存在` : '') + (r.failed ? `、${r.failed} 件失敗` : '')).join('\n') +
                 '\n• 本地課表、發送紀錄、薪酬調整與封存已清空（學生名單、小組、導師與設定保留）' +
                 (cleared ? `\n• 歷史快照已一併清空 ${cleared} 筆（無法撤銷）` : '\n• 歷史快照保留，可按「撤銷」救回本地資料') +
                 '\n\nGCal 垃圾桶 30 天內可還原。現在可以重新「生成」。');

@@ -107,6 +107,18 @@ test('describeLesson／describeCell：第一行具體課程、導師、狀態：
     assert.strictEqual(G.parseStatusCode({ description: one }), null);
 });
 
+test('normalizeCalendarId：網址／%40／cid= base64 都整理成 API 用的 ID', () => {
+    assert.strictEqual(G.normalizeCalendarId('  abc@group.calendar.google.com \n'), 'abc@group.calendar.google.com');
+    assert.strictEqual(G.normalizeCalendarId('abc%40group.calendar.google.com'), 'abc@group.calendar.google.com', '%40 → @');
+    assert.strictEqual(G.normalizeCalendarId('https://calendar.google.com/calendar/embed?src=abc%40group.calendar.google.com&ctz=Asia%2FHong_Kong'), 'abc@group.calendar.google.com', 'embed 網址取 src');
+    const cid = Buffer.from('abc@group.calendar.google.com').toString('base64').replace(/=+$/, '');
+    assert.strictEqual(G.normalizeCalendarId('https://calendar.google.com/calendar/u/0?cid=' + cid), 'abc@group.calendar.google.com', '分享連結 cid= base64');
+    assert.strictEqual(G.normalizeCalendarId('primary'), 'primary');
+    assert.strictEqual(G.normalizeCalendarId('someone@gmail.com'), 'someone@gmail.com');
+    assert.strictEqual(G.normalizeCalendarId(''), '');
+    assert.strictEqual(G.normalizeCalendarId(null), '');
+});
+
 test('matchStudentPrefix：詞邊界匹配，S0012 不誤中 S001', () => {
     const known = ['S001', 'S003'];
     assert.strictEqual(G.matchStudentPrefix('S001 补课', known), 'S001');
