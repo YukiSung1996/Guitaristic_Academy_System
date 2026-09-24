@@ -437,6 +437,26 @@ test('restClient：patch 走 PATCH 到該事件，body 是 JSON', async () => {
     assert.deepStrictEqual(JSON.parse(calls[0].body), { summary: 'x' });
 });
 
+test('restClient：get 走 GET 該事件；move 走 POST …/events/{id}/move?destination=另一本日曆', async () => {
+    const calls = [];
+    const client = G.createRestClient({
+        token: 'tok', calendarId: 'a@group.calendar.google.com',
+        fetchFn: (url, opts) => {
+            calls.push({ url, method: (opts && opts.method) || 'GET', body: opts && opts.body });
+            return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: 'ev1' }) });
+        }
+    });
+    const got = await client.get('ev1');
+    assert.strictEqual(got.id, 'ev1');
+    assert.strictEqual(calls[0].method, 'GET');
+    assert.ok(calls[0].url.endsWith('/calendars/' + encodeURIComponent('a@group.calendar.google.com') + '/events/ev1'));
+    const moved = await client.move('ev1', 'b@group.calendar.google.com');
+    assert.strictEqual(moved.id, 'ev1');
+    assert.strictEqual(calls[1].method, 'POST');
+    assert.strictEqual(calls[1].body, undefined, 'move 不帶 body');
+    assert.ok(calls[1].url.endsWith('/calendars/' + encodeURIComponent('a@group.calendar.google.com') + '/events/ev1/move?destination=' + encodeURIComponent('b@group.calendar.google.com')));
+});
+
 test('restClient：非 2xx 回應帶狀態碼與 Google 錯誤訊息', async () => {
     const client = G.createRestClient({
         token: 'tok', calendarId: 'primary',

@@ -390,7 +390,7 @@
             if (!gcalReadOnly()) {
                 if (!appSettings.gcalClientId || (lesson.gcalEventId && !mf)) return '';
                 const move = !!(lesson.gcalEventId && mf);
-                return `<button onclick="openGcalSync()" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg font-semibold flex items-center gap-1" title="寫入模式：打開「同步 GCal」面板——${move ? '把 Calendar 上原本那個事件改到新時間' : '把這堂推送到 Google Calendar'}（面板勾選後執行）"><i class="fa-brands fa-google"></i> ${move ? '同步改 GCal 事件' : '同步到 GCal'}</button>`;
+                return `<button onclick="gcalPushLesson('${lesson.lessonId}')" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg font-semibold flex items-center gap-1" title="寫入模式：按下即${move ? `把 Calendar 上原本那個事件改到新時間（${mf.date.slice(5)} ${mf.time} → ${lesson.date.slice(5)} ${lesson.time}），不另建` : '把這堂推送到導師的 Google 日曆（已有同一堂就不重建）'}，不必開同步面板"><i class="fa-brands fa-google"></i> ${move ? '改 GCal 事件' : '推送到 GCal'}</button>`;
             }
             // 唯讀：常規課一律當作已在 Calendar（整月 .ics）；補堂要確知舊事件在 Calendar（推送過／按過加進 GCal／同步配對過）
             if (mf && (mf.inCal || !lesson.isMakeup)) {
@@ -412,7 +412,9 @@
             const code = gcalLocalCode(lesson), have = lesson.gcalCode || '';
             if (code === have) return '';
             if (!gcalReadOnly()) {
-                return `<button onclick="openGcalSync()" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg font-semibold flex items-center gap-1" title="Calendar 上這堂的狀態碼是「${have || '沒填'}」、本地是「${code || '沒有'}」。打開「同步 GCal」面板：不一致的會按設定的「以哪邊為準」列出，勾選執行即可"><i class="fa-brands fa-google"></i> 同步 GCal</button>`;
+                // 知道 Calendar 上是哪個事件 → 按下即改那個事件；還不知道 → 開同步面板配對後在「寫回狀態」勾選
+                const direct = !!lesson.gcalEventId;
+                return `<button onclick="${direct ? `gcalPushStatus('${lesson.lessonId}')` : 'openGcalSync()'}" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg font-semibold flex items-center gap-1" title="Calendar 上這堂的狀態碼是「${have || '沒填'}」、本地是「${code || '沒有'}」。${direct ? '按下即改 Calendar 上該事件的地點欄與說明欄「狀態：」一行（其他內容保留）' : '這堂還沒對應到 Calendar 事件：打開「同步 GCal」面板配對後，「寫回狀態」一項勾選執行'}"><i class="fa-brands fa-google"></i> ${direct ? '寫回 GCal 狀態' : '同步 GCal'}</button>`;
             }
             const label = code ? `在 GCal 填 狀態：${code}` : `在 GCal 清掉 狀態：${have}`;
             return `<button onclick="openGcalEvent('${lesson.lessonId}')" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg font-semibold flex items-center gap-1" title="唯讀模式：打開 Calendar 上這個事件的編輯頁${lesson.gcalEid ? '' : '（還沒同步過、不知道是哪個事件 → 打開那一天，請自己找）'}；在說明欄「狀態：」${code ? '填 ' + code : '清空'}後儲存，下次同步就一致。Google 不支援預填既有事件，這一步要自己打"><i class="fa-brands fa-google"></i> ${label}</button>`;
@@ -437,7 +439,7 @@
         function gcalMoveNote() {
             return gcalReadOnly()
                 ? '<div class="mt-1 text-sky-700"><i class="fa-brands fa-google"></i> Calendar 上已有這堂的話：請在 Calendar 把原本那個事件改到新時間（不要另建一個）；下次同步會自動認得。</div>'
-                : '<div class="mt-1 text-sky-700"><i class="fa-brands fa-google"></i> Calendar 上已有這堂的話：下次「同步 GCal」會把原本那個事件改到新時間（不另建新事件）。</div>';
+                : '<div class="mt-1 text-sky-700"><i class="fa-brands fa-google"></i> Calendar 上已有這堂的話：改期後的通知彈窗會問「同步到 Google Calendar 嗎？」，按下即把原本那個事件改到新時間（不另建新事件）。</div>';
         }
 
         // Navigation Tab Switching
@@ -1892,16 +1894,33 @@
             const parts = [];
             if (note) parts.push(`<div class="p-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">${note}</div>`);
             if (lessons.length > 1) parts.push(`<div class="p-2 bg-sky-50 border border-sky-200 rounded-lg text-sky-800 font-semibold"><i class="fa-solid fa-user-group mr-1"></i>小組課：共 ${lessons.length} 位學生，請逐一發送。</div>`);
+            // 改期通知收到的是這堂本身（常規課）或新補堂；補堂確認收到的可能是補堂課本身，也可能是掛著補堂的請假原課
+            const calLesson = l => type === 'move' ? l : (l.isMakeup ? l : (GACLessonState.findLesson(lessonsByMonth, l.makeupLessonId) || {}).lesson);
+            // 寫入模式：改期／排補堂後在這裡直接問「同步到 Google Calendar 嗎？」，按下即推這一節（不必開同步面板）；
+            // 一節一個事件，小組整節一鈕。唯讀模式仍是每人卡上的「加進 GCal」／「改 GCal 舊事件」
+            const pushBtns = [];
+            if (!gcalReadOnly() && appSettings.gcalClientId && (type === 'move' || type === 'makeup')) {
+                const seen = {};
+                lessons.forEach(l => {
+                    const t = calLesson(l);
+                    if (!t || t.status !== 'SCHEDULED' || (t.gcalEventId && !t.gcalMovedFrom)) return;
+                    const k = GACSchedule.cellKey(t);
+                    if (seen[k]) return;
+                    seen[k] = true;
+                    const move = !!(t.gcalEventId && t.gcalMovedFrom);
+                    const name = GACSchedule.isGroupLesson(t) ? `${t.program} 小組` : t.studentName;
+                    pushBtns.push(`<button onclick="gcalPushLesson('${t.lessonId}')" class="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold flex items-center gap-1" title="${move ? '把 Calendar 上原本那個事件改到新時間（不另建）' : '在導師的日曆建立這堂的事件（已有同一堂就不重建）'}"><i class="fa-brands fa-google"></i> ${move ? '改 GCal 事件' : '推送到 GCal'}：${escapeHtml(name)} ${t.date.slice(5)} ${t.time}</button>`);
+                });
+            }
+            if (pushBtns.length) parts.push(`<div class="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-900 flex items-center gap-2 flex-wrap"><span class="font-bold"><i class="fa-brands fa-google mr-1"></i>同步到 Google Calendar 嗎？</span>${pushBtns.join('')}<span class="text-[11px] text-indigo-700">按下即推送這一節（Calendar 上已有就改那個事件，不另建）</span></div>`);
             lessons.forEach(l => {
                 const msg = lessonMsgByType(type, l);
                 const copyFn = `copyLessonMsg('${type}', `;
-                // 補堂確認：唯讀模式下順手把補堂放進 Calendar（彈窗收到的可能是補堂課本身，也可能是掛著補堂的請假原課）
                 let gcalBtn = '';
                 if (type === 'leave') gcalBtn = gcalStatusButton(l);
-                if (type === 'move') gcalBtn = gcalAddButton(l);   // 改期通知：常規課改期是這堂本身；補堂改期收到的是新補堂
-                else if (type === 'makeup') {
-                    const mu = l.isMakeup ? l : (GACLessonState.findLesson(lessonsByMonth, l.makeupLessonId) || {}).lesson;
-                    if (mu) gcalBtn = gcalAddButton(mu);
+                else if (gcalReadOnly()) {
+                    const t = calLesson(l);
+                    if (t) gcalBtn = gcalAddButton(t);
                 }
                 const wa = l.phone
                     ? `<button onclick="openWhatsAppMessage('${l.lessonId}', '${type}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`
