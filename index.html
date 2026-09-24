@@ -628,6 +628,13 @@
                     <i id="smodChev_gcal" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
                 </button>
                 <div id="smod_gcal" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
+                    <!-- 導師日曆 ID：一位導師一個 Google 日曆，同步時逐一讀取（存在導師名單 gac_tutors_v3 上，改動即存） -->
+                    <div class="space-y-2">
+                        <div class="text-xs font-bold text-slate-700"><i class="fa-solid fa-calendar-days text-indigo-500 mr-1"></i>導師日曆 ID（同步時逐一讀取）</div>
+                        <p class="text-[11px] text-slate-500">Google 日曆 → 設定 → 該日曆「整合日曆」→「日曆 ID」（形如 <code>xxx@group.calendar.google.com</code>；個人主日曆就是該帳號的電郵）。填了的導師，同步時會<b>逐本讀取、只跟該導師的課比對</b>。<b>沒填的導師不會被比對</b>；若一位都沒填，系統不確定預設日曆屬於誰，會停用「Calendar 上沒有這堂」的判斷以免整批誤判。同一個 OAuth Client ID 可以讀多本日曆——決定讀得到什麼的是授權時登入的 Google 帳號。改動即時儲存。</p>
+                        <div id="tutorCalendarList" class="space-y-2"></div>
+                    </div>
+                    <div class="pt-2 border-t border-slate-100 space-y-3">
                     <label class="inline-flex items-center gap-3 text-sm cursor-pointer">
                         <input type="checkbox" id="setGcalWrite" class="w-4 h-4 accent-indigo-600">
                         <span class="font-bold text-slate-700">授權寫入 Google Calendar</span>
@@ -638,6 +645,7 @@
                         <div><b class="text-slate-700">關（唯讀）</b>：只申請唯讀權限，同步只把 Calendar 上的改動拉回本地——拖動改期、在事件說明欄的「狀態：」填 <code>L</code>／<code>NS</code>（或標題末尾加）標請假缺席、手動新建的事件可收編為補堂；不推送、不刪除，清場只清本地。不用 OAuth 也行：總課表「匯入 ICS」上傳日曆匯出檔即可比對。系統裡排的補堂／加課要放進 Calendar，按課卡上的「加進 GCal」，會開已填好的建立頁，選日曆、按儲存即可。</div>
                         <div><b class="text-slate-700">開</b>：同步可推送事件、清殘留，清場會刪 GCal 事件（申請 calendar.events 權限）。推送只寫「預設日曆 ID」那一本，多位導師各有日曆時不建議開。</div>
                     </div>
+                    </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label class="block text-xs font-bold text-slate-600 mb-1">Google OAuth Client ID</label>
@@ -647,12 +655,6 @@
                             <label class="block text-xs font-bold text-slate-600 mb-1">預設日曆 ID（同步 GCal 用；導師未另設日曆時用此）</label>
                             <input type="text" id="setGcalCalendarId" placeholder="primary" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
                         </div>
-                    </div>
-                    <!-- 導師日曆 ID：一位導師一個 Google 日曆，同步時逐一讀取（存在導師名單 gac_tutors_v3 上，改動即存） -->
-                    <div class="pt-2 border-t border-slate-100 space-y-2">
-                        <div class="text-xs font-bold text-slate-700"><i class="fa-solid fa-calendar-days text-indigo-500 mr-1"></i>導師日曆 ID（同步時逐一讀取）</div>
-                        <p class="text-[11px] text-slate-500">Google 日曆 → 設定 → 該日曆「整合日曆」→「日曆 ID」（形如 <code>xxx@group.calendar.google.com</code>；個人主日曆就是該帳號的電郵）。填了的導師，同步時會<b>逐本讀取、只跟該導師的課比對</b>。<b>沒填的導師不會被比對</b>；若一位都沒填，系統不確定預設日曆屬於誰，會停用「Calendar 上沒有這堂」的判斷以免整批誤判。同一個 OAuth Client ID 可以讀多本日曆——決定讀得到什麼的是授權時登入的 Google 帳號。改動即時儲存。</p>
-                        <div id="tutorCalendarList" class="space-y-2"></div>
                     </div>
                     <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
                         <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5"><i class="fa-solid fa-floppy-disk"></i> 儲存設定</button>

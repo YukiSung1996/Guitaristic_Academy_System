@@ -601,9 +601,15 @@ function clearCurrentMonthData() {
     const monthKey = currentMonthKey();
     if (!monthKey) return;
     const count = (lessonsByMonth[monthKey] || []).length;
-    if (!confirm(`🧹 清空本月（${monthKey}）——將執行：\n` +
-        `1) Google Calendar：刪除 ${monthKey} 所有由本系統導入（帶標籤）的事件，連同其跨月補堂事件\n` +
-        '   （GCal 垃圾桶可還原；你手動建立的事件絕不刪）\n' +
+    // 唯讀／未設定 GCal：Calendar 一定不動，確認框直說，免得清完才發現 Calendar 上的事件還在
+    const gcalOff = !appSettings.gcalClientId || !gcalWriteEnabled();
+    const gcalStep = gcalOff
+        ? (gcalWriteEnabled()
+            ? '1) Google Calendar：不動（未設定 GCal）\n'
+            : '1) Google Calendar：不動（唯讀模式，未授權寫入）。Calendar 上的事件要清請自行到 Google Calendar 刪除\n')
+        : `1) Google Calendar：刪除 ${monthKey} 所有由本系統導入（帶標籤）的事件，連同其跨月補堂事件\n` +
+          '   （GCal 垃圾桶可還原；你手動建立的事件絕不刪；匯入 .ics 建立的事件沒有標籤，也不會刪）\n';
+    if (!confirm(`🧹 清空本月（${monthKey}）——將執行：\n` + gcalStep +
         `2) 本地：刪除 ${monthKey} 全部 ${count} 堂課（含已出席／請假，級聯刪除掛連的跨月補堂）——不可還原！\n` +
         `3) 發送中心：清掉歸屬 ${monthKey} 的全部條目（含已發送）\n\n` +
         '其他月份、學生名單、設定與薪酬資料不受影響。建議先按「全量備份 (JSON)」。\n\n確定清空本月？')) return;
@@ -619,7 +625,7 @@ function clearCurrentMonthData() {
     };
 
     // 未設定 GCal／唯讀模式 → 只清本地
-    if (!appSettings.gcalClientId || !gcalWriteEnabled()) {
+    if (gcalOff) {
         const res = wipeMonthLocal();
         alert(`✅ 已清空本地 ${monthKey}：刪 ${res.removed.length} 堂（含跨月補堂）` +
             (res.unlinked.length ? `、${res.unlinked.length} 堂其他月份的請假回到待補池` : '') +
