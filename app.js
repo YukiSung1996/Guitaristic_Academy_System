@@ -95,7 +95,8 @@
 
         // 成功提示用右下角 toast（3.5 秒淡出，不阻斷操作）；只有需要用戶決定或必須看清的內容才用 alert/confirm
         let lastToast = '';
-        function showToast(msg) {
+        // ms：顯示多久（預設 3.5 秒）；跳去 Calendar 的操作提示用長一點，切回來還看得到
+        function showToast(msg, ms) {
             lastToast = String(msg);
             let box = document.getElementById('gacToast');
             if (!box) {
@@ -108,7 +109,7 @@
             box.style.opacity = '1';
             box.classList.remove('hidden');
             clearTimeout(box._timer);
-            box._timer = setTimeout(() => { box.style.opacity = '0'; setTimeout(() => box.classList.add('hidden'), 300); }, 3500);
+            box._timer = setTimeout(() => { box.style.opacity = '0'; setTimeout(() => box.classList.add('hidden'), 300); }, ms || 3500);
         }
 
         function saveToLocalStorage() {
@@ -339,29 +340,36 @@
             persistLessons();
         }
 
-        // 打開 Calendar 上舊事件那一天，讓導師把它拖／改到新時間（唯讀：寫的動作由人做）
+        // 唯讀改期後：打開 Calendar 上原本那個事件（同步記過 eid → 直接開該事件的編輯頁；沒有 → 開舊時段那一天），讓導師把它改到新時間。
+        // Google 既有事件的編輯頁不能預填（只有「新建」頁接受參數），所以要改成什麼寫在提示裡，時間也自己打
         function openGcalDay(lessonId) {
             const f = GACLessonState.findLesson(lessonsByMonth, lessonId);
-            const mf = f && f.lesson.gcalMovedFrom;
+            const l = f && f.lesson, mf = l && l.gcalMovedFrom;
             if (!mf) return;
-            const [y, m, d] = mf.date.split('-').map(Number);
-            window.open(`https://calendar.google.com/calendar/r/day/${y}/${m}/${d}`, '_blank', 'noopener');
+            let url;
+            if (l.gcalEid) url = 'https://calendar.google.com/calendar/r/eventedit/' + encodeURIComponent(l.gcalEid);
+            else { const [y, m, d] = mf.date.split('-').map(Number); url = `https://calendar.google.com/calendar/r/day/${y}/${m}/${d}`; }
+            window.open(url, '_blank', 'noopener');
+            showToast(`已打開 Calendar${l.gcalEid ? '上該事件' : '（' + mf.date + ' 那一天）'}：請把 ${l.studentName} 的事件從 ${mf.date} ${mf.time} 改到 ${l.date} ${l.time}，儲存即可。改好後下次同步會自動認得`, 8000);
         }
 
-        // 仍排定的補堂／加課的 Calendar 聯動鈕（課卡、補堂確認／改期通知彈窗）：
-        // 寫入模式：還沒推送過、或改期後 Calendar 上還是舊時間 →「同步到 GCal」開同步面板（推送新事件／改原本那個事件）；
-        // 唯讀模式：「加進 GCal」開已填好的建立事件頁；改期過、而舊時間的事件已在 Calendar →「改 GCal 舊事件」（打開舊那一天去改），不再鼓勵另建一個
+        // 仍排定的課的 Calendar 聯動鈕（課卡、補堂確認／改期通知彈窗）。常規課整月靠 .ics／推送，只有改期後才需要；補堂／加課隨時可加。
+        // 寫入模式：還沒推送過 →「同步到 GCal」；改期後 Calendar 上還是舊時間 →「同步改 GCal 事件」——都是開同步面板（推送新事件／改原本那個事件）；
+        // 唯讀模式：改期過 →「改 GCal 舊事件」（開該事件的編輯頁或舊那一天去改，不另建）；補堂沒改期過 →「加進 GCal」開已填好的建立事件頁
         function gcalAddButton(lesson) {
-            if (!lesson.isMakeup || lesson.status !== 'SCHEDULED') return '';
+            if (lesson.status !== 'SCHEDULED') return '';
+            const mf = lesson.gcalMovedFrom;
+            if (!lesson.isMakeup && !mf) return '';
             if (!gcalReadOnly()) {
-                if (!appSettings.gcalClientId || (lesson.gcalEventId && !lesson.gcalMovedFrom)) return '';
-                const move = !!(lesson.gcalEventId && lesson.gcalMovedFrom);
+                if (!appSettings.gcalClientId || (lesson.gcalEventId && !mf)) return '';
+                const move = !!(lesson.gcalEventId && mf);
                 return `<button onclick="openGcalSync()" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg font-semibold flex items-center gap-1" title="寫入模式：打開「同步 GCal」面板——${move ? '把 Calendar 上原本那個事件改到新時間' : '把這堂推送到 Google Calendar'}（面板勾選後執行）"><i class="fa-brands fa-google"></i> ${move ? '同步改 GCal 事件' : '同步到 GCal'}</button>`;
             }
-            const mf = lesson.gcalMovedFrom;
-            if (mf && mf.inCal) {
-                return `<button onclick="openGcalDay('${lesson.lessonId}')" class="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg font-semibold flex items-center gap-1" title="這堂改期前已在 Calendar（${mf.date} ${mf.time}）。打開 Calendar 那一天，把該事件改到 ${lesson.date} ${lesson.time}——不要另建新事件。改好後下次同步會自動認得"><i class="fa-brands fa-google"></i> 改 GCal 舊事件（${mf.date.slice(5)} ${mf.time} → ${lesson.date.slice(5)} ${lesson.time}）</button>`;
+            // 唯讀：常規課一律當作已在 Calendar（整月 .ics）；補堂要確知舊事件在 Calendar（推送過／按過加進 GCal／同步配對過）
+            if (mf && (mf.inCal || !lesson.isMakeup)) {
+                return `<button onclick="openGcalDay('${lesson.lessonId}')" class="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg font-semibold flex items-center gap-1" title="這堂改期前在 Calendar 是 ${mf.date} ${mf.time}。打開${lesson.gcalEid ? '該事件的編輯頁' : ' Calendar 那一天'}，把它改到 ${lesson.date} ${lesson.time}——不要另建新事件。改好後下次同步會自動認得"><i class="fa-brands fa-google"></i> 改 GCal 舊事件（${mf.date.slice(5)} ${mf.time} → ${lesson.date.slice(5)} ${lesson.time}）</button>`;
             }
+            if (!lesson.isMakeup) return '';
             return `<button onclick="openGcalTemplate('${lesson.lessonId}')" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg font-semibold flex items-center gap-1" title="唯讀模式：開 Google Calendar 已填好的建立事件頁，選日曆、按儲存即可（不需寫入授權）"><i class="fa-brands fa-google"></i> 加進 GCal</button>`;
         }
 
@@ -395,7 +403,7 @@
             window.open(gcalEventUrl(l), '_blank', 'noopener');
             showToast(l.gcalEid
                 ? `已打開 Calendar 上該事件：說明欄「狀態：」${code ? '填 ' + code : '清空'}，儲存後下次同步即一致`
-                : `已打開 Calendar 那一天：找到 ${l.studentName} 的事件，說明欄「狀態：」${code ? '填 ' + code : '清空'}`);
+                : `已打開 Calendar 那一天：找到 ${l.studentName} 的事件，說明欄「狀態：」${code ? '填 ' + code : '清空'}`, 8000);
         }
 
         // 改期彈窗的 Calendar 提示：寫入模式同步會改原本那個事件；唯讀模式請導師自己在 Calendar 拖過去
@@ -1306,6 +1314,7 @@
                     btns.push(`<button onclick="openMoveModalForMakeup('${id}')" class="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1" title="把此補堂改到別的日期／時間"><i class="fa-solid fa-arrows-rotate"></i> 改期</button>`);
                     btns.push(`<button onclick="cancelMakeupUI('${id}')" class="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg font-semibold flex items-center gap-1" title="取消此補堂，原請假課回到待補堂池"><i class="fa-solid fa-xmark"></i> 取消補堂</button>`);
                 } else {
+                    btns.push(gcalAddButton(lesson));   // 改期過才會有鈕（Calendar 上還是舊時間）
                     // 雙方提前約好改時間：課照上，只是換時段（不是請假，不產生補堂）
                     btns.push(`<button onclick="openLessonMoveModal('${id}')" class="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1" title="雙方約好把這一堂改到別的日期／時間（課照上，不算請假）"><i class="fa-solid fa-arrows-rotate"></i> 改期</button>`);
                 }
@@ -1793,7 +1802,7 @@
             renderAll();
             if (openUrl) {
                 window.open(openUrl, '_blank', 'noopener');
-                showToast(mk.gcalEid ? '已打開 Calendar 上該補堂事件：請在那裡刪除' : `已打開 Calendar 那一天：找到 ${mk.studentName} 的補堂事件並刪除`);
+                showToast(mk.gcalEid ? '已打開 Calendar 上該補堂事件：請在那裡刪除' : `已打開 Calendar 那一天：找到 ${mk.studentName} 的補堂事件並刪除`, 8000);
             }
         }
 
@@ -1854,7 +1863,8 @@
                 // 補堂確認：唯讀模式下順手把補堂放進 Calendar（彈窗收到的可能是補堂課本身，也可能是掛著補堂的請假原課）
                 let gcalBtn = '';
                 if (type === 'leave') gcalBtn = gcalStatusButton(l);
-                if (type === 'makeup' || (type === 'move' && l.isMakeup)) {
+                if (type === 'move') gcalBtn = gcalAddButton(l);   // 改期通知：常規課改期是這堂本身；補堂改期收到的是新補堂
+                else if (type === 'makeup') {
                     const mu = l.isMakeup ? l : (GACLessonState.findLesson(lessonsByMonth, l.makeupLessonId) || {}).lesson;
                     if (mu) gcalBtn = gcalAddButton(mu);
                 }
