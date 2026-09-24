@@ -1070,6 +1070,7 @@
             const validS = prevS === 'ALL' || students.some(s => s.id === prevS)
                 || (prevS.startsWith('G:') && groups.some(g => 'G:' + g.id === prevS));
             sSel.value = validS ? prevS : 'ALL';
+            rebuildWeekSelect(); // 週次下拉隨篩選範圍列有課的週
         }
 
         // 學生篩選對應的導師：學生自己的個別課導師；只上小組的看所屬小組（各組導師一致才算得出）；小組班＝該組導師
@@ -1203,20 +1204,28 @@
                 monthWeeksData.push(currentWeek);
             }
 
+            rebuildWeekSelect();
+        }
+
+        // 週次下拉：選了導師／學生（或小組班）時只列該範圍內有課的星期（例如 S032 第 5 週沒課就不列第 5 週）；沒篩選就列整月每一週。
+        // 週次編號不變（第 1 週藏起來，第 5 週仍叫第 5 週）；原選的週不在了就回到「全月」
+        function rebuildWeekSelect() {
             const weekSelect = document.getElementById('weekSelect');
-            weekSelect.innerHTML = '<option value="ALL">全月</option>';
-
+            if (!weekSelect || !monthWeeksData) return;
+            const prev = weekSelect.value || 'ALL';
+            const f = scheduleFilterValues();
+            const scoped = f.tutor !== 'ALL' || f.student !== 'ALL';
+            const lessons = scoped ? sortedMonthLessons().filter(l => lessonMatchesScheduleFilters(l, f)) : [];
+            const md = d => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
+            const shown = [];
             monthWeeksData.forEach((w, idx) => {
-                const validDays = w.filter(d => d !== null);
-                const startStr = validDays[0].dateString;
-                const endStr = validDays[validDays.length - 1].dateString;
-
-                const option = document.createElement('option');
-                option.value = idx;
-                const md = d => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
-                option.textContent = `第${idx + 1}週 ${md(startStr)}–${md(endStr)}`;
-                weekSelect.appendChild(option);
+                const days = w.filter(d => d !== null);
+                const startStr = days[0].dateString, endStr = days[days.length - 1].dateString;
+                if (scoped && !lessons.some(l => l.date >= startStr && l.date <= endStr)) return;
+                shown.push(`<option value="${idx}">第${idx + 1}週 ${md(startStr)}–${md(endStr)}</option>`);
             });
+            weekSelect.innerHTML = '<option value="ALL">全月</option>' + shown.join('');
+            weekSelect.value = shown.some(o => o.includes(`value="${prev}"`)) ? prev : 'ALL';
         }
 
         function renderMasterScheduleList() {
