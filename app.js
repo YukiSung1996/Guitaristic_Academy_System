@@ -305,6 +305,44 @@
             return new Date(lessonStart(lesson).getTime() + (Number(lesson.duration) || 45) * 60000);
         }
 
+        // ===== 唯讀模式的「加進 GCal」：不走 API、不要寫入授權 =====
+        // 開一個 Google Calendar 已填好的「建立事件」頁（標題／時間／地點碼／說明），導師選日曆、按儲存，寫的動作由人完成。
+        // 事件沒有系統標籤，但唯讀同步本來就按內容（學號＋日期）配對，下次同步會認得是同一堂，不會報「手動新建」。
+        function gcalReadOnly() { return !!appSettings && appSettings.gcalWrite === false; }
+
+        function gcalTemplateUrl(lesson) {
+            const p2 = n => String(n).padStart(2, '0');
+            const stamp = d => `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}T${p2(d.getHours())}${p2(d.getMinutes())}00`;
+            let tz = 'Asia/Hong_Kong';
+            try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || tz; } catch (e) { /* 舊瀏覽器沒有 Intl */ }
+            // 與推送／匯出 .ics 同一契約：標題 lessonTitle、地點＝狀態碼（補堂 MU）、說明只寫導師，不寫學生聯絡方式
+            let details = 'Guitaristic Academy Lesson';
+            if (lesson.tutor) details += '\n導師：' + lesson.tutor;
+            if (lesson.isMakeup && lesson.originLessonId) details += '\n↩ 補 ' + originDateText(lesson) + ' 的請假課';
+            const q = [
+                'action=TEMPLATE',
+                'text=' + encodeURIComponent(GACSchedule.lessonTitle(lesson)),
+                'dates=' + stamp(lessonStart(lesson)) + '/' + stamp(lessonEnd(lesson)),   // 浮動時間，照 ctz 解讀
+                'details=' + encodeURIComponent(details),
+                'ctz=' + encodeURIComponent(tz)
+            ];
+            const loc = getLocationText(lesson);
+            if (loc) q.push('location=' + encodeURIComponent(loc));
+            return 'https://calendar.google.com/calendar/render?' + q.join('&');
+        }
+
+        function openGcalTemplate(lessonId) {
+            const f = GACLessonState.findLesson(lessonsByMonth, lessonId);
+            if (!f) return;
+            window.open(gcalTemplateUrl(f.lesson), '_blank', 'noopener');
+        }
+
+        // 只在唯讀模式、且是仍排定的補堂／加課才顯示：常規課整月匯入 .ics 就有；開了寫入的話推送會自己建事件，再建就重複
+        function gcalAddButton(lesson) {
+            if (!gcalReadOnly() || !lesson.isMakeup || lesson.status !== 'SCHEDULED') return '';
+            return `<button onclick="openGcalTemplate('${lesson.lessonId}')" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg font-semibold flex items-center gap-1" title="唯讀模式：開 Google Calendar 已填好的建立事件頁，選日曆、按儲存即可（不需寫入授權）"><i class="fa-brands fa-google"></i> 加進 GCal</button>`;
+        }
+
         // Navigation Tab Switching
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
@@ -1202,6 +1240,7 @@
                 btns.push(`<button onclick="markLessonStatus('${id}','NOSHOW')" class="px-2.5 py-1.5 bg-purple-100 hover:bg-purple-200 text-purple-800 rounded-lg font-semibold flex items-center gap-1" title="學生缺席 No Show"><i class="fa-solid fa-user-slash"></i> NS</button>`);
                 btns.push(`<button onclick="toggleLessonBox('leave','${id}')" class="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-pen"></i> 請假</button>`);
                 if (lesson.isMakeup) {
+                    btns.push(gcalAddButton(lesson));
                     btns.push(`<button onclick="openMoveModalForMakeup('${id}')" class="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1" title="把此補堂改到別的日期／時間"><i class="fa-solid fa-arrows-rotate"></i> 改期</button>`);
                     btns.push(`<button onclick="cancelMakeupUI('${id}')" class="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg font-semibold flex items-center gap-1" title="取消此補堂，原請假課回到待補堂池"><i class="fa-solid fa-xmark"></i> 取消補堂</button>`);
                 } else {
@@ -1716,6 +1755,12 @@
             lessons.forEach(l => {
                 const msg = lessonMsgByType(type, l);
                 const copyFn = `copyLessonMsg('${type}', `;
+                // 補堂確認：唯讀模式下順手把補堂放進 Calendar（彈窗收到的可能是補堂課本身，也可能是掛著補堂的請假原課）
+                let gcalBtn = '';
+                if (type === 'makeup') {
+                    const mu = l.isMakeup ? l : (GACLessonState.findLesson(lessonsByMonth, l.makeupLessonId) || {}).lesson;
+                    if (mu) gcalBtn = gcalAddButton(mu);
+                }
                 const wa = l.phone
                     ? `<button onclick="openWhatsAppMessage('${l.lessonId}', '${type}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`
                     : `<span class="text-slate-400 italic">無電話，僅可複製</span>`;
@@ -1730,6 +1775,7 @@
                         <div class="flex items-center gap-1.5">
                             <button onclick="${copyFn}'${l.lessonId}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold"><i class="fa-solid fa-copy"></i> 複製</button>
                             ${wa}
+                            ${gcalBtn}
                         </div>
                     </div>`);
             });

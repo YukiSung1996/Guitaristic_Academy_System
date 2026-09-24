@@ -628,13 +628,16 @@
                     <i id="smodChev_gcal" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
                 </button>
                 <div id="smod_gcal" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
-                    <label class="flex items-start gap-3 text-sm cursor-pointer">
-                        <input type="checkbox" id="setGcalWrite" class="mt-0.5 w-4 h-4 accent-indigo-600">
-                        <span>
-                            <span class="font-bold text-slate-700">授權寫入 Google Calendar</span>
-                            <span class="block text-xs text-slate-500 mt-0.5"><b>預設關（唯讀）</b>——建議保持：本機怎麼改都動不到 Calendar。<b>開</b>＝同步時可推送事件、清殘留，清場會刪 GCal 事件（申請 calendar.events 權限；推送目前只寫入「預設日曆 ID」那一本，多位導師各有日曆時不建議開）。<b>關＝唯讀</b>：只申請唯讀權限，同步面板只把 Calendar 上的改動拉回本地（時間變更／狀態碼／Calendar 沒有／手動新建，按學生 ID 或姓名、小組名稱配對），不推送不刪除；清場只清本地。唯讀時也可以完全不用 OAuth——總課表「匯入 ICS」上傳日曆匯出檔即可比對。</span>
-                        </span>
+                    <label class="inline-flex items-center gap-3 text-sm cursor-pointer">
+                        <input type="checkbox" id="setGcalWrite" class="w-4 h-4 accent-indigo-600">
+                        <span class="font-bold text-slate-700">授權寫入 Google Calendar</span>
+                        <span class="text-xs text-slate-500">預設關＝唯讀，建議保持</span>
                     </label>
+                    <!-- 說明獨立在 label 之外：點文字不會勾到開關 -->
+                    <div class="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5">
+                        <div><b class="text-slate-700">關（唯讀）</b>：只申請唯讀權限，同步只把 Calendar 上的改動拉回本地——拖動改期、標題末尾加 <code>L</code>／<code>NS</code> 標請假缺席、手動新建的事件可收編為補堂；不推送、不刪除，清場只清本地。不用 OAuth 也行：總課表「匯入 ICS」上傳日曆匯出檔即可比對。系統裡排的補堂／加課要放進 Calendar，按課卡上的「加進 GCal」，會開已填好的建立頁，選日曆、按儲存即可。</div>
+                        <div><b class="text-slate-700">開</b>：同步可推送事件、清殘留，清場會刪 GCal 事件（申請 calendar.events 權限）。推送只寫「預設日曆 ID」那一本，多位導師各有日曆時不建議開。</div>
+                    </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label class="block text-xs font-bold text-slate-600 mb-1">Google OAuth Client ID</label>
