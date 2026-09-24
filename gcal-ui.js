@@ -231,7 +231,8 @@ function contentOpts(tutor, skipKeys, monthKey) {
         skipCellKeys: skipKeys || {},
         detectMissing: canDetectMissing(tutor),
         deleteFrom: monthKey + '-01',
-        deleteTo: monthLastDay(monthKey)
+        deleteTo: monthLastDay(monthKey),
+        now: new Date()   // 留空＝已上課：課已結束、「狀態：」空白 → 出席
     };
 }
 
@@ -401,7 +402,7 @@ function openGcalSync() {
                 relinks.forEach(m => consider(m.cell, m.event));
             }
             // 狀態雙向：Calendar 的碼 → 本地（statusChanges）；本地的狀態 → Calendar（寫入：PATCH 一項勾選；唯讀：請到 Calendar 填）
-            const st = GACGcal.planStatusSync(pairs, rule);
+            const st = GACGcal.planStatusSync(pairs, rule, { now: new Date() });
             const statusChanges = st.toLocal;
             if (settleNow.length || pairs.length) persistLessons();   // 只是中繼資料（改期記號／事件 id、eid、碼），課堂本身沒變
             gcalSyncPlan = {
@@ -552,12 +553,22 @@ function renderGcalSyncModal() {
         });
     }
     if (p.statusChanges.length) {
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🏷️ 狀態碼變更（GCal 事件 location/標題含 L/SL/TL/NS → 更新本地；小組全體成員一併）</div>');
-        p.statusChanges.forEach((s, i) => {
-            const toLabel = s.to.status === 'NOSHOW' ? 'NS 缺席' : getLeaveText(s.to.leaveType);
-            parts.push(gcalSyncRow('gsS_' + i,
-                `${gcalCellLabel(s)} ${s.lesson.date} ${s.lesson.time}：${s.lesson.status} → <b>${toLabel}</b>`, '', true));
-        });
+        // 明確填了碼的一組；「留空而課已結束＝出席」另列一組（同一個 gsS_ 索引，套用邏輯不變）
+        const rows = p.statusChanges.map((s, i) => ({ s, i }));
+        const row = x => {
+            const s = x.s;
+            const toLabel = s.to.status === 'NOSHOW' ? 'NS 缺席' : s.to.status === 'ATTENDED' ? '出席（已上課）' : getLeaveText(s.to.leaveType);
+            return gcalSyncRow('gsS_' + x.i, `${gcalCellLabel(s)} ${s.lesson.date} ${s.lesson.time}：${s.lesson.status} → <b>${toLabel}</b>`, '', true);
+        };
+        const explicit = rows.filter(x => !x.s.blank), blank = rows.filter(x => x.s.blank);
+        if (explicit.length) {
+            parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🏷️ 狀態碼變更（Calendar「狀態：」填了 A／L／SL／TL／NS → 更新本地；小組全體成員一併）</div>');
+            explicit.forEach(x => parts.push(row(x)));
+        }
+        if (blank.length) {
+            parts.push(`<div class="text-xs font-bold text-slate-700 mt-2">✅ 已上課：Calendar「狀態：」留空、而課已結束（留空＝出席）→ 本地標出席（${blank.length} 節；與系統「批量確認出席」效果相同）</div>`);
+            blank.forEach(x => parts.push(row(x)));
+        }
     }
     if (p.deletions.length) {
         // 防呆：大量刪除多半是「清場」而非逐堂取消——照套用會整批標請假、灌爆待補堂池。
@@ -727,9 +738,16 @@ function applyGcalSyncInner() {
         if (!gcalChk('gsS_' + i)) return;
         membersOf(s).forEach(l => {
             if (l.status === s.to.status && (s.to.status !== 'LEAVE' || (l.leaveType || '') === s.to.leaveType)) return; // 已一致的成員略過
-            const r = s.to.status === 'NOSHOW'
-                ? GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'NOSHOW')
-                : GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'LEAVE', { leaveType: s.to.leaveType });
+            let r;
+            if (s.to.status === 'ATTENDED') {
+                // 出席：請假／缺席的先還原再標（已排補堂的請假還原會被擋 → 列入錯誤，請先取消補堂）
+                r = l.status === 'SCHEDULED' ? { ok: true } : GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'SCHEDULED');
+                if (r.ok) r = GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'ATTENDED');
+            } else {
+                r = s.to.status === 'NOSHOW'
+                    ? GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'NOSHOW')
+                    : GACLessonState.markStatus(lessonsByMonth, l.lessonId, 'LEAVE', { leaveType: s.to.leaveType });
+            }
             if (r.ok) {
                 if (s.to.status === 'LEAVE') GACSendlog.ensureLessonEntry(sendLog, 'LEAVE_CONFIRM', r.lesson, nowIso);
                 done.push(`狀態：${l.studentName} ${l.date} → ${s.to.status}${s.to.leaveType ? '/' + s.to.leaveType : ''}`);
@@ -883,7 +901,7 @@ function gcalCellOf(lessonId) {
 }
 function gcalCellCode(cell) {
     const c = GACGcal.cellStatusCode(cell);
-    return ['L', 'SL', 'TL', 'NS'].indexOf(c) !== -1 ? c : '';
+    return ['A', 'L', 'SL', 'TL', 'NS'].indexOf(c) !== -1 ? c : '';
 }
 function gcalPushLesson(lessonId) {
     if (!gcalPreflight()) return;

@@ -86,9 +86,53 @@ test('parseStatusCode：location 精確碼優先；summary 詞元邊界；MU/無
     assert.strictEqual(G.parseStatusCode({ description: '狀態：亂打' }), null, '看不懂當沒填');
 });
 
+test('出席碼 A：說明欄／地點欄認 A 與「出席」→ ATTENDED；標題裡的 A 不算；留空而課已結束＝出席（planStatusSync／reconcileByContent 帶 now）；寫回出席只寫說明欄', () => {
+    assert.deepStrictEqual(G.parseStatusCode({ description: '狀態：A' }), { status: 'ATTENDED', leaveType: '' });
+    assert.deepStrictEqual(G.parseStatusCode({ description: '狀態：出席' }), { status: 'ATTENDED', leaveType: '' });
+    assert.deepStrictEqual(G.parseStatusCode({ description: '狀態：已上課' }), { status: 'ATTENDED', leaveType: '' });
+    assert.deepStrictEqual(G.parseStatusCode({ location: 'A' }), { status: 'ATTENDED', leaveType: '' });
+    assert.strictEqual(G.parseStatusCode({ summary: 'S001 Student A' }), null, '標題裡的 A 不當出席碼');
+    assert.strictEqual(G.calStatusCode({ description: '狀態：A' }), 'A');
+    assert.strictEqual(G.localStatusCode({ status: 'ATTENDED' }), 'A');
+    const L = (st, lt, id) => ({ lessonId: id || 'x', studentId: 'S001', date: '2026-09-10', time: '15:00', duration: 45, status: st, leaveType: lt || '' });
+    const cell = (...ls) => ({ key: 'k', isGroup: ls.length > 1, lessons: ls });
+    const ev = code => ({ id: 'e', description: '一對一\n導師：A\n狀態：' + code });
+    const shape = r => [r.toLocal.map(x => x.to.status + (x.blank ? '/blank' : '')), r.toGcal.map(x => x.code)];
+    const after = new Date(2026, 8, 10, 16, 0), before = new Date(2026, 8, 10, 15, 30);
+    assert.strictEqual(G.lessonEnded(L('SCHEDULED'), after), true);
+    assert.strictEqual(G.lessonEnded(L('SCHEDULED'), before), false, '15:00 開始 45 分鐘，15:30 還沒結束');
+    assert.strictEqual(G.lessonEnded(L('SCHEDULED'), null), false);
+    // 留空：課已結束、全員仍已排課 → 出席（標 blank）；還沒結束 → 不動；沒給 now → 不動
+    assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('SCHEDULED')), event: ev('') }], 'gcal', { now: after })), [['ATTENDED/blank'], []]);
+    assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('SCHEDULED')), event: ev('') }], 'gcal', { now: before })), [[], []]);
+    assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('SCHEDULED')), event: ev('') }], 'gcal')), [[], []]);
+    // 留空但本地已有資訊 → 照舊寫回；本地已上課 → 相同不動；小組成員不一 → 不動
+    assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('NOSHOW')), event: ev('') }], 'gcal', { now: after })), [[], ['NS']]);
+    assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('ATTENDED')), event: ev('') }], 'local', { now: after })), [[], []]);
+    assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('ATTENDED', '', 'a'), L('SCHEDULED', '', 'b')), event: ev('') }], 'gcal', { now: after })), [[], []]);
+    // 明確填 A：本地已排課 → 出席（不看時間）；本地已上課 → 相同不動；本地請假：Calendar 為準 → 出席、本系統為準 → 寫回 L
+    assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('SCHEDULED')), event: ev('A') }], 'gcal')), [['ATTENDED'], []]);
+    assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('ATTENDED')), event: ev('A') }], 'local')), [[], []]);
+    assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('LEAVE', 'L')), event: ev('A') }], 'gcal')), [['ATTENDED'], []]);
+    assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('LEAVE', 'L')), event: ev('A') }], 'local')), [[], ['L']]);
+    // 寫回出席：說明欄「狀態：A」，地點欄留空（補堂回到 MU）
+    assert.deepStrictEqual(G.statusPatchPayload(cell(L('ATTENDED')), 'A', { description: 'x\n狀態：L\ny' }), { location: '', description: 'x\n狀態：A\ny' });
+    assert.deepStrictEqual(G.statusPatchPayload(cell(Object.assign(L('ATTENDED'), { isMakeup: true })), 'A', { description: '狀態：L' }), { location: 'MU', description: '狀態：A' });
+    // 按內容對帳（匯入 ICS 走這裡）同一規則
+    const lessons = [Object.assign(L('SCHEDULED', '', 'S001-20260910-1500'), { studentName: 'Student 001', classType: '一對一', tutor: 'Instructor A' })];
+    const events = [{ id: 'e1', status: 'confirmed', summary: 'S001 Student 001', start: { dateTime: '2026-09-10T15:00:00+08:00' }, end: { dateTime: '2026-09-10T15:45:00+08:00' } }];
+    const students = [{ id: 'S001', name: 'Student 001' }];
+    const rc = G.reconcileByContent(lessons, events, { students, groups: [], now: after });
+    assert.strictEqual(rc.statusChanges.length, 1);
+    assert.deepStrictEqual(rc.statusChanges[0].to, { status: 'ATTENDED', leaveType: '' });
+    assert.strictEqual(rc.statusChanges[0].blank, true);
+    assert.strictEqual(G.reconcileByContent(lessons, events, { students, groups: [] }).statusChanges.length, 0, '沒給 now 不判斷');
+    assert.strictEqual(G.reconcileByContent(lessons, events, { students, groups: [], now: before }).statusChanges.length, 0, '還沒結束不判斷');
+});
+
 test('describeLesson／describeCell：第一行具體課程、導師、狀態：一行、提示；補堂加原課；小組列成員；不含電話電郵', () => {
     const one = G.describeLesson({ studentId: 'S001', studentName: 'Student 001', classType: '一對一', program: 'Pop Guitar', level: 'Intermediate 中級', tutor: 'Instructor A', status: 'SCHEDULED', phone: '00000000', email: 'x@example.com' });
-    assert.deepStrictEqual(one.split('\n'), ['一對一 · Pop Guitar · Intermediate 中級', '導師：Instructor A', '狀態：', '（請假填 L、病假 SL、導師請假 TL、缺席 NS；系統同步時讀這一行）']);
+    assert.deepStrictEqual(one.split('\n'), ['一對一 · Pop Guitar · Intermediate 中級', '導師：Instructor A', '狀態：', '（出席留空或填 A；請假填 L、病假 SL、導師請假 TL、缺席 NS。系統同步時讀這一行）']);
     assert.ok(!one.includes('00000000') && !one.includes('example.com'));
     const mu = G.describeLesson({ studentId: 'S001', classType: '一對一', program: 'Pop Guitar', tutor: 'Instructor A', status: 'SCHEDULED', isMakeup: true, originLessonId: 'S001-20260916-1500' });
     assert.strictEqual(mu.split('\n')[0], '補堂 · 一對一 · Pop Guitar');
@@ -102,7 +146,7 @@ test('describeLesson／describeCell：第一行具體課程、導師、狀態：
         { studentId: 'S031', studentName: 'Student 031', groupName: '樂理 Grade 5 小組', program: 'Music Theory', tutor: 'Instructor B', status: 'SCHEDULED' }
     ] };
     const g = G.describeCell(cell).split('\n');
-    assert.deepStrictEqual(g.slice(0, 5), ['小組課 · 樂理 Grade 5 小組', '導師：Instructor B', '狀態：', '（請假填 L、病假 SL、導師請假 TL、缺席 NS；系統同步時讀這一行）', '成員：']);
+    assert.deepStrictEqual(g.slice(0, 5), ['小組課 · 樂理 Grade 5 小組', '導師：Instructor B', '狀態：', '（出席留空或填 A；請假填 L、病假 SL、導師請假 TL、缺席 NS。系統同步時讀這一行）', '成員：']);
     assert.deepStrictEqual(g.slice(5), ['S030 Student 030', 'S031 Student 031']);
     // 自己寫出去的說明，自己讀回來：沒填狀態 → null
     assert.strictEqual(G.parseStatusCode({ description: one }), null);
@@ -215,7 +259,7 @@ test('planStatusSync：只有一邊有資訊就流向另一邊；兩邊都有且
     assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('LEAVE', 'L')), event: ev('SL') }], 'local')), [0, ['L']]);
     // 已上課：Calendar 沒碼 → 不動；Calendar 有碼：本系統為準 → 清掉碼（''）、Calendar 為準 → 拉回
     assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('ATTENDED')), event: ev('') }], 'local')), [0, []]);
-    assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('ATTENDED')), event: ev('L') }], 'local')), [0, ['']]);
+    assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('ATTENDED')), event: ev('L') }], 'local')), [0, ['A']]);
     assert.deepStrictEqual(shape(G.planStatusSync([{ cell: cell(L('ATTENDED')), event: ev('L') }], 'gcal')), [1, []]);
     // 小組成員不一：Calendar 沒碼 → 不動；Calendar 有碼：Calendar 為準照舊拉回、本系統為準一個碼表達不了 → 不動
     const mixed = cell(L('LEAVE', 'L', 'a'), L('SCHEDULED', '', 'b'));

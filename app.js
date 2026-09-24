@@ -405,12 +405,13 @@
         // 唯讀：打開該事件的編輯頁，請導師在「狀態：」填上——Google 只支援預填「新建」事件（TEMPLATE），既有事件的編輯頁不能預填，這一步要自己打；
         // 寫入：開同步面板，「寫回狀態」一項勾選執行即可
         function gcalLocalCode(lesson) {
-            return lesson.status === 'LEAVE' ? (lesson.leaveType || 'L') : lesson.status === 'NOSHOW' ? 'NS' : '';
+            return lesson.status === 'LEAVE' ? (lesson.leaveType || 'L') : lesson.status === 'NOSHOW' ? 'NS' : lesson.status === 'ATTENDED' ? 'A' : '';
         }
         function gcalStatusButton(lesson) {
             if (!appSettings.gcalClientId) return '';
             const code = gcalLocalCode(lesson), have = lesson.gcalCode || '';
-            if (code === have) return '';
+            const same = c => (c === 'A' ? '' : c);   // 留空＝出席：A 與空白視為同一回事，不催人去填
+            if (same(code) === same(have)) return '';
             if (!gcalReadOnly()) {
                 // 知道 Calendar 上是哪個事件 → 按下即改那個事件；還不知道 → 開同步面板配對後在「寫回狀態」勾選
                 const direct = !!lesson.gcalEventId;
