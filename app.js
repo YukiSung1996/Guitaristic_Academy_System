@@ -1401,13 +1401,14 @@
             return '已排課';
         }
 
-        // 月曆色塊的「分明度」：已有結果 → 空心淡出；日期已過 → 再淡一層；已過期卻仍未確認 → 虛線框提醒
+        // 月曆色塊的「分明度」：已有結果 → 空心淡出；日期已過 → 再淡一層。
+        // 例外：日期已過卻仍是「已排課」＝還欠你動手確認，維持實色＋虛線框，不淡出。
         function lessonPillState(lesson, todayStr) {
             const cls = [];
             if (lesson.status !== 'SCHEDULED') cls.push('cal-pill-done');
             if (lesson.date < todayStr) {
-                cls.push('cal-pill-past');
                 if (lesson.status === 'SCHEDULED') cls.push('cal-pill-overdue');
+                else cls.push('cal-pill-past');
             }
             return cls.join(' ');
         }

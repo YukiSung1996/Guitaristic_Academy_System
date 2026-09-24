@@ -37,8 +37,9 @@
         .cal-pill-done { background-color: transparent; opacity: .62; font-weight: 400; }
         .cal-pill-past { opacity: .55; }
         .cal-pill-done.cal-pill-past { opacity: .42; }
-        /* 已過期卻仍「已排課」＝忘了確認出席：維持實色並加虛線框提醒 */
-        .cal-pill-overdue { outline: 1px dashed currentColor; outline-offset: -1px; }
+        /* 已過期卻仍「已排課」＝忘了確認出席：不淡出（JS 不會同時給 cal-pill-past），
+           維持實色並加虛線框，讓還要處理的課比已經完結的搶眼 */
+        .cal-pill-overdue { outline: 1px dashed currentColor; outline-offset: -1px; opacity: 1; }
         /* 撞堂＝同一導師時段重疊：紅框要壓過上面的虛線框，所以寫在最後 */
         .cal-pill-clash { outline: 2px solid #ef4444; outline-offset: -2px; font-weight: 700; }
         /* 日格：今天藍框、已過去的日子灰底 */
