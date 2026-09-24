@@ -2411,6 +2411,26 @@
         }
 
         // 導出目前檢視月份的課；**只導出導師／學生篩選範圍內的課**，這樣檔名寫的導師才跟內容一致
+        // 一位導師一個檔：每位導師把自己的檔匯入自己的 Google 日曆，所以不再合成一個 All-Tutors 檔。
+        // 已選導師時自然只有一個；沒填導師的課歸「Unassigned」一檔。次序照導師名單。
+        function icsExportBatches(lessons, monthKey, f) {
+            const byTutor = new Map();
+            lessons.forEach(l => {
+                const t = l.tutor || '';
+                if (!byTutor.has(t)) byTutor.set(t, []);
+                byTutor.get(t).push(l);
+            });
+            const order = allTutorNames();
+            return Array.from(byTutor.entries())
+                .sort((a, b) => (order.indexOf(a[0]) + 1 || 999) - (order.indexOf(b[0]) + 1 || 999))
+                .map(([tutor, ls]) => ({
+                    tutor: tutor || '（未指定導師）',
+                    calName: tutor ? `Guitaristic ${tutor}` : '',          // 匯入 ICS 時靠這個自動辨認導師
+                    name: icsFileName(monthKey, Object.assign({}, f, { tutor: tutor || 'Unassigned' })),
+                    lessons: ls
+                }));
+        }
+
         function downloadMasterICS() {
             const monthKey = currentMonthKey();
             const f = scheduleFilterValues();
@@ -2421,18 +2441,25 @@
                     : '目前沒有已生成的課堂可匯出！');
                 return;
             }
-            const name = icsFileName(monthKey, f);
-            buildICSFile(lessons.map(lessonToExportEvent), name);
-            showToast(`📅 已匯出 ${lessons.length} 堂（${scheduleFilterLabel() || '全部導師'}）→ ${name}`);
+            const batches = icsExportBatches(lessons, monthKey, f);
+            // 多個檔逐個觸發下載（隔 400ms）；瀏覽器第一次會問「允許下載多個檔案」，按允許即可
+            batches.forEach((b, i) => {
+                const go = () => buildICSFile(b.lessons.map(lessonToExportEvent), b.name, b.calName);
+                if (i === 0) go(); else setTimeout(go, i * 400);
+            });
+            showToast(batches.length === 1
+                ? `📅 已匯出 ${lessons.length} 堂（${scheduleFilterLabel() || batches[0].tutor}）→ ${batches[0].name}`
+                : `📅 已按導師分成 ${batches.length} 個檔：${batches.map(b => `${b.tutor} ${b.lessons.length} 堂`).join('、')}——各自匯入自己的日曆`);
         }
 
         // Keep the original export function name available for existing links or bookmarks.
         function exportMasterICS() { downloadMasterICS(); }
 
-        function buildICSFile(events, filename) {
+        function buildICSFile(events, filename, calName) {
             let icsContent = [
                 "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Demo Music Academy//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH"
             ];
+            if (calName) icsContent.push(`X-WR-CALNAME:${calName}`);   // 匯入 ICS 時從這裡自動辨認導師
 
             const formatICSDate = (d) => d.getFullYear() +
                 String(d.getMonth() + 1).padStart(2, '0') +
