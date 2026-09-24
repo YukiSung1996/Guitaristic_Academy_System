@@ -505,7 +505,7 @@
             if (v !== 'ALL' && allTutorNames().indexOf(v) === -1) return;
             if ((to.value || 'ALL') === v) return;
             to.value = v;
-            onScheduleFilterChange();
+            onScheduleFilterChange('tutor');
         }
 
         function renderBatchCheckboxes() {
@@ -1057,15 +1057,30 @@
             tSel.innerHTML = '<option value="ALL">所有導師</option>' +
                 tutors.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
             tSel.value = tutors.includes(prevT) ? prevT : 'ALL';
-            const students = studentDatabase.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+            // 選了導師 → 學生下拉只列名下的：自己的個別課導師是他，或所屬小組的導師是他；小組班也只列他的
+            const t = tSel.value || 'ALL';
+            const students = studentDatabase.filter(s => t === 'ALL' || s.tutor === t || groupsOfStudent(s.id).some(g => g.tutor === t))
+                .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+            const groups = groupClasses.filter(g => t === 'ALL' || g.tutor === t);
             sSel.innerHTML = '<option value="ALL">所有學生</option>' +
                 students.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.id)} ${escapeHtml(s.name)}</option>`).join('') +
-                (groupClasses.length
-                    ? '<optgroup label="小組班">' + groupClasses.map(g => `<option value="G:${escapeHtml(g.id)}">👥 ${escapeHtml(g.name)}</option>`).join('') + '</optgroup>'
+                (groups.length
+                    ? '<optgroup label="小組班">' + groups.map(g => `<option value="G:${escapeHtml(g.id)}">👥 ${escapeHtml(g.name)}</option>`).join('') + '</optgroup>'
                     : '');
             const validS = prevS === 'ALL' || students.some(s => s.id === prevS)
-                || (prevS.startsWith('G:') && groupClasses.some(g => 'G:' + g.id === prevS));
+                || (prevS.startsWith('G:') && groups.some(g => 'G:' + g.id === prevS));
             sSel.value = validS ? prevS : 'ALL';
+        }
+
+        // 學生篩選對應的導師：學生自己的個別課導師；只上小組的看所屬小組（各組導師一致才算得出）；小組班＝該組導師
+        function scheduleFilterTutorOf(studentKey) {
+            if (!studentKey || studentKey === 'ALL') return null;
+            if (studentKey.startsWith('G:')) { const g = findGroup(studentKey.slice(2)); return g ? (g.tutor || null) : null; }
+            const s = studentDatabase.find(x => x.id === studentKey);
+            if (!s) return null;
+            if (s.tutor) return s.tutor;
+            const ts = [...new Set(groupsOfStudent(s.id).map(g => g.tutor).filter(Boolean))];
+            return ts.length === 1 ? ts[0] : null;
         }
 
         function scheduleFilterValues() {
@@ -1077,9 +1092,9 @@
         // 單堂是否落在篩選範圍（批量確認用：選某學生只算該生自己的課；選小組班算該組全體）
         function lessonMatchesScheduleFilters(l, f) {
             f = f || scheduleFilterValues();
-            if (f.tutor !== 'ALL' && l.tutor !== f.tutor) return false;
-            if (f.student === 'ALL') return true;
-            return f.student.startsWith('G:') ? l.groupId === f.student.slice(2) : l.studentId === f.student;
+            // 選了某學生／小組班：導師下拉只是用來縮小學生下拉，不再限制課堂（該生在別的導師的小組課也要看到）
+            if (f.student !== 'ALL') return f.student.startsWith('G:') ? l.groupId === f.student.slice(2) : l.studentId === f.student;
+            return f.tutor === 'ALL' || l.tutor === f.tutor;
         }
 
         // 課節是否落在篩選範圍（清單／月曆用：選某學生時整節小組卡保留，看得到同組其他成員）
@@ -1105,7 +1120,17 @@
             return parts.join('、');
         }
 
-        function onScheduleFilterChange() {
+        // changed='tutor'：學生下拉重建成該導師名下的（原選的學生不在名下就回到「所有學生」）；
+        // changed='student'：導師下拉自動跳到該學生／小組班的導師，學生下拉隨之重建；不帶參數＝只重繪
+        function onScheduleFilterChange(changed) {
+            const tSel = document.getElementById('schedTutorFilter'), sSel = document.getElementById('schedStudentFilter');
+            if (changed === 'student' && tSel && sSel) {
+                const t = scheduleFilterTutorOf(sSel.value);
+                if (t && allTutorNames().indexOf(t) !== -1 && tSel.value !== t) tSel.value = t;
+                rebuildScheduleFilters();
+            } else if (changed === 'tutor') {
+                rebuildScheduleFilters();
+            }
             renderMasterScheduleList();
             renderMasterCalendarView();
             updateBatchConfirmBtn();
@@ -1658,7 +1683,11 @@
                     <div class="bg-slate-800 text-white text-center py-1.5 text-xs font-bold">六 (Sat)</div>
             `;
 
-            for (let i = 0; i < firstDayIndex; i++) gridHtml += `<div class="bg-slate-50 min-h-[100px]"></div>`;
+            // 一週一列（7 格）：選了某學生／小組班時，該生整週沒課的列不畫（例如月初第一週還沒開課）
+            const onlyOne = scheduleFilterValues().student !== 'ALL';
+            const rows = [[]];
+            const pushCell = (html, has) => { if (rows[rows.length - 1].length === 7) rows.push([]); rows[rows.length - 1].push({ html, has }); };
+            for (let i = 0; i < firstDayIndex; i++) pushCell(`<div class="bg-slate-50 min-h-[100px]"></div>`, false);
 
             for (let day = 1; day <= totalDaysInMonth; day++) {
                 const dateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -1666,7 +1695,7 @@
 
                 const isToday = dateString === todayStr;
                 const dayCls = isToday ? 'cal-day-today' : (dateString < todayStr ? 'cal-day-past' : 'bg-white');
-                gridHtml += `
+                let dayHtml = `
                     <div class="${dayCls} p-1.5 min-h-[100px] flex flex-col space-y-1">
                         <div class="text-[11px] font-bold ${isToday ? 'text-blue-700' : 'text-slate-500'}">${day}${isToday ? '<span class="ml-1 font-normal text-[10px]">今天</span>' : ''}</div>
                 `;
@@ -1685,7 +1714,7 @@
 
                 slots.forEach(slot => {
                     if (slot.cells.length === 1) {
-                        gridHtml += calPillHtml(slot.cells[0], cellHasClash(slot.cells[0]), todayStr, false);
+                        dayHtml += calPillHtml(slot.cells[0], cellHasClash(slot.cells[0]), todayStr, false);
                         return;
                     }
                     const anyClash = slot.cells.some(cellHasClash);
@@ -1693,21 +1722,26 @@
                     const chip = anyClash
                         ? '<span class="cal-slot-chip cal-slot-chip-clash" title="同一導師在同一時段有重疊的課">⚠️ 撞堂</span>'
                         : (tutorCount > 1 ? `<span class="cal-slot-chip" title="不同導師在同一時段各自上課，並不衝突">並行 (${slot.cells.length})</span>` : '');
-                    gridHtml += `
+                    dayHtml += `
                         <div class="cal-slot">
                             <div class="cal-slot-head">${slot.time}${chip}</div>
                             <div class="cal-slot-body">${slot.cells.map(c => calPillHtml(c, cellHasClash(c), todayStr, true)).join('')}</div>
                         </div>`;
                 });
 
-                gridHtml += `</div>`;
+                dayHtml += `</div>`;
+                pushCell(dayHtml, cells.length > 0);
             }
 
             const totalCells = firstDayIndex + totalDaysInMonth;
             const remainingCells = (7 - (totalCells % 7)) % 7;
-            for (let i = 0; i < remainingCells; i++) gridHtml += `<div class="bg-slate-50 min-h-[100px]"></div>`;
+            for (let i = 0; i < remainingCells; i++) pushCell(`<div class="bg-slate-50 min-h-[100px]"></div>`, false);
 
+            const shownRows = onlyOne ? rows.filter(r => r.some(c => c.has)) : rows;
+            gridHtml += shownRows.map(r => r.map(c => c.html).join('')).join('');
             gridHtml += `</div>`;
+            if (onlyOne && !shownRows.length) gridHtml += `<div class="text-xs text-slate-400 mt-2">所選學生／小組本月沒有課堂。</div>`;
+            else if (rows.length !== shownRows.length) gridHtml += `<div class="text-[11px] text-slate-400 mt-1">已略過 ${rows.length - shownRows.length} 個所選學生整週沒課的星期。</div>`;
             calContainer.innerHTML = gridHtml;
         }
 

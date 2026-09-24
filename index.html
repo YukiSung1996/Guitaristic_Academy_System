@@ -269,10 +269,10 @@
 
                     <!-- 篩選列：導師／學生（小組班）／週次——清單與月曆同時套用；批量確認出席亦以此範圍為準。下拉首項即標籤，不另加文字 -->
                     <div id="weekSelectContainer" class="flex flex-wrap items-center gap-1.5 text-xs">
-                        <select id="schedTutorFilter" onchange="onScheduleFilterChange()" title="按導師篩選" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
+                        <select id="schedTutorFilter" onchange="onScheduleFilterChange('tutor')" title="按導師篩選：學生下拉隨之只列該導師名下的學生與小組班" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
                             <option value="ALL">所有導師</option>
                         </select>
-                        <select id="schedStudentFilter" onchange="onScheduleFilterChange()" title="按學生或小組班篩選" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium max-w-[11rem]">
+                        <select id="schedStudentFilter" onchange="onScheduleFilterChange('student')" title="按學生或小組班篩選：導師下拉自動跟隨；選了學生後看的是該生全部課堂（含別的導師的小組課），月曆略過該生整週沒課的星期" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium max-w-[11rem]">
                             <option value="ALL">所有學生</option>
                         </select>
                         <select id="weekSelect" onchange="onWeekSelectChange()" title="按週次篩選（清單）" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
