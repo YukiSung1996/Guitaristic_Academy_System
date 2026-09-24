@@ -405,7 +405,7 @@
                     <input type="checkbox" class="batch-group-chk accent-indigo-600 rounded" value="${g.id}" id="batch_grp_${g.id}" checked>
                     <label for="batch_grp_${g.id}" class="cursor-pointer font-medium truncate flex-1" title="${memberNames.join('、')}">
                         <span class="font-bold text-indigo-800"><i class="fa-solid fa-user-group"></i> ${g.name}</span>
-                        <span class="text-indigo-600 font-semibold">×${(g.memberIds || []).length}（${getWeekdayName(g.weekday)} ${g.time}）</span>
+                        <span class="text-indigo-600 font-semibold">(${(g.memberIds || []).length} 人)（${getWeekdayName(g.weekday)} ${g.time}）</span>
                     </label>
                     <button onclick="openGroupModal('${g.id}')" class="shrink-0 px-1.5 py-1 text-slate-400 hover:text-indigo-700 hover:bg-indigo-100 rounded transition" title="編輯小組：成員／時段／導師">
                         <i class="fa-solid fa-pen"></i>
@@ -994,7 +994,7 @@
             document.getElementById('lessonModalTitle').innerHTML =
                 `<i class="fa-solid fa-calendar-check text-sky-500 mr-1"></i>${first.date}（${getWeekdayName(lessonStart(first).getDay())}）${first.time} · ` +
                 (cell.isGroup
-                    ? `${first.groupName || first.program} 小組課 ×${cell.lessons.length}`
+                    ? `${first.groupName || first.program} 小組課 (${cell.lessons.length})`
                     : `${first.studentName}（${first.studentId}）${Number(first.totalRegular) ? ` (${first.lessonNum}/${first.totalRegular})` : ''}`);
             document.getElementById('lessonModalBody').innerHTML = cell.isGroup
                 ? renderGroupCard(cell, clashIds)
@@ -1315,7 +1315,7 @@
                 <div class="${bgClass} p-3 rounded-r-xl border-y border-r border-slate-200 text-xs space-y-1">
                     <div class="flex flex-col md:flex-row md:items-center justify-between gap-2">
                         <div class="flex items-center gap-1.5 flex-wrap">
-                            <span class="bg-indigo-600 text-white font-bold px-1.5 py-0.5 rounded text-[10px]"><i class="fa-solid fa-user-group"></i> 小組課 ×${n}</span>
+                            <span class="bg-indigo-600 text-white font-bold px-1.5 py-0.5 rounded text-[10px]"><i class="fa-solid fa-user-group"></i> 小組課 (${n})</span>
                             ${anyClash ? '<span class="bg-amber-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">⚠️ 撞堂重疊</span>' : ''}
                             <span class="bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-semibold text-[10px]">${first.tutor}</span>
                             <strong class="text-slate-800">${dateHeading(first)}</strong>
@@ -1423,8 +1423,8 @@
             if (cell.isGroup) {
                 const names = cell.lessons.map(l => l.studentName).join('、');
                 return `
-                        <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.program} 小組 ×${cell.lessons.length}（${lesson.tutor}）${clashNote}：${names}">
-                            ${timeHtml}${lessonPillMark(lesson)}👥 ${lesson.program} ×${cell.lessons.length}
+                        <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.program} 小組 (${cell.lessons.length})（${lesson.tutor}）${clashNote}：${names}">
+                            ${timeHtml}${lessonPillMark(lesson)}👥 ${lesson.program} (${cell.lessons.length})
                         </div>`;
             }
             return `
@@ -1488,7 +1488,7 @@
                         <div class="text-[11px] font-bold ${isToday ? 'text-blue-700' : 'text-slate-500'}">${day}${isToday ? '<span class="ml-1 font-normal text-[10px]">今天</span>' : ''}</div>
                 `;
 
-                // 小組課一個時段一個色塊（×人數，成員列在 title）
+                // 小組課一個時段一個色塊（人數在括號，成員列在 title）
                 const cells = filterCellsByScheduleFilters(GACSchedule.groupByCell(dayLessons));
 
                 // 同一開始時間的課併成一格「時段」：時間只印一次，下面掛該時段的所有課。
@@ -1509,7 +1509,7 @@
                     const tutorCount = new Set(slot.cells.map(c => c.lessons[0].tutor)).size;
                     const chip = anyClash
                         ? '<span class="cal-slot-chip cal-slot-chip-clash" title="同一導師在同一時段有重疊的課">⚠️ 撞堂</span>'
-                        : (tutorCount > 1 ? `<span class="cal-slot-chip" title="不同導師在同一時段各自上課，並不衝突">並行 ×${slot.cells.length}</span>` : '');
+                        : (tutorCount > 1 ? `<span class="cal-slot-chip" title="不同導師在同一時段各自上課，並不衝突">並行 (${slot.cells.length})</span>` : '');
                     gridHtml += `
                         <div class="cal-slot">
                             <div class="cal-slot-head">${slot.time}${chip}</div>
@@ -2089,7 +2089,7 @@
                 // 報讀項目：個別課一行＋每個所屬小組一行（一人可同時多項）
                 const enrollments = [];
                 if (hasSlot) enrollments.push(`<div><span class="bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded text-[10px] font-bold">個別</span> ${student.program} · ${student.level}（${student.type}）逢 ${getWeekdayName(student.weekday)} ${student.time} · ${student.tutor}</div>`);
-                myGroups.forEach(g => enrollments.push(`<div><span class="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded text-[10px] font-bold"><i class="fa-solid fa-user-group"></i> 小組</span> <b>${g.name}</b>（×${(g.memberIds || []).length}）逢 ${getWeekdayName(g.weekday)} ${g.time} · ${g.tutor}</div>`));
+                myGroups.forEach(g => enrollments.push(`<div><span class="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded text-[10px] font-bold"><i class="fa-solid fa-user-group"></i> 小組</span> <b>${g.name}</b>（${(g.memberIds || []).length} 人）逢 ${getWeekdayName(g.weekday)} ${g.time} · ${g.tutor}</div>`));
                 if (!enrollments.length) enrollments.push('<span class="text-amber-600">尚未報讀任何課程</span>');
 
                 const tr = document.createElement('tr');
