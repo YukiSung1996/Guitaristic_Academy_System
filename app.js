@@ -1451,22 +1451,33 @@
         }
 
         // 一個色塊。hideTime＝同時段已在上方印過時間，這裡省掉讓名字有位置顯示
+        // 月曆色塊的 (2/5)：本月第 2 節、共 5 節常規課（小組成員同一日編號相同）。補堂／加課不編號，不顯示
+        function calSeqHtml(lesson) {
+            const n = Number(lesson.lessonNum) || 0, total = Number(lesson.totalRegular) || 0;
+            return n && total ? `<span class="cal-seq">(${n}/${total})</span>` : '';
+        }
+        function calSeqTitle(lesson) {
+            const n = Number(lesson.lessonNum) || 0, total = Number(lesson.totalRegular) || 0;
+            return n && total ? ` · 本月第 ${n}/${total} 節` : '';
+        }
+
         function calPillHtml(cell, isClash, todayStr, hideTime) {
             const lesson = cell.lessons[0];
             const cls = (lessonPillClass(lesson, isClash) + ' ' + lessonPillState(lesson, todayStr)).trim();
             const timeHtml = hideTime ? '' : `<strong>${lesson.time}</strong> `;
             const clashNote = isClash ? ' · ⚠️ 與同一導師的另一堂重疊' : '';
-            const base = `onclick="openLessonModal('${jsStrAttr(cell.key)}')" class="${cls} text-[10px] p-1 rounded leading-tight truncate cursor-pointer hover:ring-2 hover:ring-sky-400"`;
+            // 名字放可截斷的 span，編號 (n/總) 放右邊固定露出——格子窄時截的是名字，不是編號
+            const base = `onclick="openLessonModal('${jsStrAttr(cell.key)}')" class="${cls} cal-pill text-[10px] p-1 rounded leading-tight cursor-pointer hover:ring-2 hover:ring-sky-400"`;
             if (cell.isGroup) {
                 const names = cell.lessons.map(l => l.studentName).join('、');
                 return `
-                        <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.program} 小組 (${cell.lessons.length})（${lesson.tutor}）${clashNote}：${names}">
-                            ${timeHtml}${lessonPillMark(lesson)}👥 ${lesson.program} (${cell.lessons.length})
+                        <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.program} 小組 (${cell.lessons.length})（${lesson.tutor}）${calSeqTitle(lesson)}${clashNote}：${names}">
+                            <span class="cal-pill-text">${timeHtml}${lessonPillMark(lesson)}👥 ${lesson.program} (${cell.lessons.length})</span>${calSeqHtml(lesson)}
                         </div>`;
             }
             return `
-                        <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.studentName}（${lesson.tutor}）· ${lessonStatusText(lesson)}${clashNote}${lesson.phone ? ' | ' + lesson.phone : ''}">
-                            ${timeHtml}${lessonPillMark(lesson)}${lesson.isMakeup ? 'MU ' : ''}${lesson.studentName}
+                        <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.studentName}（${lesson.tutor}）· ${lessonStatusText(lesson)}${calSeqTitle(lesson)}${clashNote}${lesson.phone ? ' | ' + lesson.phone : ''}">
+                            <span class="cal-pill-text">${timeHtml}${lessonPillMark(lesson)}${lesson.isMakeup ? 'MU ' : ''}${lesson.studentName}</span>${calSeqHtml(lesson)}
                         </div>`;
         }
 

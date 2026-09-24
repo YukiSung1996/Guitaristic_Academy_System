@@ -24,6 +24,11 @@
         .cal-mark-ns { color: #7c3aed; }
         .cal-mark-leave { font-size: 9px; font-weight: 600; padding: 0 3px; border-radius: 3px; background-color: #e2e8f0; color: #475569; }
 
+        /* 色塊：名字可截斷，右邊 (n/總) 編號固定露出 */
+        .cal-pill { display: flex; align-items: baseline; gap: 3px; min-width: 0; }
+        .cal-pill-text { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .cal-seq { flex: 0 0 auto; font-size: 9px; font-weight: 600; opacity: .75; }
+
         /* 同一時段的課併成一格：時間只印一次，下面掛該時段的所有課 */
         .cal-slot { border-left: 2px solid #e2e8f0; padding-left: 3px; }
         .cal-slot-head { display: flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 700; color: #64748b; line-height: 1.5; }
