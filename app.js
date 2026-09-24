@@ -95,6 +95,33 @@
 
         // 成功提示用右下角 toast（3.5 秒淡出，不阻斷操作）；只有需要用戶決定或必須看清的內容才用 alert/confirm
         let lastToast = '';
+
+        // ===== 配對色：補堂與它補的那一堂同一個顏色（每對一色，月曆上好找）=====
+        // 調色盤＝R 的 RColorBrewer Set3（12 色）；配對按原課時間先後依序取色，用完循環。
+        // 鏈式補堂（補堂再請假再補）整條鏈同色——originLessonId 一律指向最初那堂常規課；小組整組一色（按原課課節）。
+        const PAIR_PALETTE = ['#8DD3C7', '#FFFFB3', '#BEBADA', '#FB8072', '#80B1D3', '#FDB462', '#B3DE69', '#FCCDE5', '#D9D9D9', '#BC80BD', '#CCEBC5', '#FFED6F'];
+        let pairColorCache = null;   // renderAll 開頭清掉，第一次用到時重算
+        function buildPairColors(lessons) {
+            const byId = new Map(lessons.map(l => [l.lessonId, l]));
+            const roots = new Map();
+            lessons.forEach(l => {
+                if (!l.isMakeup || !l.originLessonId) return;
+                const o = byId.get(l.originLessonId);
+                if (!o) return;
+                const k = GACSchedule.cellKey(o);
+                if (!roots.has(k)) roots.set(k, { key: k, sort: o.date + ' ' + o.time + ' ' + k });
+            });
+            const byOrigin = new Map();
+            Array.from(roots.values()).sort((a, b) => a.sort.localeCompare(b.sort))
+                .forEach((r, i) => byOrigin.set(r.key, PAIR_PALETTE[i % PAIR_PALETTE.length]));
+            return { byOrigin, byId };
+        }
+        // 這堂的配對色：補堂 → 其原課的課節；有補堂的原課 → 自己的課節；其他 → null
+        function pairColorOf(lesson) {
+            if (!pairColorCache) pairColorCache = buildPairColors(GACLessonState.allLessons(lessonsByMonth));
+            const root = lesson.isMakeup ? (lesson.originLessonId ? pairColorCache.byId.get(lesson.originLessonId) : null) : lesson;
+            return root ? (pairColorCache.byOrigin.get(GACSchedule.cellKey(root)) || null) : null;
+        }
         // ms：顯示多久（預設 3.5 秒）；跳去 Calendar 的操作提示用長一點，切回來還看得到
         function showToast(msg, ms) {
             lastToast = String(msg);
@@ -960,6 +987,7 @@
         }
 
         function renderAll() {
+            pairColorCache = null;   // 課表可能變了，配對色重算
             rebuildScheduleFilters();
             updateDashboardKPIs();
             renderGroupWarnings();
@@ -1235,6 +1263,8 @@
         // 課堂卡片的三塊零件（一對一卡片與小組卡成員列共用）：狀態徽章／展開框（請假假別、補堂日期、手動模式）／操作按鈕
         function lessonBadges(lesson, isClash) {
             const badges = [];
+            const pc = pairColorOf(lesson);
+            if (pc) badges.push(`<span class="pair-swatch" style="background-color:${pc}" title="配對色：這堂與它的${lesson.isMakeup ? '原課' : '補堂'}在月曆上同一個顏色"></span>`);
             if (isClash) badges.push(`<span class="bg-amber-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">⚠️ 撞堂重疊</span>`);
             if (lesson.isMakeup) badges.push(`<span class="bg-emerald-600 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">MU 補堂</span>`);
             if (lesson.status === 'ATTENDED') badges.push(`<span class="bg-emerald-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">✓ 已上課</span>`);
@@ -1547,17 +1577,21 @@
             const cls = (lessonPillClass(lesson, isClash) + ' ' + lessonPillState(lesson, todayStr)).trim();
             const timeHtml = hideTime ? '' : `<strong>${lesson.time}</strong> `;
             const clashNote = isClash ? ' · ⚠️ 與同一導師的另一堂重疊' : '';
+            // 配對色：補堂與其原課同色作底（inline 蓋過導師底色與 cal-pill-done 的透明底；導師色仍在左邊框）
+            const pc = pairColorOf(lesson);
+            const pairStyle = pc ? ` style="background-color:${pc};color:#1e293b"` : '';
+            const pairNote = pc ? (lesson.isMakeup ? ' · 與原課同色' : ' · 與補堂同色') : '';
             // 名字放可截斷的 span，編號 (n/總) 放右邊固定露出——格子窄時截的是名字，不是編號
-            const base = `onclick="openLessonModal('${jsStrAttr(cell.key)}')" class="${cls} cal-pill text-[10px] p-1 rounded leading-tight cursor-pointer hover:ring-2 hover:ring-sky-400"`;
+            const base = `onclick="openLessonModal('${jsStrAttr(cell.key)}')" class="${cls} cal-pill text-[10px] p-1 rounded leading-tight cursor-pointer hover:ring-2 hover:ring-sky-400"${pairStyle}`;
             if (cell.isGroup) {
                 const names = cell.lessons.map(l => l.studentName).join('、');
                 return `
-                        <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.program} 小組 (${cell.lessons.length})（${lesson.tutor}）${calSeqTitle(lesson)}${clashNote}：${names}">
+                        <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.program} 小組 (${cell.lessons.length})（${lesson.tutor}）${calSeqTitle(lesson)}${pairNote}${clashNote}：${names}">
                             <span class="cal-pill-text">${timeHtml}${lessonPillMark(lesson)}${calMuHtml(lesson)}👥 ${lesson.program} (${cell.lessons.length})</span>${calSeqHtml(lesson)}
                         </div>`;
             }
             return `
-                        <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.studentName}（${lesson.tutor}）· ${lessonStatusText(lesson)}${calSeqTitle(lesson)}${clashNote}${lesson.phone ? ' | ' + lesson.phone : ''}">
+                        <div ${base} title="點擊開啟操作 — ${lesson.time} ${lesson.studentName}（${lesson.tutor}）· ${lessonStatusText(lesson)}${calSeqTitle(lesson)}${pairNote}${clashNote}${lesson.phone ? ' | ' + lesson.phone : ''}">
                             <span class="cal-pill-text">${timeHtml}${lessonPillMark(lesson)}${calMuHtml(lesson)}${lesson.studentName}</span>${calSeqHtml(lesson)}
                         </div>`;
         }
@@ -1594,6 +1628,7 @@
                     <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm cal-tutor-1 cal-pill-overdue"></span>已過期未確認</span>
                     <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm cal-tutor-1 cal-pill-clash"></span>撞堂（同一導師重疊）</span>
                     <span class="flex items-center gap-1"><span class="cal-slot-chip">並行</span>不同導師同時段（正常）</span>
+                    <span class="flex items-center gap-1" title="每對一色（12 色循環）；鏈式補堂整條鏈同色"><span class="inline-block w-3 h-3 rounded-sm" style="background-color:#8DD3C7"></span><span class="inline-block w-3 h-3 rounded-sm" style="background-color:#FB8072"></span>補堂與其原課同色</span>
                     <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm border-2 border-blue-500"></span>今天</span>
                 </div>
                 <div class="grid grid-cols-7 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden min-w-[700px]">
