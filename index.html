@@ -635,7 +635,7 @@
                     </label>
                     <!-- 說明獨立在 label 之外：點文字不會勾到開關 -->
                     <div class="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5">
-                        <div><b class="text-slate-700">關（唯讀）</b>：只申請唯讀權限，同步只把 Calendar 上的改動拉回本地——拖動改期、標題末尾加 <code>L</code>／<code>NS</code> 標請假缺席、手動新建的事件可收編為補堂；不推送、不刪除，清場只清本地。不用 OAuth 也行：總課表「匯入 ICS」上傳日曆匯出檔即可比對。系統裡排的補堂／加課要放進 Calendar，按課卡上的「加進 GCal」，會開已填好的建立頁，選日曆、按儲存即可。</div>
+                        <div><b class="text-slate-700">關（唯讀）</b>：只申請唯讀權限，同步只把 Calendar 上的改動拉回本地——拖動改期、在事件說明欄的「狀態：」填 <code>L</code>／<code>NS</code>（或標題末尾加）標請假缺席、手動新建的事件可收編為補堂；不推送、不刪除，清場只清本地。不用 OAuth 也行：總課表「匯入 ICS」上傳日曆匯出檔即可比對。系統裡排的補堂／加課要放進 Calendar，按課卡上的「加進 GCal」，會開已填好的建立頁，選日曆、按儲存即可。</div>
                         <div><b class="text-slate-700">開</b>：同步可推送事件、清殘留，清場會刪 GCal 事件（申請 calendar.events 權限）。推送只寫「預設日曆 ID」那一本，多位導師各有日曆時不建議開。</div>
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -75,6 +75,36 @@ test('parseStatusCode：location 精確碼優先；summary 詞元邊界；MU/無
     assert.deepStrictEqual(G.parseStatusCode({ summary: 'S001 Student 001 TL' }), { status: 'LEAVE', leaveType: 'TL' });
     assert.strictEqual(G.parseStatusCode({ summary: 'SLOW practice' }), null, 'SLOW 不是 SL 詞元');
     assert.strictEqual(G.parseStatusCode({ summary: 'S001 Student 001([1/5] 09/2026)' }), null);
+    // 說明欄「狀態：」一行優先於 location 與 summary；接受小寫、中文、碼後加註；空白／看不懂 → 退回 location
+    assert.deepStrictEqual(G.parseStatusCode({ description: '一對一 · Pop Guitar\n導師：Instructor A\n狀態：NS\n（提示）', location: 'L' }), { status: 'NOSHOW', leaveType: '' }, '說明欄優先');
+    assert.deepStrictEqual(G.parseStatusCode({ description: '狀態：sl' }), { status: 'LEAVE', leaveType: 'SL' }, '小寫也認');
+    assert.deepStrictEqual(G.parseStatusCode({ description: '狀態：導師請假' }), { status: 'LEAVE', leaveType: 'TL' }, '中文');
+    assert.deepStrictEqual(G.parseStatusCode({ description: '狀態：請假（家長早上通知）' }), { status: 'LEAVE', leaveType: 'L' }, '碼後加註');
+    assert.deepStrictEqual(G.parseStatusCode({ description: '狀態: L' }), { status: 'LEAVE', leaveType: 'L' }, '半形冒號');
+    assert.deepStrictEqual(G.parseStatusCode({ description: '狀態：\n（提示）', location: 'NS' }), { status: 'NOSHOW', leaveType: '' }, '空白 → 退回 location');
+    assert.strictEqual(G.parseStatusCode({ description: '狀態：補堂' }), null, '補堂只是標記');
+    assert.strictEqual(G.parseStatusCode({ description: '狀態：亂打' }), null, '看不懂當沒填');
+});
+
+test('describeLesson／describeCell：第一行具體課程、導師、狀態：一行、提示；補堂加原課；小組列成員；不含電話電郵', () => {
+    const one = G.describeLesson({ studentId: 'S001', studentName: 'Student 001', classType: '一對一', program: 'Pop Guitar', level: 'Intermediate 中級', tutor: 'Instructor A', status: 'SCHEDULED', phone: '00000000', email: 'x@example.com' });
+    assert.deepStrictEqual(one.split('\n'), ['一對一 · Pop Guitar · Intermediate 中級', '導師：Instructor A', '狀態：', '（請假填 L、病假 SL、導師請假 TL、缺席 NS；系統同步時讀這一行）']);
+    assert.ok(!one.includes('00000000') && !one.includes('example.com'));
+    const mu = G.describeLesson({ studentId: 'S001', classType: '一對一', program: 'Pop Guitar', tutor: 'Instructor A', status: 'SCHEDULED', isMakeup: true, originLessonId: 'S001-20260916-1500' });
+    assert.strictEqual(mu.split('\n')[0], '補堂 · 一對一 · Pop Guitar');
+    assert.strictEqual(mu.split('\n')[2], '狀態：MU');
+    assert.ok(mu.endsWith('↩ 補 2026-09-16 15:00 的請假課'));
+    const leave = G.describeLesson({ classType: '一對一', program: 'Pop Guitar', tutor: 'Instructor A', status: 'LEAVE', leaveType: 'SL' });
+    assert.strictEqual(leave.split('\n')[2], '狀態：SL');
+    const cell = { isGroup: true, lessons: [
+        { studentId: 'S030', studentName: 'Student 030', groupName: '樂理 Grade 5 小組', program: 'Music Theory', tutor: 'Instructor B', status: 'SCHEDULED' },
+        { studentId: 'S031', studentName: 'Student 031', groupName: '樂理 Grade 5 小組', program: 'Music Theory', tutor: 'Instructor B', status: 'SCHEDULED' }
+    ] };
+    const g = G.describeCell(cell).split('\n');
+    assert.deepStrictEqual(g.slice(0, 5), ['小組課 · 樂理 Grade 5 小組', '導師：Instructor B', '狀態：', '（請假填 L、病假 SL、導師請假 TL、缺席 NS；系統同步時讀這一行）', '成員：']);
+    assert.deepStrictEqual(g.slice(5), ['S030 Student 030', 'S031 Student 031']);
+    // 自己寫出去的說明，自己讀回來：沒填狀態 → null
+    assert.strictEqual(G.parseStatusCode({ description: one }), null);
 });
 
 test('matchStudentPrefix：詞邊界匹配，S0012 不誤中 S001', () => {

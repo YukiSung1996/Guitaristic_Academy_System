@@ -315,10 +315,8 @@
             const stamp = d => `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}T${p2(d.getHours())}${p2(d.getMinutes())}00`;
             let tz = 'Asia/Hong_Kong';
             try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || tz; } catch (e) { /* 舊瀏覽器沒有 Intl */ }
-            // 與推送／匯出 .ics 同一契約：標題 lessonTitle、地點＝狀態碼（補堂 MU）、說明只寫導師，不寫學生聯絡方式
-            let details = 'Guitaristic Academy Lesson';
-            if (lesson.tutor) details += '\n導師：' + lesson.tutor;
-            if (lesson.isMakeup && lesson.originLessonId) details += '\n↩ 補 ' + originDateText(lesson) + ' 的請假課';
+            // 與推送／匯出 .ics 同一契約：標題 lessonTitle、地點＝狀態碼（補堂 MU）、說明用 GACGcal.describeLesson（含「狀態：」一行）
+            const details = GACGcal.describeLesson(lesson);
             const q = [
                 'action=TEMPLATE',
                 'text=' + encodeURIComponent(GACSchedule.lessonTitle(lesson)),
@@ -2385,7 +2383,8 @@
                 leaveType: lesson.leaveType,
                 isMakeup: lesson.isMakeup,
                 uid: `${lesson.lessonId}@guitaristic`,
-                location: getLocationText(lesson)
+                location: getLocationText(lesson),
+                description: GACGcal.describeLesson(lesson)   // 課程／導師／「狀態：」一行；不含學生聯絡方式
             };
         }
 
@@ -2467,10 +2466,12 @@
                 String(d.getHours()).padStart(2, '0') +
                 String(d.getMinutes()).padStart(2, '0') + '00';
 
+            // iCalendar 文字欄位的逃逸：反斜線、分號、逗號，換行寫成 \n
+            const icsText = s => String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+
             events.forEach(ev => {
-                // 只寫導師，不寫學生聯絡方式（與推送 GCal 的 description 一致）
-                let desc = "Guitaristic Academy Lesson";
-                if (ev.tutor) desc += `\\n導師：${ev.tutor}`;
+                // 說明欄與推送 GCal 一致（GACGcal.describeLesson）：課程／導師／「狀態：」，不寫學生聯絡方式
+                const desc = icsText(ev.description || ('導師：' + (ev.tutor || '')));
 
                 // UID 必須存在且確定性：Google 依 UID 查重，重複導入同一檔案不會產生重複事件（P0-2）
                 const uid = ev.uid || `${String(ev.title || 'event').replace(/[^A-Za-z0-9]/g, '')}-${formatICSDate(ev.start)}@guitaristic`;
@@ -2478,7 +2479,7 @@
                 icsContent.push(
                     "BEGIN:VEVENT",
                     `UID:${uid}`,
-                    `SUMMARY:${ev.title}`,
+                    `SUMMARY:${icsText(ev.title)}`,
                     `DTSTART:${formatICSDate(ev.start)}`,
                     `DTEND:${formatICSDate(ev.end)}`,
                     `DESCRIPTION:${desc}`
