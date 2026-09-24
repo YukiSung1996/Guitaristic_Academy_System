@@ -365,6 +365,39 @@
             return `<button onclick="openGcalTemplate('${lesson.lessonId}')" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg font-semibold flex items-center gap-1" title="唯讀模式：開 Google Calendar 已填好的建立事件頁，選日曆、按儲存即可（不需寫入授權）"><i class="fa-brands fa-google"></i> 加進 GCal</button>`;
         }
 
+        // ===== 狀態寫回 Calendar =====
+        // 本地標了請假／缺席（或還原／出席），Calendar 上那個事件的碼還不一樣（gcalCode＝上次同步看到的碼）：
+        // 唯讀：打開該事件的編輯頁，請導師在「狀態：」填上——Google 只支援預填「新建」事件（TEMPLATE），既有事件的編輯頁不能預填，這一步要自己打；
+        // 寫入：開同步面板，「寫回狀態」一項勾選執行即可
+        function gcalLocalCode(lesson) {
+            return lesson.status === 'LEAVE' ? (lesson.leaveType || 'L') : lesson.status === 'NOSHOW' ? 'NS' : '';
+        }
+        function gcalStatusButton(lesson) {
+            if (!appSettings.gcalClientId) return '';
+            const code = gcalLocalCode(lesson), have = lesson.gcalCode || '';
+            if (code === have) return '';
+            if (!gcalReadOnly()) {
+                return `<button onclick="openGcalSync()" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg font-semibold flex items-center gap-1" title="Calendar 上這堂的狀態碼是「${have || '沒填'}」、本地是「${code || '沒有'}」。打開「同步 GCal」面板：不一致的會按設定的「以哪邊為準」列出，勾選執行即可"><i class="fa-brands fa-google"></i> 同步 GCal</button>`;
+            }
+            const label = code ? `在 GCal 填 狀態：${code}` : `在 GCal 清掉 狀態：${have}`;
+            return `<button onclick="openGcalEvent('${lesson.lessonId}')" class="px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded-lg font-semibold flex items-center gap-1" title="唯讀模式：打開 Calendar 上這個事件的編輯頁${lesson.gcalEid ? '' : '（還沒同步過、不知道是哪個事件 → 打開那一天，請自己找）'}；在說明欄「狀態：」${code ? '填 ' + code : '清空'}後儲存，下次同步就一致。Google 不支援預填既有事件，這一步要自己打"><i class="fa-brands fa-google"></i> ${label}</button>`;
+        }
+        // Calendar 上這堂事件的網址：同步時記下的 eid → 該事件的編輯頁；沒有 → 那一天的日檢視
+        function gcalEventUrl(lesson) {
+            if (lesson.gcalEid) return 'https://calendar.google.com/calendar/r/eventedit/' + encodeURIComponent(lesson.gcalEid);
+            const [y, m, d] = String(lesson.date).split('-').map(Number);
+            return `https://calendar.google.com/calendar/r/day/${y}/${m}/${d}`;
+        }
+        function openGcalEvent(lessonId) {
+            const f = GACLessonState.findLesson(lessonsByMonth, lessonId);
+            if (!f) return;
+            const l = f.lesson, code = gcalLocalCode(l);
+            window.open(gcalEventUrl(l), '_blank', 'noopener');
+            showToast(l.gcalEid
+                ? `已打開 Calendar 上該事件：說明欄「狀態：」${code ? '填 ' + code : '清空'}，儲存後下次同步即一致`
+                : `已打開 Calendar 那一天：找到 ${l.studentName} 的事件，說明欄「狀態：」${code ? '填 ' + code : '清空'}`);
+        }
+
         // 改期彈窗的 Calendar 提示：寫入模式同步會改原本那個事件；唯讀模式請導師自己在 Calendar 拖過去
         function gcalMoveNote() {
             return gcalReadOnly()
@@ -1287,6 +1320,7 @@
                 }
                 btns.push(`<button onclick="markLessonStatus('${id}','SCHEDULED')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-semibold flex items-center gap-1" title="撤銷狀態，還原為已排課${lesson.status === 'LEAVE' && lesson.makeupLessonId ? '（會詢問是否一併取消補堂）' : ''}"><i class="fa-solid fa-rotate-left"></i> 還原</button>`);
             }
+            btns.push(gcalStatusButton(lesson));
             if (lesson.status === 'LEAVE') {
                 btns.push(`<button onclick="copyLessonMsg('leave', '${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> 複製請假</button>`);
                 btns.push(`<button onclick="openWhatsAppMessage('${id}', 'leave')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填請假訊息（與發送中心同一條目：點開即按設定標記已開啟／詢問／自動已發）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>${lessonSendBadge(id, 'leave')}`);
@@ -1744,12 +1778,23 @@
                     extra = `\n\n注意：同組 ${sibs.map(s => s.studentName).join('、')} 的補堂仍保留在此時段，取消後小組將不一致（總表頂部會出現警告）。`;
                 }
             }
+            // Calendar 上有這堂補堂的事件：唯讀模式系統不會刪 → 取消後打開該事件（沒記 eid 就開那一天）讓人刪；寫入模式下次同步列「殘留」勾選即刪
+            const mk = f && f.lesson;
+            const inCal = !!(mk && (mk.gcalEid || mk.gcalAdded || mk.gcalEventId) && appSettings.gcalClientId);
+            const openUrl = inCal && gcalReadOnly() ? gcalEventUrl(mk) : '';
+            if (inCal) extra += gcalReadOnly()
+                ? '\n\n這堂補堂已在 Google Calendar（唯讀模式不會替你刪）：取消後會打開該事件，請在 Calendar 把它刪掉。'
+                : '\n\nGoogle Calendar 上的事件：下次「同步 GCal」會列在「殘留」，勾選即刪。';
             if (!confirm('確定要取消此補堂？其對應的請假課將回到待補堂池。' + extra)) return;
             pushHistory(`取消補堂：${f ? f.lesson.studentName + ' ' + f.lesson.date : makeupLessonId}`);
             const res = GACLessonState.cancelMakeup(lessonsByMonth, makeupLessonId);
             if (!res.ok) { dropLastHistory(); alert('⚠️ ' + res.error); return; }
             persistLessons();
             renderAll();
+            if (openUrl) {
+                window.open(openUrl, '_blank', 'noopener');
+                showToast(mk.gcalEid ? '已打開 Calendar 上該補堂事件：請在那裡刪除' : `已打開 Calendar 那一天：找到 ${mk.studentName} 的補堂事件並刪除`);
+            }
         }
 
         // 手動模式：跳過狀態機限制、不觸發小組聯動；用於修正誤操作。每次載入預設關閉（防誤觸）。
@@ -1808,6 +1853,7 @@
                 const copyFn = `copyLessonMsg('${type}', `;
                 // 補堂確認：唯讀模式下順手把補堂放進 Calendar（彈窗收到的可能是補堂課本身，也可能是掛著補堂的請假原課）
                 let gcalBtn = '';
+                if (type === 'leave') gcalBtn = gcalStatusButton(l);
                 if (type === 'makeup' || (type === 'move' && l.isMakeup)) {
                     const mu = l.isMakeup ? l : (GACLessonState.findLesson(lessonsByMonth, l.makeupLessonId) || {}).lesson;
                     if (mu) gcalBtn = gcalAddButton(mu);
@@ -3874,6 +3920,7 @@
             document.getElementById('setGcalClientId').value = appSettings.gcalClientId || '';
             document.getElementById('setGcalCalendarId').value = appSettings.gcalCalendarId || 'primary';
             document.getElementById('setGcalWrite').checked = appSettings.gcalWrite !== false;
+            document.getElementById('setGcalConflict').value = appSettings.gcalConflict === 'local' ? 'local' : 'gcal';
             document.getElementById('setFpsId').value = appSettings.fpsId || '';
             document.getElementById('setInfoUrl').value = appSettings.infoUrl || '';
             document.getElementById('setFeeNotice').value = appSettings.feeNotice || '';
@@ -3930,6 +3977,7 @@
             appSettings.gcalClientId = document.getElementById('setGcalClientId').value.trim();
             appSettings.gcalCalendarId = GACGcal.normalizeCalendarId(document.getElementById('setGcalCalendarId').value) || 'primary';
             appSettings.gcalWrite = !!document.getElementById('setGcalWrite').checked;
+            appSettings.gcalConflict = document.getElementById('setGcalConflict').value === 'local' ? 'local' : 'gcal';
             appSettings.fpsId = document.getElementById('setFpsId').value.trim();
             appSettings.infoUrl = document.getElementById('setInfoUrl').value.trim();
             appSettings.feeNotice = document.getElementById('setFeeNotice').value.trim();

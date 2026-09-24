@@ -648,6 +648,18 @@
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1">兩邊都改了時以哪邊為準</label>
+                            <select id="setGcalConflict" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white">
+                                <option value="gcal">Google Calendar 為準（預設）</option>
+                                <option value="local">本系統為準</option>
+                            </select>
+                        </div>
+                        <div class="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-xl p-3">
+                            只管「兩邊都有資訊、又不一樣」：同一堂本地改了時間、Calendar 也被拖到第三個時間；或本地標了請假 L、Calendar 填的是病假 SL。<b>只有一邊改了的一律跟那一邊</b>——Calendar 拖了時間本地就跟；本地標了請假而 Calendar 沒填，寫入模式同步會寫回，唯讀模式列出來請你到 Calendar 填。
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
                             <label class="block text-xs font-bold text-slate-600 mb-1">Google OAuth Client ID</label>
                             <input type="text" id="setGcalClientId" placeholder="xxxx.apps.googleusercontent.com" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
                         </div>
