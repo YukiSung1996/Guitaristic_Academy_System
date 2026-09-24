@@ -3546,7 +3546,7 @@
             if (!e) return;
             const phone = getWhatsAppPhone(sendEntryPhone(e));
             if (!phone) { alert('此學生沒有可用的 WhatsApp 電話號碼。'); return; }
-            window.open(`https://web.whatsapp.com/send?phone=${phone}`, '_blank', 'noopener');
+            window.open(`https://wa.me/${phone}`, '_blank', 'noopener');
         }
 
         function sendWhatsApp(key) {
@@ -3554,7 +3554,7 @@
             if (!e) return;
             const phone = getWhatsAppPhone(sendEntryPhone(e));
             if (!phone) { alert('此學生沒有可用的 WhatsApp 電話號碼。'); return; }
-            const url = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(sendlogMsgFor(e))}`;
+            const url = `https://wa.me/${phone}?text=${encodeURIComponent(sendlogMsgFor(e))}`;
             window.open(url, '_blank', 'noopener');
             // 瀏覽器無法得知訊息在 WhatsApp 裡是否真的送出（跨域），「點開→已發送」的對應由設定決定：
             //   confirm（預設）＝標記已開啟＋切回頁面時詢問；badge＝只標記；auto＝點開即移已發送（可移回撤銷）
@@ -4118,7 +4118,7 @@
             }
 
             const message = lessonMsgByType(messageType, lesson);
-            const whatsappUrl = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`;
+            const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
             window.open(whatsappUrl, '_blank', 'noopener');
         }
 
