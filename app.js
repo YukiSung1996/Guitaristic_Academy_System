@@ -2370,6 +2370,18 @@
         }
 
         // lesson → 匯出用事件（Date 在此重建；UID 用 lessonId 保證導入查重）
+        // 課節 → 匯出事件：一對一照 lessonToExportEvent；小組同時段一個事件（標題／說明／地點碼與推送同一契約），
+        // UID＝課節 key，Google 匯入後同步靠 iCalUID 認回（GACGcal.eventCellKey）
+        function cellToExportEvent(cell) {
+            const f = cell.lessons[0];
+            if (!cell.isGroup) return lessonToExportEvent(f);
+            const p = GACGcal.cellToEventPayload(cell, { titleFn: GACSchedule.lessonTitle });
+            return {
+                title: p.summary, tutor: f.tutor, start: lessonStart(f), end: lessonEnd(f),
+                uid: GACGcal.icsUidForCellKey(cell.key), location: p.location, description: p.description
+            };
+        }
+
         function lessonToExportEvent(lesson) {
             return {
                 title: GACSchedule.lessonTitle(lesson),
@@ -2382,7 +2394,7 @@
                 status: lesson.status,
                 leaveType: lesson.leaveType,
                 isMakeup: lesson.isMakeup,
-                uid: `${lesson.lessonId}@guitaristic`,
+                uid: GACGcal.icsUidForCellKey(lesson.lessonId),   // 一對一課節 key＝lessonId
                 location: getLocationText(lesson),
                 description: GACGcal.describeLesson(lesson)   // 課程／導師／「狀態：」一行；不含學生聯絡方式
             };
@@ -2442,13 +2454,15 @@
             }
             const batches = icsExportBatches(lessons, monthKey, f);
             // 多個檔逐個觸發下載（隔 400ms）；瀏覽器第一次會問「允許下載多個檔案」，按允許即可
+            // 一節一個事件：小組同時段只一個（以前是每位成員一個，5 人小組同一時段會有 5 個重複事件）
+            batches.forEach(b => { b.events = GACSchedule.groupByCell(b.lessons).map(cellToExportEvent); });
             batches.forEach((b, i) => {
-                const go = () => buildICSFile(b.lessons.map(lessonToExportEvent), b.name, b.calName);
+                const go = () => buildICSFile(b.events, b.name, b.calName);
                 if (i === 0) go(); else setTimeout(go, i * 400);
             });
             showToast(batches.length === 1
-                ? `📅 已匯出 ${lessons.length} 堂（${scheduleFilterLabel() || batches[0].tutor}）→ ${batches[0].name}`
-                : `📅 已按導師分成 ${batches.length} 個檔：${batches.map(b => `${b.tutor} ${b.lessons.length} 堂`).join('、')}——各自匯入自己的日曆`);
+                ? `📅 已匯出 ${batches[0].events.length} 個事件（${lessons.length} 堂；${scheduleFilterLabel() || batches[0].tutor}）→ ${batches[0].name}`
+                : `📅 已按導師分成 ${batches.length} 個檔：${batches.map(b => `${b.tutor} ${b.events.length} 個事件`).join('、')}（小組同時段算一個）——各自匯入自己的日曆`);
         }
 
         // Keep the original export function name available for existing links or bookmarks.

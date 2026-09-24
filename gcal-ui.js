@@ -636,7 +636,7 @@ function clearCurrentMonthData() {
             ? '1) Google Calendar：不動（未設定 GCal）\n'
             : '1) Google Calendar：不動（唯讀模式，未授權寫入）。Calendar 上的事件要清請自行到 Google Calendar 刪除\n')
         : `1) Google Calendar：刪除 ${monthKey} 所有由本系統導入（帶標籤）的事件，連同其跨月補堂事件\n` +
-          '   （GCal 垃圾桶可還原；你手動建立的事件絕不刪；匯入 .ics 建立的事件沒有標籤，也不會刪）\n';
+          '   （GCal 垃圾桶可還原；本系統導出的 .ics 匯入的事件也認得、一併刪；你手動建立的事件絕不刪）\n';
     if (!confirm(`🧹 清空本月（${monthKey}）——將執行：\n` + gcalStep +
         `2) 本地：刪除 ${monthKey} 全部 ${count} 堂課（含已出席／請假，級聯刪除掛連的跨月補堂）——不可還原！\n` +
         `3) 發送中心：清掉歸屬 ${monthKey} 的全部條目（含已發送）\n\n` +

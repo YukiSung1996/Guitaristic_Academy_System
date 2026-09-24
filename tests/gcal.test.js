@@ -107,6 +107,20 @@ test('describeLesson／describeCell：第一行具體課程、導師、狀態：
     assert.strictEqual(G.parseStatusCode({ description: one }), null);
 });
 
+test('導出 .ics 的 UID ↔ 課節 key：一對一與小組都能從 iCalUID 認回；手動事件 null', () => {
+    const one = 'S001-20260907-2130';
+    const grp = 'G|G01|2026-09-05|15:00';
+    assert.strictEqual(G.icsUidForCellKey(one), 'S001-20260907-2130@guitaristic', '一對一編碼後不變，與舊檔相容');
+    assert.strictEqual(G.eventCellKey({ iCalUID: G.icsUidForCellKey(one) }), one);
+    assert.strictEqual(G.eventCellKey({ iCalUID: G.icsUidForCellKey(grp) }), grp, '小組 key 含 | 與空格也能往返');
+    assert.strictEqual(G.eventCellKey({ uid: G.icsUidForCellKey(one) }), one, '本地匯入 ICS 檔的事件用 uid');
+    assert.deepStrictEqual(G.eventLessonIds({ iCalUID: G.icsUidForCellKey(one) }), [one]);
+    assert.deepStrictEqual(G.eventLessonIds({ iCalUID: G.icsUidForCellKey(grp) }), []);
+    assert.strictEqual(G.eventCellKey({ iCalUID: 'abc123@google.com' }), null, 'Google 自己產生的 iCalUID 不算');
+    assert.strictEqual(G.eventCellKey({ summary: 'S001 手動' }), null);
+    assert.strictEqual(G.eventCellKey({ iCalUID: 'x@google.com', extendedProperties: { private: { gacLessonId: one } } }), one, '標籤優先');
+});
+
 test('normalizeCalendarId：網址／%40／cid= base64 都整理成 API 用的 ID', () => {
     assert.strictEqual(G.normalizeCalendarId('  abc@group.calendar.google.com \n'), 'abc@group.calendar.google.com');
     assert.strictEqual(G.normalizeCalendarId('abc%40group.calendar.google.com'), 'abc@group.calendar.google.com', '%40 → @');
