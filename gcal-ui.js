@@ -103,6 +103,19 @@ function gcalClient(token, calendarId) {
 }
 
 // 要讀取的日曆：有填日曆 ID 的導師各一個（事件標 _tutor，按導師配對）；都沒填 → 預設日曆一個
+// 讀某本日曆失敗時，錯誤要說清楚是哪一本；404 幾乎都是 ID 打錯或授權的 Google 帳號沒被分享這本日曆
+function gcalCalendarErrorText(label, e) {
+    const msg = (e && e.message) || String(e);
+    let hint = '';
+    if (/\b404\b/.test(msg)) {
+        hint = '\n→ 404＝找不到這本日曆。多半是：(1)「導師日曆 ID」打錯——要用 Google 日曆 → 設定 → 該日曆 → 整合日曆 → 日曆 ID（形如 xxx@group.calendar.google.com），不是網址、不是日曆名稱；' +
+            '(2) 授權時登入的 Google 帳號沒有這本日曆的權限——先在 Google 日曆把它分享給該帳號（或用日曆擁有者的帳號授權）。';
+    } else if (/\b403\b/.test(msg)) {
+        hint = '\n→ 403＝沒有權限：這個 Google 帳號看不到或不能改這本日曆，或 Cloud 專案未啟用 Google Calendar API。';
+    }
+    return `讀取${label}失敗：${msg}${hint}`;
+}
+
 function gcalCalendarsToRead() {
     const withId = (typeof tutorsList !== 'undefined' ? tutorsList : []).filter(t => t && t.calendarId);
     if (withId.length) return withId.map(t => ({ tutor: t.name, calendarId: t.calendarId }));
@@ -180,7 +193,9 @@ function openGcalSync() {
             // 導師日曆逐一讀（事件標 _tutor）；都沒填 → 預設日曆
             let chain = Promise.resolve([]);
             gcalCalendarsToRead().forEach(c => {
+                const label = `${c.tutor ? '導師 ' + c.tutor + ' 的' : '預設'}日曆（${c.calendarId}）`;
                 chain = chain.then(acc => gcalClient(token, c.calendarId).listWindow(w.timeMin, w.timeMax)
+                    .catch(e => { throw new Error(gcalCalendarErrorText(label, e)); })
                     .then(evs => acc.concat((evs || []).map(ev => Object.assign(ev, { _tutor: c.tutor })))));
             });
             return chain;
@@ -700,10 +715,33 @@ function offerClearHistoryAfterWipe() {
     return (typeof clearHistorySilently === 'function') ? clearHistorySilently() : 0;
 }
 
-// ===== 強制清空 Calendar（debug 用）=====
-// 與「全部清場」的差別：清場只刪本系統帶標籤的事件並順便清本地；這個把日曆視窗內「所有」事件都刪——
-// 匯入 .ics 建立的、手動建立的、私人約會，一律刪（GCal 垃圾桶 30 天內可還原）。本地資料不動，
-// 只把課堂上的事件 id 連結清空，下次同步會把課當成未推送重新推。只在寫入模式可用；要打 DELETE 才執行。
+// 本地全清（全部清場與強制清空共用）：全部月份的課堂、發送紀錄、高級薪酬的調整項與封存。
+// 學生名單、小組、導師名單、費率與設定保留（拆帳％與深色模式屬設定）。
+function wipeAllLocalData() {
+    lessonsByMonth = {};
+    Object.keys(sendLog).forEach(k => delete sendLog[k]);
+    gacStore.saveLessons(lessonsByMonth);
+    persistSendlog();
+    if (typeof advancedPayrollState !== 'undefined') {
+        advancedPayrollState.summary = null;
+        advancedPayrollState.adjustments = [];
+        advancedPayrollState.archives = [];
+        try {
+            localStorage.removeItem('gac_adjustments');
+            localStorage.removeItem('gac_payroll_archives');
+        } catch (e) { /* 忽略 */ }
+        if (typeof advancedRenderAdjustments === 'function') advancedRenderAdjustments();
+        if (typeof advancedRenderArchives === 'function') advancedRenderArchives();
+        if (typeof advancedRefresh === 'function') advancedRefresh();
+    }
+    rebuildMonthContext();
+    renderAll();
+}
+
+// ===== 強制清空 Calendar＋本地（debug 用）=====
+// 與「全部清場」的差別：清場只刪本系統帶標籤的事件；這個把日曆視窗內「所有」事件都刪——
+// 匯入 .ics 建立的、手動建立的、私人約會，一律刪（GCal 垃圾桶 30 天內可還原）。本地跟全部清場一樣整個清空。
+// 只在寫入模式可用；要打 DELETE 才執行。
 function forceWipeTargets() {
     const seen = {};
     const list = [];
@@ -726,7 +764,8 @@ function forceWipeCalendarEvents() {
     if (!confirm('🧨 強制清空 Calendar（debug 用）——將刪除以下日曆在今天前後一年內的「所有」事件，不論是否由本系統建立：\n' +
         targets.map(t => '• ' + t.label).join('\n') +
         '\n\n匯入 .ics 的、手動建立的、私人約會，全部一起刪（GCal 垃圾桶 30 天內可還原）。\n' +
-        '本地課表、學生、設定一律不動，只解除課堂與事件的連結，下次同步會重新推送。\n\n確定要繼續？')) return;
+        '本地也一併清空：全部月份的課堂、發送紀錄、薪酬調整與封存——不可還原！\n' +
+        resetKeptNote() + '。\n建議先按頂部「全量備份 (JSON)」保存現狀。\n\n確定要繼續？')) return;
     const typed = prompt('最後確認：請輸入 DELETE（大寫）才會執行。');
     if (typed !== 'DELETE') { alert('已取消（未輸入 DELETE）。'); return; }
 
@@ -738,7 +777,9 @@ function forceWipeCalendarEvents() {
             targets.forEach(t => {
                 chain = chain.then(acc => {
                     const client = gcalClient(token, t.id);
-                    return client.listWindow(timeMin, timeMax).then(events => {
+                    return client.listWindow(timeMin, timeMax)
+                        .catch(e => { throw new Error(gcalCalendarErrorText(t.label, e)); })
+                        .then(events => {
                         const items = (events || [])
                             .filter(ev => ev && ev.id && ev.status !== 'cancelled')
                             .map(ev => ({ eventId: ev.id, lessonId: GACGcal.eventCellKey(ev) || '' }));
@@ -751,14 +792,14 @@ function forceWipeCalendarEvents() {
             return chain;
         })
         .then(results => {
-            pushHistory('強制清空 Calendar：解除課堂與事件的連結');
-            let unlinked = 0;
-            GACLessonState.allLessons(lessonsByMonth).forEach(l => { if (l.gcalEventId) { l.gcalEventId = null; unlinked++; } });
-            persistLessons();
-            renderAll();
+            pushHistory('強制清空 Calendar＋本地');
+            wipeAllLocalData();
+            const cleared = offerClearHistoryAfterWipe();
             alert('🧨 強制清空完成：\n' +
                 results.map(r => `• ${r.label}：刪 ${r.deleted} 件` + (r.gone ? `、${r.gone} 件本已不存在` : '') + (r.failed ? `、${r.failed} 件失敗` : '')).join('\n') +
-                `\n\n本地 ${unlinked} 堂課解除了事件連結（課表資料未動）。GCal 垃圾桶 30 天內可還原。`);
+                '\n• 本地課表、發送紀錄、薪酬調整與封存已清空（學生名單、小組、導師與設定保留）' +
+                (cleared ? `\n• 歷史快照已一併清空 ${cleared} 筆（無法撤銷）` : '\n• 歷史快照保留，可按「撤銷」救回本地資料') +
+                '\n\nGCal 垃圾桶 30 天內可還原。現在可以重新「生成」。');
         })
         .catch(err => alert('強制清空失敗：' + ((err && err.message) || err)))
         .then(() => setGcalBusy(false));
@@ -774,27 +815,7 @@ function resetAllScheduleData() {
         resetKeptNote() + '。\n建議先按頂部「全量備份 (JSON)」保存現狀。\n\n確定清場？')) return;
 
     pushHistory('全部清場');
-    const wipeLocal = () => {
-        lessonsByMonth = {};
-        Object.keys(sendLog).forEach(k => delete sendLog[k]);
-        gacStore.saveLessons(lessonsByMonth);
-        persistSendlog();
-        // 高級薪酬一併歸零：匯入的行、調整項、封存糧單（拆帳％與深色模式屬設定，保留）
-        if (typeof advancedPayrollState !== 'undefined') {
-            advancedPayrollState.summary = null;
-            advancedPayrollState.adjustments = [];
-            advancedPayrollState.archives = [];
-            try {
-                localStorage.removeItem('gac_adjustments');
-                localStorage.removeItem('gac_payroll_archives');
-            } catch (e) { /* 忽略 */ }
-            if (typeof advancedRenderAdjustments === 'function') advancedRenderAdjustments();
-            if (typeof advancedRenderArchives === 'function') advancedRenderArchives();
-            if (typeof advancedRefresh === 'function') advancedRefresh();
-        }
-        rebuildMonthContext();
-        renderAll();
-    };
+    const wipeLocal = wipeAllLocalData;
 
     // 未設定 GCal／唯讀模式 → 只清本地（不用走授權）
     if (!appSettings.gcalClientId || !gcalWriteEnabled()) {

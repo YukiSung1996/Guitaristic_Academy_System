@@ -902,14 +902,14 @@
                         <button onclick="resetAllScheduleData()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5">
                             <i class="fa-solid fa-bomb"></i> 全部清場（GCal＋本地）
                         </button>
-                        <button onclick="forceWipeCalendarEvents()" class="px-4 py-2 bg-slate-800 hover:bg-black text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5" title="debug 用：刪掉日曆視窗內「所有」事件，不看標籤（匯入 .ics 的、手動建立的一起刪）；本地不動，只解除課堂與事件的連結。需開啟寫入授權，並輸入 DELETE 確認">
-                            <i class="fa-solid fa-skull-crossbones"></i> 強制清空 Calendar（debug）
+                        <button onclick="forceWipeCalendarEvents()" class="px-4 py-2 bg-slate-800 hover:bg-black text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5" title="debug 用：刪掉日曆視窗內「所有」事件，不看標籤（匯入 .ics 的、手動建立的一起刪），本地也全部清空。需開啟寫入授權，並輸入 DELETE 確認">
+                            <i class="fa-solid fa-skull-crossbones"></i> 強制清空 Calendar＋本地（debug）
                         </button>
                         <button onclick="resetToDefaultData()" class="px-4 py-2 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5" title="恢復預設學生名單（含預設小組班）；課表與發送紀錄不動，可撤銷">
                             <i class="fa-solid fa-user-group"></i> 恢復預設學生名單
                         </button>
                     </div>
-                    <p class="text-[11px] text-slate-500"><b>強制清空 Calendar（debug）</b>：清場只刪本系統帶標籤的事件，用 .ics 匯入或手動建立的它不碰；這個鈕把預設日曆與每本導師日曆在今天前後一年內的<b>所有</b>事件都刪掉（GCal 垃圾桶 30 天內可還原）。本地課表、學生、設定不動，只解除課堂與事件的連結，下次同步會重新推送。要開啟「授權寫入」才可用，按下後要輸入 DELETE。</p>
+                    <p class="text-[11px] text-slate-500"><b>強制清空 Calendar＋本地（debug）</b>：清場只刪本系統帶標籤的事件，用 .ics 匯入或手動建立的它不碰；這個鈕把預設日曆與每本導師日曆在今天前後一年內的<b>所有</b>事件都刪掉（GCal 垃圾桶 30 天內可還原），本地也跟全部清場一樣整個清空（學生名單、小組、導師與設定保留）。要開啟「授權寫入」才可用，按下後要輸入 DELETE。</p>
                 </div>
             </div>
         </section>
