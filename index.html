@@ -3,6 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- 本系統自己的腳本出錯（多半是瀏覽器混用了快取的舊版檔案，或開到別的資料夾的伺服器）：頂部顯示紅條，不讓頁面靜默沒反應。
+         只管同源腳本；CDN（Tailwind／Chart.js／字型）載不到不在此列 -->
+    <script>
+        window.addEventListener('error', function (e) {
+            var src = String((e && e.filename) || '');
+            if (!src || src.indexOf(location.origin) !== 0 || document.getElementById('gacLoadError')) return;
+            var show = function () {
+                var d = document.createElement('div');
+                d.id = 'gacLoadError';
+                d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#b91c1c;color:#fff;padding:10px 16px;font:13px/1.5 system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3)';
+                d.textContent = '⚠️ 頁面載入出錯，按鈕可能沒反應：' + (e.message || '') + '（' + src.slice(location.origin.length) + ' 第 ' + (e.lineno || '?') + ' 行）。' +
+                    '請先強制重新整理（Mac：Cmd+Shift+R；Windows：Ctrl+F5）。仍然出錯：關掉所有伺服器視窗，只用本資料夾的 serve.command／serve.cmd 重開。';
+                document.body.appendChild(d);
+            };
+            if (document.body) show(); else document.addEventListener('DOMContentLoaded', show);
+        });
+    </script>
     <title>Demo Music Academy - 排堂與學生管理系統 v2.1 Pro</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>

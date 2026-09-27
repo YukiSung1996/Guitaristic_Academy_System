@@ -1,0 +1,4 @@
+# 腳本固定 LF：serve.command／serve.py 在 macOS 上要能直接執行（CRLF 會讓 sh／python 報錯）
+*.command text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
