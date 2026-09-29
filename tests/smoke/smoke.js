@@ -474,15 +474,13 @@ getEl('sendTypeFilter').value = 'ALL';
 run('renderSendCenter()');
 check('切回全部類別 → 4 筆', String(getEl('sendTodoCount').textContent) === '4');
 
-// 17) 手改金額不被生成覆蓋（C1）＋ WhatsApp 不自動移欄（C2）＋ 標記已發/手動已發/移回（C3-C5）
+// 17) 手改金額不被生成覆蓋（C1）＋ WhatsApp 點開即已發（C2）＋ 手動已發/移回（C4-C5）
 console.log('[15] 金額手改與雙欄移動');
 run('sendSetAmount("TUITION:S003:2026-09", 9999)');
 run('generateMasterSchedule()');
 check('手改金額後重生成不覆蓋', run('sendLog["TUITION:S003:2026-09"].amount') === 9999 && run('sendLog["TUITION:S003:2026-09"].amountEdited') === true);
 run('sendWhatsApp("TUITION:S003:2026-09")');
-check('開 WhatsApp 不自動移欄（C2）', run('sendLog["TUITION:S003:2026-09"].status') === 'TODO');
-run('sendMarkSent("TUITION:S003:2026-09", "wa_link")');
-check('標記已發 → SENT + method=wa_link + sentAt（C3）', run('sendLog["TUITION:S003:2026-09"].status') === 'SENT'
+check('點開 WhatsApp → 直接 SENT + method=wa_link + sentAt（C2）', run('sendLog["TUITION:S003:2026-09"].status') === 'SENT'
     && run('sendLog["TUITION:S003:2026-09"].method') === 'wa_link' && !!run('sendLog["TUITION:S003:2026-09"].sentAt'));
 run('generateMasterSchedule()');
 check('SENT 條目重生成絕不改動', run('sendLog["TUITION:S003:2026-09"].status') === 'SENT' && run('sendLog["TUITION:S003:2026-09"].amount') === 9999);
@@ -607,38 +605,30 @@ run('renderGcalSyncModal()');
 check('零差異面板顯示完全一致', getEl('gcalSyncBody').innerHTML.includes('完全一致'));
 run('gcalSyncPlan = null');
 
-// 21) WhatsApp「點開→已發送」對應：B+C 安全模式（預設）＋ badge / auto 降級選項
-console.log('[19] WhatsApp 已發對應（B+C 與降級選項）');
-run('pendingWaConfirmKeys.length = 0'); // 清掉步驟 [15] 殘留的詢問佇列
-run('appSettings.waSentMode = "confirm"');
-run('sendWhatsApp("TUITION:S001:2026-09")');
-check('confirm 模式：點開後仍在待發送', run('sendLog["TUITION:S001:2026-09"].status') === 'TODO');
-check('confirm 模式：waOpenedAt 已標記並落盤', !!run('sendLog["TUITION:S001:2026-09"].waOpenedAt')
-    && !!JSON.parse(fakeStorage.getItem('gac_sendlog_v2'))['TUITION:S001:2026-09'].waOpenedAt);
-run('renderSendCenter()');
-check('卡片顯示「已開啟，未標記」徽章', getEl('sendTodoList').innerHTML.includes('已開啟，未標記'));
-check('切回詢問佇列有 1 筆', run('pendingWaConfirmKeys.length') === 1);
-run('handleWaReturnConfirm()');
-check('切回確認（stub 按確定）→ 移到已發送 method=wa_link', run('sendLog["TUITION:S001:2026-09"].status') === 'SENT'
-    && run('sendLog["TUITION:S001:2026-09"].method') === 'wa_link');
-check('佇列清空（幂等，不重複詢問）', run('pendingWaConfirmKeys.length') === 0);
-run('sendMarkUnsent("TUITION:S001:2026-09")');
-check('移回待發清空開啟標記（重發從頭開始）', run('sendLog["TUITION:S001:2026-09"].waOpenedAt') === null);
-run('appSettings.waSentMode = "badge"');
-run('sendWhatsApp("TUITION:S003:2026-09")');
-check('badge 模式：只標記、不入佇列、不移欄', run('sendLog["TUITION:S003:2026-09"].status') === 'TODO'
-    && !!run('sendLog["TUITION:S003:2026-09"].waOpenedAt')
-    && run('pendingWaConfirmKeys.length') === 0);
-run('appSettings.waSentMode = "auto"');
-run('sendWhatsApp("TUITION:S004:2026-09")');
-check('auto 降級：點開即移到已發送', run('sendLog["TUITION:S004:2026-09"].status') === 'SENT'
-    && run('sendLog["TUITION:S004:2026-09"].method') === 'wa_link');
-getEl('setWaSentMode').value = 'auto';
-run('saveSettingsForm()');
-check('設定保存 waSentMode=auto 落盤', JSON.parse(fakeStorage.getItem('gac_settings_v2')).waSentMode === 'auto');
-getEl('setWaSentMode').value = '';
-run('saveSettingsForm()');
-check('設定空值回退 confirm（最安全）', run('appSettings.waSentMode') === 'confirm');
+// 21) WhatsApp：點開即移到已發送，不彈框詢問；「標記已發」仍給複製後自己貼去發的情況
+console.log('[19] WhatsApp 點開即已發');
+{
+    let waConfirms = 0;
+    const keepConfirm = sandbox.confirm;
+    sandbox.confirm = () => { waConfirms++; return true; };
+    run('sendWhatsApp("TUITION:S001:2026-09")');
+    check('點開 WhatsApp → 直接移到已發送（method=wa_link）、落盤、沒有彈框', run('sendLog["TUITION:S001:2026-09"].status') === 'SENT'
+        && run('sendLog["TUITION:S001:2026-09"].method') === 'wa_link' && waConfirms === 0
+        && JSON.parse(fakeStorage.getItem('gac_sendlog_v2'))['TUITION:S001:2026-09'].status === 'SENT');
+    check('可撤銷：留下歷史快照', run('actionHistory[0].description').includes('WhatsApp'));
+    run('renderSendCenter()');
+    check('卡片在已發送欄、寫明經 WhatsApp', getEl('sendSentList').innerHTML.includes('TUITION:S001:2026-09') && getEl('sendSentList').innerHTML.includes('· WhatsApp'));
+    run('sendMarkUnsent("TUITION:S001:2026-09")');
+    check('移回待發', run('sendLog["TUITION:S001:2026-09"].status') === 'TODO');
+    run('sendMarkSent("TUITION:S001:2026-09", "wa_link")');
+    check('「標記已發」按鈕仍可用（C3）', run('sendLog["TUITION:S001:2026-09"].status') === 'SENT');
+    run('sendMarkUnsent("TUITION:S001:2026-09")');
+    run('sendWhatsApp("TUITION:S004:2026-09")');
+    check('另一筆同樣點開即已發', run('sendLog["TUITION:S004:2026-09"].status') === 'SENT' && waConfirms === 0);
+    check('設定頁已沒有「點開 WhatsApp 後的處理」選項；儲存設定清掉舊鍵', !fs.readFileSync(path.join(repo, 'index.html'), 'utf8').includes('setWaSentMode')
+        && (run('appSettings.waSentMode = "confirm"; saveSettingsForm(); appSettings.waSentMode') === undefined));
+    sandbox.confirm = keepConfirm;
+}
 
 // ===== 頁籤合併：快速編輯（改常規時間/升班＋撞堂預覽）＋ 自定義群發 =====
 
@@ -755,6 +745,7 @@ check('清空本月提示含刪除數（16 堂）', sandbox.alerts.length === 1 
 // 26) 全部清場（未設定 GCal → 只清本地）：課表/發送紀錄/薪酬歸零，學生與設定保留
 console.log('[24] 全部清場重來');
 sandbox.alerts.length = 0;
+const settingsBefore24 = run('JSON.stringify(appSettings)');
 run('resetAllScheduleData()');
 check('本地課表全清', run('Object.keys(lessonsByMonth).length') === 0);
 check('發送紀錄全清', run('Object.keys(sendLog).length') === 0);
@@ -765,7 +756,7 @@ check('落盤：課表與發送紀錄鍵為空物件', JSON.parse(fakeStorage.ge
     && Object.keys(JSON.parse(fakeStorage.getItem('gac_lessons_v2'))).length === 0
     && Object.keys(JSON.parse(fakeStorage.getItem('gac_sendlog_v2'))).length === 0);
 check('學生名單與小組保留', run('studentDatabase.length') === 14 && run('groupClasses.length') === 1);
-check('設定保留（waSentMode）', run('appSettings.waSentMode') === 'confirm');
+check('設定保留（整份不變）', run('JSON.stringify(appSettings)') === settingsBefore24);
 check('提示已清空且未動 GCal（預設唯讀／未設定）', sandbox.alerts.length === 1 && sandbox.alerts[0].includes('已清空本地')
     && (sandbox.alerts[0].includes('未設定 GCal') || sandbox.alerts[0].includes('唯讀模式')));
 check('清場提示說明 Calendar 事件仍在、快照處理結果、保留了什麼', sandbox.alerts[0].includes('Google Calendar 上的事件全部還在')
@@ -1411,19 +1402,13 @@ check('歷史頁大小列含「可重做」', getEl('historySize').textContent.i
 run('clearHistory()');
 check('清空歷史 → 重做一併清空', run('redoStack.length') === 0 && getEl('redoBtn').disabled === true);
 // 清單 WhatsApp 與發送中心聯動
-run('appSettings.waSentMode = "confirm"; pendingWaConfirmKeys.length = 0');
 getEl('leaveType_S001-20260928-2130').value = 'L';
 run('confirmLeave("S001-20260928-2130")');
 run('closeMsgModal()');
 check('請假 → 發送中心條目待發、清單列顯示「待發」', run('sendLog["LEAVE_CONFIRM:S001-20260928-2130"].status') === 'TODO' && getEl('masterScheduleList').innerHTML.includes('title="發送中心：待發送"'));
 run('openWhatsAppMessage("S001-20260928-2130", "leave")');
-check('清單 WhatsApp → 條目標記已開啟、進入切回詢問佇列、列上「已開啟」', !!run('sendLog["LEAVE_CONFIRM:S001-20260928-2130"].waOpenedAt')
-    && run('pendingWaConfirmKeys.includes("LEAVE_CONFIRM:S001-20260928-2130")') && getEl('masterScheduleList').innerHTML.includes('已開啟</span>'));
-run('pendingWaConfirmKeys.length = 0; appSettings.waSentMode = "auto"');
-run('openWhatsAppMessage("S001-20260928-2130", "leave")');
-check('自動模式：清單 WhatsApp → 直接已發、列上「✓ 已發」、發送中心已發送欄', run('sendLog["LEAVE_CONFIRM:S001-20260928-2130"].status') === 'SENT'
+check('清單 WhatsApp → 直接已發、列上「✓ 已發」、發送中心已發送欄', run('sendLog["LEAVE_CONFIRM:S001-20260928-2130"].status') === 'SENT'
     && getEl('masterScheduleList').innerHTML.includes('✓ 已發') && run('GACSendlog.listByMonth(sendLog, "2026-09").sent.some(e => e.key === "LEAVE_CONFIRM:S001-20260928-2130")'));
-run('appSettings.waSentMode = "confirm"');
 // 補堂縮排：同月清單內 → 縮排在原課下；只看補堂那週（原課不在）→ 留原位
 getEl('makeupDate_S001-20260928-2130').value = '2026-09-16'; getEl('makeupTime_S001-20260928-2130').value = '18:00';
 run('submitMakeup("S001-20260928-2130","makeupDate_S001-20260928-2130","makeupTime_S001-20260928-2130")');

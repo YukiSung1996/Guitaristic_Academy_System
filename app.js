@@ -24,11 +24,6 @@
             document.getElementById('payMonth').value = monthStr;
             document.getElementById('anaMonth').value = monthStr;
 
-            // 切回頁面時詢問 WhatsApp 是否已發（waSentMode='confirm'）；focus 與 visibilitychange
-            // 皆註冊，處理器以清空佇列保證幂等
-            window.addEventListener('focus', handleWaReturnConfirm);
-            document.addEventListener('visibilitychange', handleWaReturnConfirm);
-
             loadSettingsForm();
             renderStorageLocationNote();
             if (typeof applyGcalModeUi === 'function') applyGcalModeUi();
@@ -1360,7 +1355,7 @@
             }).join('');
         }
 
-        // 課堂列的訊息狀態徽章：對應發送中心條目（請假確認／補堂確認／改期通知）——待發／已開啟未標記／✓ 已發
+        // 課堂列的訊息狀態徽章：對應發送中心條目（請假確認／補堂確認／改期通知）——待發／✓ 已發
         function lessonEntryKey(lessonId, type) {
             if (type === 'leave') return 'LEAVE_CONFIRM:' + lessonId;
             if (type === 'move' || sendLog['MOVE_CONFIRM:' + lessonId]) return 'MOVE_CONFIRM:' + lessonId;
@@ -1371,7 +1366,6 @@
             const e = sendLog[lessonEntryKey(lessonId, type)];
             if (!e) return '';
             if (e.status === 'SENT') return `<span class="px-1.5 py-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-semibold" title="發送中心：已發於 ${String(e.sentAt || '').replace('T', ' ').slice(0, 16)}">✓ 已發</span>`;
-            if (e.waOpenedAt) return '<span class="px-1.5 py-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-semibold" title="已開啟過 WhatsApp，尚未標記已發（切回頁面時會詢問，或到發送中心標記）"><i class="fa-brands fa-whatsapp"></i> 已開啟</span>';
             return '<span class="px-1.5 py-1 rounded bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold" title="發送中心：待發送">待發</span>';
         }
 
@@ -1488,7 +1482,7 @@
             btns.push(gcalStatusButton(lesson));
             if (lesson.status === 'LEAVE') {
                 btns.push(`<button onclick="copyLessonMsg('leave', '${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> 複製請假</button>`);
-                btns.push(`<button onclick="openWhatsAppMessage('${id}', 'leave')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填請假訊息（與發送中心同一條目：點開即按設定標記已開啟／詢問／自動已發）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>${lessonSendBadge(id, 'leave')}`);
+                btns.push(`<button onclick="openWhatsAppMessage('${id}', 'leave')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填請假訊息（與發送中心同一條目：點開即標記已發）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>${lessonSendBadge(id, 'leave')}`);
             }
             // 改期過的常規課：可重發／複製改期通知
             if (!lesson.isMakeup && lesson.status !== 'LEAVE' && sendLog['MOVE_CONFIRM:' + id]) {
@@ -1498,7 +1492,7 @@
             if (lesson.isMakeup && lesson.status !== 'LEAVE') {
                 const mkType = sendLog['MOVE_CONFIRM:' + id] ? 'move' : 'makeup'; // 改期過（有改期通知條目）→ 用改期通知文案
                 btns.push(`<button onclick="copyLessonMsg('${mkType}', '${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> ${mkType === 'move' ? '複製改期' : '複製補堂'}</button>`);
-                btns.push(`<button onclick="openWhatsAppMessage('${id}', '${mkType}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填${mkType === 'move' ? '改期通知' : '補堂訊息'}（與發送中心同一條目：點開即按設定標記已開啟／詢問／自動已發）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>${lessonSendBadge(id, mkType)}`);
+                btns.push(`<button onclick="openWhatsAppMessage('${id}', '${mkType}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填${mkType === 'move' ? '改期通知' : '補堂訊息'}（與發送中心同一條目：點開即標記已發）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>${lessonSendBadge(id, mkType)}`);
             }
             return btns.join('');
         }
@@ -3374,9 +3368,8 @@
                    ${sent ? sendPayFormHtml(e) : ''}`
                 : derivedInfoRow(e);
             const waBtn = phone
-                ? `<button onclick="sendWhatsApp('${e.key}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold" title="打開 WhatsApp 預填訊息（不會自動移到已發送，發完請點「標記已發」）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`
+                ? `<button onclick="sendWhatsApp('${e.key}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold" title="打開 WhatsApp 預填訊息，並直接移到「已發送」（發錯了按「移回待發」）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`
                 : `<button disabled class="px-2.5 py-1.5 bg-slate-100 text-slate-400 rounded-lg font-semibold cursor-not-allowed" title="此學生沒有電話號碼，僅可複製或手動已發"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`;
-            const waOpened = !sent && e.waOpenedAt;
             // 自定義條目由群發手動建立、無課堂掛鉤，允許在待發送欄直接刪除（其他類型由系統管理，不提供刪除）
             const delBtn = e.type === 'CUSTOM'
                 ? `<button onclick="sendDeleteEntry('${e.key}')" class="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg font-semibold" title="刪除此自定義條目"><i class="fa-solid fa-trash-can"></i></button>`
@@ -3389,14 +3382,12 @@
                    ${waBtn}
                    ${delBtn}
                    <span class="ml-auto pl-3 flex items-center gap-1.5">
-                       <button onclick="sendMarkSent('${e.key}', 'wa_link')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold${waOpened ? ' ring-2 ring-emerald-300' : ''}" title="已用 WhatsApp 發出 → 移到已發送"><i class="fa-solid fa-check"></i> 標記已發</button>
+                       <button onclick="sendMarkSent('${e.key}', 'wa_link')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold" title="已發出（例如複製後自己貼到 WhatsApp）→ 移到已發送"><i class="fa-solid fa-check"></i> 標記已發</button>
                        <button onclick="sendMarkSent('${e.key}', 'manual')" class="px-2.5 py-1.5 bg-slate-600 hover:bg-slate-700 text-white rounded-lg font-semibold" title="不經 WhatsApp（如面談／電話已通知）→ 直接移到已發送">手動已發</button>
                    </span>`;
             const sentInfo = sent
                 ? `<span class="text-[10px] text-slate-400">已發於 ${String(e.sentAt || '').replace('T', ' ').slice(0, 16)} · ${e.method === 'manual' ? '手動' : 'WhatsApp'}</span>`
-                : (waOpened
-                    ? `<span class="px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-semibold" title="已開啟過 WhatsApp（${String(e.waOpenedAt).replace('T', ' ').slice(0, 16)}）——瀏覽器無法確認是否真的送出，若已送出請按「標記已發」"><i class="fa-brands fa-whatsapp"></i> 已開啟，未標記</span>`
-                    : '');
+                : '';
             return `
                 <div class="border border-slate-200 rounded-xl p-3 space-y-2 text-xs ${sent ? 'bg-slate-50/60' : 'bg-white'}">
                     <div class="flex items-center gap-2 flex-wrap">
@@ -3800,18 +3791,9 @@
             if (!phone) { alert('此學生沒有可用的 WhatsApp 電話號碼。'); return; }
             const url = `https://wa.me/${phone}?text=${encodeURIComponent(sendlogMsgFor(e))}`;
             window.open(url, '_blank', 'noopener');
-            // 瀏覽器無法得知訊息在 WhatsApp 裡是否真的送出（跨域），「點開→已發送」的對應由設定決定：
-            //   confirm（預設）＝標記已開啟＋切回頁面時詢問；badge＝只標記；auto＝點開即移已發送（可移回撤銷）
-            const mode = appSettings.waSentMode || 'confirm';
-            if (mode === 'auto') {
-                pushHistory(`標記已發（WhatsApp 自動）：${e.studentName || e.studentId}`);
-                GACSendlog.markSent(sendLog, key, 'wa_link', new Date().toISOString());
-            } else {
-                GACSendlog.markWaOpened(sendLog, key, new Date().toISOString());
-                if (mode === 'confirm' && pendingWaConfirmKeys.indexOf(key) === -1) {
-                    pendingWaConfirmKeys.push(key);
-                }
-            }
+            // 點開 WhatsApp 就算已發送，不再詢問（瀏覽器也無從得知是否真的送出）；發錯了按「移回待發」或「撤銷」
+            pushHistory(`標記已發（WhatsApp）：${e.studentName || e.studentId}`);
+            GACSendlog.markSent(sendLog, key, 'wa_link', new Date().toISOString());
             persistSendlog();
             renderSendCenter();
         }
@@ -3918,30 +3900,6 @@
             renderSendCenter();
             closeBroadcastModal();
             showToast(`✅ 已建立群發「${title}」：${chosen.length} 位學生（${monthKey}）\n待發送欄已切到此類別；建錯可整批刪除`);
-        }
-
-        // waSentMode='confirm'：從 WhatsApp 分頁切回本頁時，逐條詢問剛才開啟的訊息是否已發出。
-        // 先清空佇列再詢問——confirm 對話框本身會觸發 focus 事件，避免重入重複詢問。
-        function handleWaReturnConfirm() {
-            if (typeof document !== 'undefined' && document.hidden) return;
-            if (!pendingWaConfirmKeys.length) return;
-            const keys = pendingWaConfirmKeys.slice();
-            pendingWaConfirmKeys.length = 0;
-            let changed = false;
-            keys.forEach(key => {
-                const e = sendLog[key];
-                if (!e || e.status !== 'TODO') return;
-                const meta = SEND_TYPE_META[e.type] || { label: e.type };
-                if (confirm(`剛才開啟的 WhatsApp——${e.studentName || e.studentId} 的「${meta.label}」訊息——已經發出了嗎？\n\n確定＝移到「已發送」\n取消＝留在待發送（條目已標記「已開啟」，可稍後手動標記）`)) {
-                    pushHistory(`標記已發（WhatsApp 確認）：${e.studentName || e.studentId}`);
-                    GACSendlog.markSent(sendLog, key, 'wa_link', new Date().toISOString());
-                    changed = true;
-                }
-            });
-            if (changed) {
-                persistSendlog();
-                renderSendCenter();
-            }
         }
 
         // ===== 導師管理（gac_tutors_v3）：名單驅動所有導師下拉；等級＝查價用的導師級別 =====
@@ -4251,7 +4209,6 @@
             const chk = document.getElementById('setPayNoShow');
             if (!chk) return;
             chk.checked = appSettings.payNoShow !== false;
-            document.getElementById('setWaSentMode').value = appSettings.waSentMode || 'confirm';
             document.getElementById('setGcalClientId').value = appSettings.gcalClientId || '';
             document.getElementById('setGcalCalendarId').value = appSettings.gcalCalendarId || 'primary';
             document.getElementById('setGcalWrite').checked = appSettings.gcalWrite !== false;
@@ -4308,7 +4265,7 @@
 
         function saveSettingsForm() {
             appSettings.payNoShow = document.getElementById('setPayNoShow').checked;
-            appSettings.waSentMode = document.getElementById('setWaSentMode').value || 'confirm';
+            delete appSettings.waSentMode;   // 舊設定（點開 WhatsApp 後的三種處理）已取消：一律點開即已發送
             appSettings.gcalClientId = document.getElementById('setGcalClientId').value.trim();
             appSettings.gcalCalendarId = GACGcal.normalizeCalendarId(document.getElementById('setGcalCalendarId').value) || 'primary';
             appSettings.gcalWrite = !!document.getElementById('setGcalWrite').checked;
@@ -4356,11 +4313,11 @@
             const found = GACLessonState.findLesson(lessonsByMonth, lessonId);
             if (!found) return;
             const lesson = found.lesson;
-            // 有對應的發送中心條目 → 走同一條路（開 WhatsApp＋按 waSentMode 標記已開啟／切回詢問／自動已發），兩邊狀態一致
+            // 有對應的發送中心條目 → 走同一條路（開 WhatsApp＋直接標記已發），兩邊狀態一致
             const key = lessonEntryKey(lessonId, messageType);
             if (sendLog[key]) {
                 sendWhatsApp(key);
-                renderMasterScheduleList(); // 列上的「已開啟／✓ 已發」徽章
+                renderMasterScheduleList(); // 列上的「✓ 已發」徽章
                 return;
             }
             const phone = getWhatsAppPhone(lesson.phone);
