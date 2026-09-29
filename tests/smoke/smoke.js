@@ -1879,6 +1879,86 @@ check('未確認出席的課只算預期：全部標出席後 目前應付＝預
         && getEl('advancedExpiredWarning').innerHTML === '';
 })());
 
+// 40) 長假（停課）與學號容錯：隔離在 2026-11，測完清掉
+console.log('[40] 長假與學號容錯');
+sandbox.__qsaHook = () => [];
+{
+    const idx = run('studentDatabase.findIndex(s => s.id === "S001")');   // 週一 21:30；11 月的週一：2/9/16/23/30
+    const g01 = run('groupClasses.findIndex(g => g.id === "G01")');
+    const s001Nov = () => run('(lessonsByMonth["2026-11"] || []).filter(l => l.studentId === "S001").map(l => l.date + "#" + l.lessonNum + "/" + l.totalRegular).join()');
+    const genNov = () => {
+        getEl('batchMonth').value = '2026-11';
+        sandbox.__qsaHook = sel => (sel === '.batch-student-chk:checked' ? [{ value: String(idx) }] : sel === '.batch-group-chk:checked' ? [{ value: 'G01' }] : []);
+        run('generateMasterSchedule()');
+        sandbox.__qsaHook = () => [];
+    };
+    const saveLeaves = (list) => {
+        run('openStudentModal(' + idx + ')');
+        run('modalLongLeaves = ' + JSON.stringify(list));
+        run('saveStudentFromModal()');
+    };
+    run('openStudentModal(' + idx + ')');
+    check('弹窗：沒有長假時顯示「沒有長假」', getEl('modalLongLeaves').innerHTML.includes('沒有長假'));
+    run('addModalLongLeave()');
+    check('＋新增長假：預設今天開始、復課未定', run('modalLongLeaves[0].from') === '2026-09-15' && run('modalLongLeaves[0].resume') === ''
+        && getEl('modalLongLeaves').innerHTML.includes('未定'));
+    run("closeStudentModal()");
+
+    const alerts0 = sandbox.alerts.length;
+    saveLeaves([{ from: '2026-11-10', resume: '2026-11-01', note: '' }]);
+    check('復課日早於開始日 → 擋下、不存', sandbox.alerts.length === alerts0 + 1 && sandbox.alerts[alerts0].includes('之後') && !run('studentDatabase[' + idx + '].longLeaves'));
+    run("closeStudentModal()");
+
+    saveLeaves([{ from: '2026-11-10', resume: '', note: '出國' }]);
+    check('存檔：longLeaves 記在學生上、已落盤', run('JSON.stringify(studentDatabase[' + idx + '].longLeaves)') === JSON.stringify([{ from: '2026-11-10', resume: '', note: '出國' }])
+        && JSON.parse(fakeStorage.getItem('gac_students_v2')).find(s => s.id === 'S001').longLeaves.length === 1);
+    check('名單徽章：今天（9/15）未到 → 「將放長假：2026-11-10 起（復課日未定）」', run('longLeaveBadge(studentDatabase[' + idx + '])').includes('將放長假：2026-11-10 起（復課日未定）'));
+    check('生成勾選區：11 月略過 3 堂', run('batchLongLeaveTag(studentDatabase[' + idx + '], "2026-11")').includes('長假略過 3 堂'));
+
+    run('studentDatabase.find(s => s.id === "S021").longLeaves = [{ from: "2026-11-01", resume: "2026-11-20", note: "" }]');   // 小組成員（週六 15:00：7/14/21/28）
+    genNov();
+    check('未定復課：S001 只生成 11/02、11/09，編號 1/2、2/2', s001Nov() === '2026-11-02#1/2,2026-11-09#2/2');
+    check('小組：S021 長假那兩個週六不生成，其他成員照常、仍是 5人小組', run('lessonsByMonth["2026-11"].filter(l => l.studentId === "S021").map(l => l.date).join()') === '2026-11-21,2026-11-28'
+        && run('lessonsByMonth["2026-11"].filter(l => l.studentId === "S020" && l.groupId).length') === 4
+        && run('lessonsByMonth["2026-11"].filter(l => l.groupId).every(l => l.classType === "5人小組")'));
+    check('生成訊息列出長假略過的學生（個別＋小組）', run('lastToast').includes('長假不生成') && run('lastToast').includes('S001 Student 001（3 堂）') && run('lastToast').includes('S021'));
+    check('學費按實際堂數（S001 2 堂、S021 小組 2 堂）', run('sendLog["TUITION:S001:2026-11"].count') === 2 && run('sendLog["TUITION:S021:2026-11"].count') === 2);
+
+    saveLeaves([{ from: '2026-11-10', resume: '2026-11-23', note: '' }]);
+    genNov();
+    check('填上復課日 11/23 → 重新生成補上 11/23、11/30，編號重排 1..4', s001Nov() === '2026-11-02#1/4,2026-11-09#2/4,2026-11-23#3/4,2026-11-30#4/4'
+        && run('sendLog["TUITION:S001:2026-11"].count') === 4);
+
+    saveLeaves([{ from: '2026-11-01', resume: '', note: '' }]);
+    genNov();
+    check('整月長假 → 已排課移除、未發送的學費條目一併刪掉', s001Nov() === '' && !run('sendLog["TUITION:S001:2026-11"]')
+        && run('lastToast').includes('長假中的課'));
+    check('勾選區：「本月長假」', run('batchLongLeaveTag(studentDatabase[' + idx + '], "2026-11")').includes('本月長假'));
+
+    // 重新載入名單：長假按學號（容錯）帶過去
+    run('applyRoster({ students: studentDatabase.map(s => { const o = Object.assign({}, s); delete o.longLeaves; if (o.id === "S001") o.id = "s1"; return o; }), groups: groupClasses, tutors: tutorsList }, "測試：重新載入")');
+    check('重新載入名單：長假按學號保留（s1 ＝ S001）', run('JSON.stringify(studentDatabase.find(s => s.id === "s1").longLeaves)') === JSON.stringify([{ from: '2026-11-01', resume: '', note: '' }]));
+    run('undoLastAction()');
+    check('撤銷重新載入 → 回到 S001', run('studentDatabase[' + idx + '].id') === 'S001');
+
+    // 學號查重（容錯）：新增 s1 ＝ 已有的 S001
+    const n0 = run('studentDatabase.length'), a1 = sandbox.alerts.length;
+    run('openStudentModal(-1)');
+    getEl('modalId').value = 's01';
+    getEl('modalName').value = 'Dup';
+    run('saveStudentFromModal()');
+    check('新增學號 s01 → 與 S001 同號，擋下', run('studentDatabase.length') === n0 && sandbox.alerts.length === a1 + 1 && sandbox.alerts[a1].includes('同一個號碼'));
+    run('closeStudentModal()');
+    check('搜尋學號容錯：0032 ↔ 32、032', run('idMatchesQuery("0032", "32") && idMatchesQuery("32", "0032") && idMatchesQuery("0032", "032") && !idMatchesQuery("0032", "0033")'));
+
+    // 清掉：長假、11 月課表與學費條目，回到 9 月
+    run('delete studentDatabase[' + idx + '].longLeaves; delete studentDatabase.find(s => s.id === "S021").longLeaves; saveToLocalStorage();');
+    run('delete lessonsByMonth["2026-11"]; GACSendlog.purgeMonth(sendLog, "2026-11", []); persistLessons();');
+    getEl('batchMonth').value = '2026-09';
+    run('rebuildMonthContext(); renderAll();');
+    check('清理完成', !run('lessonsByMonth["2026-11"]') && g01 >= 0);
+}
+
 // 38b) 寫入模式同步：.ics 匯入的事件靠 iCalUID 認回 → 不是手動新建、不重複推送
 function __icsSyncTail() {
     console.log('[38b] 同步認得 .ics 匯入的事件');

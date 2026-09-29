@@ -236,3 +236,71 @@ test('A10: 小組班 generateGroupMonthLessons——成員各一筆、共享 gro
     assert.ok(S.isSameGroupLesson(gl[0], gl[4]), '同組同日同時段');
     assert.strictEqual(S.detectClashes(gl).size, 0);
 });
+
+// ===== 學號容錯 =====
+test('studentIdKey：前導零、大小寫、空白不影響；sameStudentId 空字串不算同一號', () => {
+    assert.strictEqual(S.studentIdKey('0032'), '32');
+    assert.strictEqual(S.studentIdKey('032'), '32');
+    assert.strictEqual(S.studentIdKey(' s032 '), 'S32');
+    assert.strictEqual(S.studentIdKey('0'), '0', '全是零 → 保留一個 0');
+    assert.ok(S.sameStudentId('32', '0032'));
+    assert.ok(S.sameStudentId('S001', 's1'));
+    assert.ok(!S.sameStudentId('0032', '0320'));
+    assert.ok(!S.sameStudentId('', ''));
+});
+
+// ===== 長假（停課）=====
+test('長假：未定復課 → 開始日起全部不生成（跨月也是）；編號只數實際生成的課', () => {
+    const s = student({ longLeaves: [{ from: '2026-09-15', resume: '', note: '' }] });   // 週二
+    const sep = S.generateMonthLessons(s, '2026-09');
+    assert.deepStrictEqual(sep.map(l => l.date), ['2026-09-01', '2026-09-08'], '9/15 當天起不出課');
+    assert.deepStrictEqual(sep.map(l => [l.lessonNum, l.totalRegular]), [[1, 2], [2, 2]]);
+    assert.strictEqual(S.generateMonthLessons(s, '2026-12').length, 0, '未定 → 之後的月份一律略過');
+    assert.deepStrictEqual(S.longLeaveSkippedDates(s, '2026-09'), ['2026-09-15', '2026-09-22', '2026-09-29']);
+});
+
+test('長假：有復課日 → 復課日當天恢復上課，精確到日', () => {
+    const s = student({ longLeaves: [{ from: '2026-09-08', resume: '2026-09-22', note: '出國' }] });
+    const sep = S.generateMonthLessons(s, '2026-09');
+    assert.deepStrictEqual(sep.map(l => l.date), ['2026-09-01', '2026-09-22', '2026-09-29']);
+    assert.deepStrictEqual(sep.map(l => l.lessonNum), [1, 2, 3]);
+    assert.ok(sep.every(l => l.totalRegular === 3));
+    assert.strictEqual(sep[1].lessonId, 'S001-20260922-2130', 'lessonId 仍按日期時間，不受編號影響');
+    assert.strictEqual(S.generateMonthLessons(s, '2026-10').length, 4, '復課後的月份照常');
+    assert.ok(S.isOnLongLeave(s, '2026-09-21') && !S.isOnLongLeave(s, '2026-09-22') && !S.isOnLongLeave(s, '2026-09-07'));
+});
+
+test('長假：多段各自生效；沒有長假欄位的舊資料照常', () => {
+    const s = student({ longLeaves: [{ from: '2026-09-01', resume: '2026-09-08' }, { from: '2026-09-29', resume: '' }] });
+    assert.deepStrictEqual(S.generateMonthLessons(s, '2026-09').map(l => l.date), ['2026-09-08', '2026-09-15', '2026-09-22']);
+    assert.strictEqual(S.generateMonthLessons(student(), '2026-09').length, 5);
+    assert.strictEqual(S.longLeaveOn(student(), '2026-09-01'), null);
+});
+
+test('長假：小組成員長假那幾天不生成，其他成員照常；小組形式按全體成員計', () => {
+    const group = { id: 'G1', name: 'Theory', program: 'Theory', level: 'G5', duration: 60, tutor: 'T', weekday: 6, time: '15:00' };
+    const a = { id: 'S020', name: 'A' };
+    const b = { id: 'S021', name: 'B', longLeaves: [{ from: '2026-09-10', resume: '2026-09-20' }] };
+    const out = S.generateGroupMonthLessons(group, [a, b], '2026-09');   // 週六：5/12/19/26
+    assert.strictEqual(out.filter(l => l.studentId === 'S020').length, 4);
+    assert.deepStrictEqual(out.filter(l => l.studentId === 'S021').map(l => l.date), ['2026-09-05', '2026-09-26']);
+    assert.ok(out.every(l => l.classType === '2人小組'), '不因有人長假改成 1 人小組');
+    assert.deepStrictEqual(out.filter(l => l.studentId === 'S021').map(l => l.lessonNum), [1, 4], '小組編號按節次，成員同一日編號相同');
+});
+
+test('長假：validateLongLeaves／normalizeLongLeaves', () => {
+    assert.strictEqual(S.validateLongLeaves([{ from: '2026-09-01', resume: '' }]), '');
+    assert.strictEqual(S.validateLongLeaves([{ from: '', resume: '' }]), '', '空白列不算錯');
+    assert.ok(S.validateLongLeaves([{ from: '', resume: '2026-09-10' }]).includes('開始日期'));
+    assert.ok(S.validateLongLeaves([{ from: '2026-09-10', resume: '2026-09-10' }]).includes('之後'));
+    assert.deepStrictEqual(S.normalizeLongLeaves([{ from: '2026-10-01', resume: 'x', note: ' a ' }, { from: '' }, { from: '2026-09-01', resume: '2026-09-15' }]),
+        [{ from: '2026-09-01', resume: '2026-09-15', note: '' }, { from: '2026-10-01', resume: '', note: 'a' }]);
+});
+
+test('長假：撞堂預覽不計長假中的其他學生，本人長假的日子不列', () => {
+    const me = student({ id: 'S002', weekday: 3, time: '12:30', longLeaves: [{ from: '2026-10-21', resume: '' }] });
+    const other = student({ id: 'S003', weekday: 3, time: '12:30', longLeaves: [{ from: '2026-10-01', resume: '2026-10-14' }] });
+    const rows = S.previewTimeChange(me, [other], [], '2026-10', { weekday: 3, time: '12:30' });
+    assert.deepStrictEqual(rows.map(r => r.date), ['2026-10-07', '2026-10-14'], '10/21 起本人長假，不列');
+    assert.deepStrictEqual(rows.map(r => r.clashes.length), [0, 1], '10/07 對方長假不佔；10/14 對方已復課');
+});

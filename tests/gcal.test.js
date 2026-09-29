@@ -693,3 +693,24 @@ test('D9: reconcileByContent——無標籤事件按學生 ID／姓名／小組�
     assert.strictEqual(G.matchStudent('S0012 x', students), null, 'ID 詞邊界');
     assert.strictEqual(G.matchStudent('Student 0', students), null, '姓名要完整出現');
 });
+test('matchStudentPrefix：學號前導零容錯（32／032／0032 同一號），時間日期開頭不當學號', () => {
+    const known = ['0032', '0125', '0015'];
+    assert.strictEqual(G.matchStudentPrefix('0032 陳大文([1/4] 10/2026)', known), '0032');
+    assert.strictEqual(G.matchStudentPrefix('32 陳大文', known), '0032');
+    assert.strictEqual(G.matchStudentPrefix('032陳大文', known), '0032', '學號後直接接中文也認得');
+    assert.strictEqual(G.matchStudentPrefix('32(補堂)', known), '0032');
+    assert.strictEqual(G.matchStudentPrefix('125', known), '0125');
+    assert.strictEqual(G.matchStudentPrefix('15:00 陳大文', known), null, '時間開頭不當學號 0015');
+    assert.strictEqual(G.matchStudentPrefix('10/07 補課', known), null);
+    assert.strictEqual(G.matchStudentPrefix('320 x', known), null);
+    assert.strictEqual(G.matchStudentPrefix('32x 陳大文', known), null, '學號後緊接英文字母 → 不算');
+    assert.strictEqual(G.matchStudentPrefix('s1 lesson', ['S001']), 'S001', '英文字母不分大小寫');
+    assert.strictEqual(G.matchStudentPrefix('32 x', ['032', '0032']), null, '容錯下對上兩人 → 不猜');
+    assert.strictEqual(G.matchStudentPrefix('0032 x', ['032', '0032']), '0032', '完全相同者優先');
+});
+
+test('matchStudent：學號容錯先於姓名', () => {
+    const students = [{ id: '0032', name: 'Chan Tai Man' }, { id: '0125', name: 'Lee Siu Ming' }];
+    assert.strictEqual(G.matchStudent('32 補課', students), '0032');
+    assert.strictEqual(G.matchStudent('補課 lee siu ming', students), '0125');
+});

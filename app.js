@@ -561,7 +561,7 @@
                 // Enhanced Search including phone and email
                 const matchSearch = !searchKeyword || 
                     student.name.toLowerCase().includes(searchKeyword) || 
-                    student.id.toLowerCase().includes(searchKeyword) ||
+                    idMatchesQuery(student.id, searchKeyword) ||
                     (student.phone && student.phone.includes(searchKeyword)) ||
                     (student.email && student.email.toLowerCase().includes(searchKeyword));
 
@@ -569,6 +569,7 @@
 
                 const sched = getStudentScheduleForMonth(student, batchMonthVal);
                 const hasSlot = hasIndividualSlot(sched);
+                const leaveTag = hasSlot ? batchLongLeaveTag(student, batchMonthVal) : '';
                 const div = document.createElement('div');
                 div.className = 'flex items-center space-x-2 text-xs bg-white p-2 rounded-lg border border-slate-200 hover:border-sky-300 transition';
 
@@ -577,6 +578,7 @@
                     <label for="batch_chk_${index}" class="cursor-pointer font-medium truncate flex-1">
                         <span class="font-bold text-slate-800">${student.id}</span> ${student.name}
                         ${hasSlot ? `<span class="text-sky-600 font-semibold">(${getWeekdayName(sched.weekday)} ${sched.time})</span>` : '<span class="text-slate-400">（只上小組）</span>'}
+                        ${leaveTag}
                     </label>
                     ${hasSlot ? `<button onclick="openQuickEdit(${index})" class="shrink-0 px-1.5 py-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition" title="調整常規時間／升班（含撞堂預覽）">
                         <i class="fa-solid fa-pen"></i>
@@ -589,6 +591,9 @@
             groupClasses.forEach(g => {
                 if (selectedTutor !== 'ALL' && g.tutor !== selectedTutor) return;
                 const memberNames = (g.memberIds || []).map(id => { const s = studentDatabase.find(x => x.id === id); return s ? s.name : id; });
+                const groupDates = GACSchedule.monthDatesForWeekday(batchMonthVal, g.weekday);
+                const onLeave = (g.memberIds || []).map(id => studentDatabase.find(x => x.id === id))
+                    .filter(s => s && groupDates.some(d => GACSchedule.isOnLongLeave(s, d)));
                 const hay = (g.name + ' ' + g.id + ' ' + memberNames.join(' ')).toLowerCase();
                 if (searchKeyword && !hay.includes(searchKeyword)) return;
                 const div = document.createElement('div');
@@ -598,6 +603,7 @@
                     <label for="batch_grp_${g.id}" class="cursor-pointer font-medium truncate flex-1" title="${memberNames.join('、')}">
                         <span class="font-bold text-indigo-800"><i class="fa-solid fa-user-group"></i> ${g.name}</span>
                         <span class="text-indigo-600 font-semibold">(${(g.memberIds || []).length} 人)（${getWeekdayName(g.weekday)} ${g.time}）</span>
+                        ${onLeave.length ? `<span class="text-violet-700 font-semibold" title="長假中的成員那幾天不生成：${escapeHtml(onLeave.map(s => s.name).join('、'))}">🌙 ${onLeave.length} 位長假</span>` : ''}
                     </label>
                     <button onclick="openGroupModal('${g.id}')" class="shrink-0 px-1.5 py-1 text-slate-400 hover:text-indigo-700 hover:bg-indigo-100 rounded transition" title="編輯小組：成員／時段／導師">
                         <i class="fa-solid fa-pen"></i>
@@ -1007,7 +1013,7 @@
             }));
             touched.forEach(s => {
                 const mine = (lessonsByMonth[monthKey] || []).filter(l => l.studentId === s.id && !l.isMakeup);
-                if (!mine.length) return;
+                if (!mine.length) { dropStaleTuition(s.id, monthKey); return; }
                 GACSendlog.upsertTuition(sendLog, {
                     studentId: s.id, studentName: s.name, phone: s.phone, monthKey: monthKey,
                     amount: mine.reduce((sum, l) => sum + rateForLesson(l), 0), count: mine.length,
@@ -1022,8 +1028,10 @@
 
             let msg = `✅ ${monthKey} 課表已生成（merge 模式，不會清空既有狀態）：\n• 新增 ${res.added.length} 堂\n• 保留 ${res.lessons.length - res.added.length} 堂\n• 學費待發條目已更新（見「發送中心」頁籤）`;
             if (res.removed.length) {
-                msg += `\n• 刪除 ${res.removed.length} 堂（僅限仍是「已排課」、且學生已移除/改時間的課）`;
+                msg += `\n• 刪除 ${res.removed.length} 堂（僅限仍是「已排課」、且學生已移除／改時間／長假中的課）`;
             }
+            const leaveSkips = longLeaveSkipSummary(selectedStudents, selectedGroups, monthKey);
+            if (leaveSkips.length) msg += `\n• 🌙 長假不生成：${leaveSkips.join('、')}`;
             if (res.conflicts.length) {
                 msg += `\n\n⚠️ 以下 ${res.conflicts.length} 堂已有狀態，生成邏輯不會改動，請人工處理：\n` +
                     res.conflicts.map(c => `  • ${c.lesson.date} ${c.lesson.time} ${c.lesson.studentName}（${c.lesson.status}）`).join('\n');
@@ -1034,6 +1042,33 @@
             }
             // 有需要人工處理的衝突才阻斷式提示；否則右下角 toast 即可
             if (res.conflicts.length) alert(msg); else showToast(msg);
+        }
+
+        // 某生某月已沒有常規課（整月長假等）→ 未發送、未記收款、金額沒手改過的學費條目刪掉；已發送或已有收款的保留（人工處理）
+        function dropStaleTuition(studentId, monthKey) {
+            const key = GACSendlog.tuitionKey(studentId, monthKey);
+            const e = sendLog[key];
+            if (!e || e.status === 'SENT' || e.amountEdited || GACSendlog.paymentValid(e) || Number(e.paidAmount) > 0) return false;
+            delete sendLog[key];
+            return true;
+        }
+
+        // 生成時因長假不出的課：「0032 陳大文（3 堂）」「0032 陳大文 · 樂理小組（2 堂）」
+        function longLeaveSkipSummary(students, groups, monthKey) {
+            const out = [];
+            (students || []).forEach(s => {
+                const n = GACSchedule.longLeaveSkippedDates(s, monthKey).length;
+                if (n) out.push(`${s.id} ${s.name}（${n} 堂）`);
+            });
+            (groups || []).forEach(g => {
+                const dates = GACSchedule.monthDatesForWeekday(monthKey, g.weekday);
+                (g.memberIds || []).forEach(id => {
+                    const s = studentDatabase.find(x => x.id === id);
+                    const n = s ? dates.filter(d => GACSchedule.isOnLongLeave(s, d)).length : 0;
+                    if (n) out.push(`${s.id} ${s.name} · ${g.name}（${n} 堂）`);
+                });
+            });
+            return out;
         }
 
         function rebuildMonthContext() {
@@ -2400,7 +2435,7 @@
                 const myGroups = groupsOfStudent(student.id);
                 const matchSearch = !search || 
                     student.name.toLowerCase().includes(search) || 
-                    student.id.toLowerCase().includes(search) || 
+                    idMatchesQuery(student.id, search) || 
                     (student.phone && student.phone.includes(search)) ||
                     (student.email && student.email.toLowerCase().includes(search)) ||
                     student.tutor.toLowerCase().includes(search) || 
@@ -2419,7 +2454,7 @@
                 tr.className = "hover:bg-slate-50 transition";
                 tr.innerHTML = `
                     <td class="p-3 font-bold text-slate-800">${student.id}</td>
-                    <td class="p-3 font-semibold text-slate-900">${student.name}</td>
+                    <td class="p-3 font-semibold text-slate-900">${student.name}${longLeaveBadge(student)}</td>
                     <td class="p-3 font-mono text-slate-700">
                         ${student.phone ? `<a href="tel:${student.phone}" class="hover:text-sky-600 flex items-center gap-1"><i class="fa-solid fa-phone text-slate-400 text-[10px]"></i> ${student.phone}</a>` : '<span class="text-slate-300">-</span>'}
                     </td>
@@ -2528,6 +2563,8 @@
                 renderModalGroups(null);
             }
             onModalHasSlotChange();
+            modalLongLeaves = editIdx >= 0 ? GACSchedule.normalizeLongLeaves(studentDatabase[editIdx].longLeaves) : [];
+            renderModalLongLeaves();
 
             modal.classList.remove('hidden');
             markModalOpened('studentModal');
@@ -2541,6 +2578,67 @@
                 <input type="checkbox" class="modal-group-chk accent-indigo-600" value="${g.id}" ${studentId && (g.memberIds || []).indexOf(studentId) !== -1 ? 'checked' : ''}>
                 <span><b>${g.name}</b> <span class="text-slate-400">${getWeekdayName(g.weekday)} ${g.time}</span></span></label>`).join('')
                 || '<span class="text-slate-400 italic text-[11px]">尚無小組班（本頁右上「+ 新增小組」）</span>';
+        }
+
+        // ===== 長假（停課）：學生弹窗內的長假列表，存為 student.longLeaves（判斷在 lib/schedule.js）=====
+        // 開始日期＝第一天不上課；復課日期＝當天起恢復上課，留空＝未定（之後生成的月份一律略過，回來時再填上）
+        let modalLongLeaves = [];
+        function renderModalLongLeaves() {
+            const box = document.getElementById('modalLongLeaves');
+            if (!box) return;
+            box.innerHTML = modalLongLeaves.map((p, i) => `<div class="flex flex-wrap items-center gap-1.5 bg-violet-50 border border-violet-200 rounded-lg px-2 py-1.5">
+                <label class="flex items-center gap-1 text-slate-600">開始 <input type="date" id="mllFrom_${i}" value="${escapeHtml(p.from || '')}" onchange="onModalLongLeaveInput(${i}, 'from', this.value)" class="p-1 border border-slate-300 rounded bg-white"></label>
+                <label class="flex items-center gap-1 text-slate-600">復課 <input type="date" id="mllResume_${i}" value="${escapeHtml(p.resume || '')}" onchange="onModalLongLeaveInput(${i}, 'resume', this.value)" class="p-1 border border-slate-300 rounded bg-white" title="復課日當天恢復上課；留空＝未定"></label>
+                ${p.resume ? '' : '<span class="text-[11px] text-violet-700 font-bold">未定</span>'}
+                <input type="text" id="mllNote_${i}" value="${escapeHtml(p.note || '')}" oninput="onModalLongLeaveInput(${i}, 'note', this.value)" placeholder="備註（如：出國）" class="flex-1 min-w-[6rem] p-1 border border-slate-300 rounded bg-white">
+                <button type="button" onclick="removeModalLongLeave(${i})" class="text-rose-500 hover:text-rose-700 px-1" title="刪除這段長假"><i class="fa-solid fa-xmark"></i></button>
+            </div>`).join('') || '<span class="text-slate-400 italic text-[11px]">沒有長假。</span>';
+        }
+        function addModalLongLeave() {
+            modalLongLeaves.push({ from: localDateStr(new Date()), resume: '', note: '' });
+            renderModalLongLeaves();
+        }
+        function removeModalLongLeave(i) {
+            modalLongLeaves.splice(i, 1);
+            renderModalLongLeaves();
+        }
+        function onModalLongLeaveInput(i, field, value) {
+            if (!modalLongLeaves[i]) return;
+            modalLongLeaves[i][field] = value;
+            if (field !== 'note') renderModalLongLeaves();   // 「未定」標記跟著復課日期更新；備註打字時不重繪（免得游標跑掉）
+        }
+
+        // 一段長假的文字：「2026-10-10 起（復課日未定）」／「2026-10-10 → 2026-12-15 復課」
+        function longLeaveText(p) {
+            return p.resume ? `${p.from} → ${p.resume} 復課` : `${p.from} 起（復課日未定）`;
+        }
+        // 名單上要標的長假：今天正在放的；否則最近一段還沒開始的；已結束的不標
+        function currentLongLeave(student, todayStr) {
+            const list = GACSchedule.normalizeLongLeaves(student.longLeaves);
+            const on = list.find(p => todayStr >= p.from && (!p.resume || todayStr < p.resume));
+            if (on) return { p: on, on: true };
+            const next = list.find(p => p.from > todayStr);
+            return next ? { p: next, on: false } : null;
+        }
+        function longLeaveBadge(student) {
+            const hit = currentLongLeave(student, localDateStr(new Date()));
+            if (!hit) return '';
+            return `<div class="mt-1"><span class="inline-flex items-center gap-1 bg-violet-100 text-violet-800 px-1.5 py-0.5 rounded text-[10px] font-bold"${hit.p.note ? ` title="${escapeHtml(hit.p.note)}"` : ''}><i class="fa-solid fa-moon"></i> ${hit.on ? '長假中' : '將放長假'}：${longLeaveText(hit.p)}</span></div>`;
+        }
+        // 生成勾選區：本月有幾堂落在長假（整月都在 → 「本月長假」）
+        function batchLongLeaveTag(student, monthKey) {
+            if (!monthKey) return '';
+            const skipped = GACSchedule.longLeaveSkippedDates(student, monthKey);
+            if (!skipped.length) return '';
+            const all = GACSchedule.monthDatesForWeekday(monthKey, getStudentScheduleForMonth(student, monthKey).weekday).length;
+            const text = skipped.length >= all ? '本月長假' : `長假略過 ${skipped.length} 堂`;
+            return `<span class="text-violet-700 font-semibold" title="長假的日子生成時不出課：${skipped.join('、')}">🌙 ${text}</span>`;
+        }
+
+        // 搜尋框比對學號：一般的子字串之外，前導零不同也算同一號（搜「0032」找得到登記成 32 的學生，反之亦然）
+        function idMatchesQuery(id, q) {
+            if (!q) return true;
+            return String(id).toLowerCase().includes(q) || (/\d/.test(q) && GACSchedule.sameStudentId(id, q));
         }
 
         // ===== 學生表單費率連動：導師級別 → 課程 → 級別 → 上課形式 → 時長，只能選費率表有定價的組合；每堂學費唯讀自動帶出 =====
@@ -2601,6 +2699,15 @@
                 alert('請完整填寫學生 ID 與姓名！');
                 return;
             }
+            // 學號查重：前導零不同也算同一號（32、032、0032 是同一人）
+            const dupStudent = studentDatabase.find((s, i) => i !== editIdx && GACSchedule.sameStudentId(s.id, id));
+            if (dupStudent) {
+                alert(`學生 ID「${id}」與現有學生「${dupStudent.id} ${dupStudent.name}」是同一個號碼（前面補不補零都算同一號），請換一個 ID。`);
+                return;
+            }
+            const leaveErr = GACSchedule.validateLongLeaves(modalLongLeaves);
+            if (leaveErr) { alert(leaveErr); return; }
+            const longLeaves = GACSchedule.normalizeLongLeaves(modalLongLeaves);
             if (hasSlot && (isNaN(weekday) || !time)) {
                 alert('請選擇常規星期與上課時間；只上小組的學生請取消勾選「有常規私教課」。');
                 return;
@@ -2627,14 +2734,15 @@
                 student.time = time;
                 student.duration = duration;
                 if (!hasSlot) { student.effectiveMonth = ''; student.futureWeekday = null; student.futureTime = ''; } // 沒有個別課就沒有「未來時段」
+                if (longLeaves.length) student.longLeaves = longLeaves; else delete student.longLeaves;
 
                 showToast(`✅ 已更新學生 ${name}（${id}）`);
             } else {
                 // Add New Student
-                studentDatabase.push({
+                studentDatabase.push(Object.assign({
                     id, name, phone, email, type, program, level, duration, tutor, tutorLevel, weekday, time,
                     effectiveMonth: "", futureWeekday: null, futureTime: ""
-                });
+                }, longLeaves.length ? { longLeaves } : {}));
 
                 showToast(`✅ 已新增學生 ${name}（${id}）`);
             }
@@ -2866,12 +2974,20 @@
         // 設定頁「從 data.js 重新載入名單」／「還原演示名單」共用：學生、小組班、導師整套換成 src 的版本，蓋過 localStorage
         //（頁面平時只讀 localStorage，換了 data.js 要按這個才生效）。src 沒有導師名單 → 從學生／小組的 tutor／tutorLevel 推出。
         // 導師日曆 ID 按名字記在設定 tutorCalendarMemo：演示名單 ↔ 真實名單來回切換，各自的 ID 都不用重填。
-        // 課表、發送紀錄、設定不動（舊名單生成的課要清就用「全部清場」）；整個動作可撤銷
+        // 課表、發送紀錄、設定不動（舊名單生成的課要清就用「全部清場」）；整個動作可撤銷。
+        // 學生的長假是在系統裡設的（data.js 沒有）→ 按學號（前導零容錯）帶到新名單，重新載入不會弄丟
         function applyRoster(src, label) {
             pushHistory(label);
             const memo = Object.assign({}, appSettings.tutorCalendarMemo || {});
             tutorsList.forEach(t => { if (t.calendarId) memo[t.name] = t.calendarId; });
-            studentDatabase = (src.students || []).map(s => Object.assign({}, s));
+            const leavesByKey = {};
+            studentDatabase.forEach(s => { if (s.longLeaves && s.longLeaves.length) leavesByKey[GACSchedule.studentIdKey(s.id)] = s.longLeaves; });
+            studentDatabase = (src.students || []).map(s => {
+                const out = Object.assign({}, s);
+                const kept = leavesByKey[GACSchedule.studentIdKey(s.id)];
+                if (kept && !(out.longLeaves && out.longLeaves.length)) out.longLeaves = kept.map(p => Object.assign({}, p));
+                return out;
+            });
             groupClasses = (src.groups || []).map(g => Object.assign({}, g, { memberIds: (g.memberIds || []).slice() }));
             const fromFile = (Array.isArray(src.tutors) && src.tutors.length) ? src.tutors : null;
             tutorsList = (fromFile || GACStorage.tutorsFromRoster(studentDatabase, groupClasses)).map(t => {
@@ -3436,7 +3552,7 @@
             const q = ((qEl && qEl.value) || '').toLowerCase().trim();
             let rows = paymentRowsFor(monthKey);
             if (tutorF !== 'ALL') rows = rows.filter(r => r.student.tutor === tutorF || (r.entry && (r.entry.items || []).some(it => it.tutor === tutorF)));
-            if (q) rows = rows.filter(r => String(r.student.id).toLowerCase().includes(q) || String(r.student.name).toLowerCase().includes(q));
+            if (q) rows = rows.filter(r => idMatchesQuery(r.student.id, q) || String(r.student.name).toLowerCase().includes(q));
             const entries = rows.map(r => r.entry).filter(Boolean);
             const totals = GACSendlog.paymentTotals(entries);
             const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };

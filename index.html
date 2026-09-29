@@ -963,7 +963,7 @@
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div>
-                    <label class="block font-bold text-slate-600 mb-1">學生 ID (如: 0212)*</label>
+                    <label class="block font-bold text-slate-600 mb-1" title="前面補不補零都算同一號：32、032、0032 是同一位學生">學生 ID (如: 0212)*</label>
                     <input type="text" id="modalId" placeholder="0212" class="w-full p-2 border border-slate-300 rounded-lg">
                 </div>
                 <div>
@@ -1033,6 +1033,15 @@
                     <label class="block font-bold text-slate-600 mb-1">所屬小組（可多選；小組本身在本頁「+ 新增小組」建立）</label>
                     <p id="modalGroupsHint" class="hidden text-[11px] text-sky-700 mb-1">只上小組的學生：在這裡勾選所屬小組即可，課表與學費都跟小組走。</p>
                     <div id="modalGroups" class="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg min-h-[2.2rem]"></div>
+                </div>
+                <!-- 長假（停課）：期間生成課表不出課（不收學費、不佔時段、不推 Calendar），精確到日；復課日期留空＝未定 -->
+                <div class="sm:col-span-2">
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="font-bold text-slate-600"><i class="fa-solid fa-moon text-violet-500"></i> 長假／停課</label>
+                        <button type="button" onclick="addModalLongLeave()" class="px-2 py-1 bg-violet-100 hover:bg-violet-200 text-violet-800 rounded-lg font-semibold transition">+ 新增長假</button>
+                    </div>
+                    <div id="modalLongLeaves" class="space-y-1.5"></div>
+                    <p class="text-[11px] text-slate-500 mt-1">長假期間生成課表時不出課（不收學費、不佔時段），精確到日。復課日期＝當天起恢復上課；留空＝未定，之後生成的月份一律略過，學生回來時再填上復課日期。</p>
                 </div>
             </div>
 
