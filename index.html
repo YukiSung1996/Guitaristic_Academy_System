@@ -255,18 +255,6 @@
                 </div>
             </div>
 
-            <!-- 待補堂池（跨月：所有已請假但未安排補堂的課） -->
-            <div id="pendingPoolBanner" class="hidden bg-amber-50 border border-amber-300 rounded-2xl p-4 space-y-2">
-                <button onclick="togglePendingPool()" class="w-full flex items-center justify-between text-left">
-                    <span class="text-sm font-bold text-amber-900 flex items-center gap-2">
-                        <i class="fa-solid fa-hourglass-half text-amber-500"></i>
-                        待補堂池：<span id="pendingPoolCount" class="text-rose-600 text-base">0</span> 筆請假尚未安排補堂（跨月統計，按等待天數排序）
-                    </span>
-                    <i id="pendingPoolChevron" class="fa-solid fa-chevron-down text-amber-500"></i>
-                </button>
-                <div id="pendingPoolList" class="hidden space-y-2"></div>
-            </div>
-
             <!-- Schedule Display Container -->
             <div id="masterScheduleWrapper" class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
                 
@@ -320,6 +308,18 @@
                 <!-- Views -->
                 <div id="masterScheduleList" class="hidden space-y-3 max-h-[600px] overflow-y-auto pr-1"></div>
                 <div id="masterCalendarView" class="overflow-x-auto"></div>
+            </div>
+
+            <!-- 待補堂池（跨月：所有已請假但未安排補堂的課）：放在月曆／清單下面，預設展開（點標題可收起；有待補的才顯示） -->
+            <div id="pendingPoolBanner" class="hidden bg-amber-50 border border-amber-300 rounded-2xl p-4 space-y-2">
+                <button onclick="togglePendingPool()" class="w-full flex items-center justify-between text-left">
+                    <span class="text-sm font-bold text-amber-900 flex items-center gap-2">
+                        <i class="fa-solid fa-hourglass-half text-amber-500"></i>
+                        待補堂池：<span id="pendingPoolCount" class="text-rose-600 text-base">0</span> 筆請假尚未安排補堂（跨月統計，按等待天數排序）
+                    </span>
+                    <i id="pendingPoolChevron" class="fa-solid fa-chevron-up text-amber-500"></i>
+                </button>
+                <div id="pendingPoolList" class="space-y-2"></div>
             </div>
         </section>
 

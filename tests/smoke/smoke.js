@@ -1612,6 +1612,11 @@ run('GACLessonState.markStatus(lessonsByMonth, ' + JSON.stringify(poolId) + ', "
 let copiedText = '';
 sandbox.navigator.clipboard.writeText = t => { copiedText = String(t); return Promise.resolve(); };
 check('待補堂池沒有長篇說明', !getEl('pendingPoolList').innerHTML.includes('想直接在 Google Calendar'));
+{
+    const page = fs.readFileSync(path.join(repo, 'index.html'), 'utf8');
+    check('待補堂池排在月曆／清單下面、預設展開', page.indexOf('id="pendingPoolBanner"') > page.indexOf('id="masterCalendarView"')
+        && page.includes('<div id="pendingPoolList" class="space-y-2"></div>') && page.includes('id="pendingPoolChevron" class="fa-solid fa-chevron-up'));
+}
 run('copyPoolGcalTitle(' + JSON.stringify(poolId) + ')');
 const draftTitle = run('GACSchedule.lessonTitle(poolMakeupDraft(GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(poolId) + ').lesson))');
 check('「複製標題」＝系統補堂標題（學號開頭、補堂、← 原課 MM/DD）', getEl('pendingPoolList').innerHTML.includes("copyPoolGcalTitle('" + poolId + "')")
