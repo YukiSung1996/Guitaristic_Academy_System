@@ -56,14 +56,14 @@ test('F3: 損壞的 localStorage JSON → 不拋錯，收集錯誤並回退預�
     assert.deepStrictEqual(students.map(s => s.id), ['S001']);
     assert.deepStrictEqual(lessons, {});
     assert.deepStrictEqual(sendlog, {});
-    assert.strictEqual(settings.payNoShow, true, '設定回退預設值');
+    assert.strictEqual(settings.gcalConflict, 'gcal', '設定回退預設值');
     assert.ok(store.errors.length >= 3, '錯誤被收集供 UI 提示：' + store.errors.join('; '));
 });
 
 test('設定：預設值合併，已存部分設定不丟失', () => {
-    const storage = fakeStorage({ gac_settings_v2: JSON.stringify({ payNoShow: false }) });
+    const storage = fakeStorage({ gac_settings_v2: JSON.stringify({ gcalConflict: 'local' }) });
     const settings = ST.createStore(storage).loadSettings();
-    assert.strictEqual(settings.payNoShow, false);
+    assert.strictEqual(settings.gcalConflict, 'local');
     assert.strictEqual(settings.gcalCalendarId, 'primary', '未存的設定用預設值');
 });
 
@@ -72,7 +72,7 @@ test('F1: 全量導出→清空→導入 → students/lessons/sendlog/settings �
         students: demoStudents,
         lessons: { '2026-09': [{ lessonId: 'S001-20260901-2130', status: 'ATTENDED' }] },
         sendlog: { 'TUITION:S001:2026-09': { key: 'TUITION:S001:2026-09', status: 'SENT' } },
-        settings: { payNoShow: false, publicIcsUrl: '' },
+        settings: { gcalConflict: 'local', publicIcsUrl: '' },
         now: '2026-09-15T10:00:00.000Z'
     };
     const payload = ST.buildExportPayload(data);
@@ -94,7 +94,7 @@ test('F1: 全量導出→清空→導入 → students/lessons/sendlog/settings �
     store.saveSendlog(parsed.sendlog);
     store.saveSettings(parsed.settings);
     assert.deepStrictEqual(store.loadLessons(), data.lessons);
-    assert.strictEqual(store.loadSettings().payNoShow, false);
+    assert.strictEqual(store.loadSettings().gcalConflict, 'local');
 });
 
 test('導入兼容：舊版純學生陣列可識別；垃圾輸入被拒絕', () => {

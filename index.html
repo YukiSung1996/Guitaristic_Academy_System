@@ -888,30 +888,6 @@
                 </div>
             </div>
 
-            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm max-w-2xl">
-                <button type="button" onclick="toggleSettingsModule('general')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
-                    <span class="min-w-0">
-                        <span class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-sliders text-slate-500"></i> 一般</span>
-                        <span class="block text-xs text-slate-500 mt-0.5">薪酬口徑、發送中心 WhatsApp 行為</span>
-                    </span>
-                    <i id="smodChev_general" class="fa-solid fa-chevron-down text-slate-400 transition-transform shrink-0"></i>
-                </button>
-                <div id="smod_general" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
-                    <label class="flex items-start gap-3 text-sm cursor-pointer">
-                        <input type="checkbox" id="setPayNoShow" class="mt-0.5 w-4 h-4 accent-sky-600">
-                        <span>
-                            <span class="font-bold text-slate-700">缺席（NOSHOW）計入導師薪酬</span>
-                            <!-- TODO(跟老闆確認)：NOSHOW 計薪預設值，目前預設計入 -->
-                            <span class="block text-xs text-slate-500 mt-0.5">學生無故缺席但導師已到場，該堂照計工資（高級薪酬「匯入學生及課堂」時生效）。</span>
-                        </span>
-                    </label>
-                    <div class="flex items-center gap-3 pt-2 border-t border-slate-100">
-                        <button onclick="saveSettingsForm()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5"><i class="fa-solid fa-floppy-disk"></i> 儲存設定</button>
-                        <span class="settings-saved-hint hidden text-xs text-emerald-600 font-semibold"><i class="fa-solid fa-check"></i> 已儲存</span>
-                    </div>
-                </div>
-            </div>
-
             <div class="bg-white rounded-2xl border border-rose-300 shadow-sm max-w-2xl">
                 <button type="button" onclick="toggleSettingsModule('danger')" class="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left">
                     <span class="min-w-0">

@@ -533,14 +533,17 @@ check('再請假：SENT 確認條目不重複不降級（C7 幂等）', run('sen
 run('submitMakeup("S004-20260909-2130","poolDate2","poolTime2")');
 check('重排後 MAKEUP_CONFIRM 條目重建為 TODO', run('sendLog["MAKEUP_CONFIRM:S004-20261008-1800-MU-20260909-2130"].status') === 'TODO');
 // 設定頁：保存/讀取
-getEl('setPayNoShow').checked = false;
+run('appSettings.payNoShow = false');   // 舊版留下的設定值（「缺席計入導師薪酬」已取消，一律照計）
+getEl('setFeeNotice').value = '冒煙：備註';
 getEl('setGcalCalendarId').value = '';
 run('saveSettingsForm()');
-check('設定保存：payNoShow=false 落盤', run('appSettings.payNoShow') === false
-    && JSON.parse(fakeStorage.getItem('gac_settings_v2')).payNoShow === false);
+check('設定保存：落盤；已取消的舊設定 payNoShow 存檔時清掉', run('appSettings.feeNotice') === '冒煙：備註' && !('payNoShow' in run('appSettings'))
+    && JSON.parse(fakeStorage.getItem('gac_settings_v2')).feeNotice === '冒煙：備註' && !('payNoShow' in JSON.parse(fakeStorage.getItem('gac_settings_v2'))));
+check('設定頁沒有「缺席計入導師薪酬」與「一般」模組', !fs.readFileSync(path.join(repo, 'index.html'), 'utf8').includes('setPayNoShow') && !run('SETTINGS_MODULES').includes('general'));
 check('日曆 ID 留空回退 primary', run('appSettings.gcalCalendarId') === 'primary');
+getEl('setFeeNotice').value = '';
 run('loadSettingsForm()');
-check('loadSettingsForm 回填不崩潰', getEl('setPayNoShow').checked === false);
+check('loadSettingsForm 回填不崩潰', getEl('setFeeNotice').value === '冒煙：備註');
 
 // 19) F1 全量備份：導出 → 清空 → 匯入全還原；舊版純學生陣列相容
 console.log('[17] 全量備份/還原（F1）');
@@ -558,7 +561,7 @@ check('全量還原：學生 14 人＋小組班 1 個', run('studentDatabase.len
 check('全量還原：9 月 14 堂 + 10 月 1 節補堂', run('lessonsByMonth["2026-09"].length') === 14 && run('lessonsByMonth["2026-10"].length') === 1);
 check('全量還原：補堂鏈完好', run('GACLessonState.findLesson(lessonsByMonth,"S004-20260909-2130").lesson.makeupLessonId') === 'S004-20261008-1800-MU-20260909-2130');
 check('全量還原：sendlog 含手改金額 9999', run('sendLog["TUITION:S003:2026-09"].amount') === 9999);
-check('全量還原：設定 payNoShow=false 還原', run('appSettings.payNoShow') === false);
+check('全量還原：設定還原', run('appSettings.feeNotice') === '冒煙：備註');
 check('全量還原：四把 key 重新落盤', ['gac_students_v2', 'gac_lessons_v2', 'gac_sendlog_v2', 'gac_settings_v2'].every(k => fakeStorage.getItem(k) !== null));
 
 // ===== 檢查點 3：Google Calendar UI（前置檢查＋對帳套用；API 傳輸層在 tests/gcal.test.js 以 mock 覆蓋）=====
@@ -994,14 +997,12 @@ check('全量備份含繳費欄位（發送紀錄整份匯出）', JSON.stringif
 // 30) 數據分析：KPI 與薪酬／繳費同口徑；無 Chart（離線）退回文字長條
 console.log('[28] 數據分析');
 run('markLessonStatus("S001-20260907-2130","ATTENDED"); markLessonStatus("S003-20260902-2130","NOSHOW")');
-getEl('setPayNoShow').checked = true;
-run('saveSettingsForm()'); // [16] 曾關閉缺席計薪，這裡開回預設再比對口徑
 getEl('anaMonth').value = '2026-09';
 const ana = run('renderAnalytics()');
 check('KPI：學費應收＝繳費頁應收、出席率 50%（1 已上課 1 缺席）、節數 2', getEl('anaKpiTuitionDue').textContent === getEl('payKpiDue').textContent
     && getEl('anaKpiAttendance').textContent === '50%' && getEl('anaKpiNoShow').textContent === '50%' && getEl('anaKpiSessions').textContent === '2'
     && ana.status.ATTENDED === 1 && ana.status.NOSHOW === 1);
-check('已上課課值＝兩堂各按費率（缺席計薪預設開）', getEl('anaKpiRevenue').textContent === run('tuitionMoney(rateForLesson(GACLessonState.findLesson(lessonsByMonth,"S001-20260907-2130").lesson) + rateForLesson(GACLessonState.findLesson(lessonsByMonth,"S003-20260902-2130").lesson))'));
+check('已上課課值＝兩堂各按費率（缺席照計）', getEl('anaKpiRevenue').textContent === run('tuitionMoney(rateForLesson(GACLessonState.findLesson(lessonsByMonth,"S001-20260907-2130").lesson) + rateForLesson(GACLessonState.findLesson(lessonsByMonth,"S003-20260902-2130").lesson))'));
 check('各導師表列 Instructor A；離線退回文字長條含導師名與狀態', getEl('anaTutorTable').innerHTML.includes('Instructor A')
     && getEl('chartSessionsByTutorFallback').innerHTML.includes('Instructor A') && getEl('chartStatusFallback').innerHTML.includes('缺席')
     && getEl('chartByProgramFallback').innerHTML.includes('Pop Guitar'));
@@ -1278,7 +1279,7 @@ check('[18] 前置檢查導向設定頁時已展開 Google Calendar 模組', JSO
 fakeStorage.removeItem('gac_settings_open'); // 回到全新狀態再測預設
 run("switchTab('settingsTab')");
 check('設定頁模組預設全部收起', JSON.stringify([...run('settingsOpenSet()')]) === '[]');
-check('設定頁模組順序：「一般」排在資料備份之後、危險區之前', run("SETTINGS_MODULES.join(',')") === 'gcal,fee,templates,tutors,rates,backup,general,danger');
+check('設定頁模組順序：危險區殿後', run("SETTINGS_MODULES.join(',')") === 'gcal,fee,templates,tutors,rates,backup,danger');
 run("toggleSettingsModule('gcal')");
 check('展開 Google Calendar 模組 → 本機記住', JSON.parse(fakeStorage.getItem('gac_settings_open')).includes('gcal'));
 run("toggleSettingsModule('gcal')");

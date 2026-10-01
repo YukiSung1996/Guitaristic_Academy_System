@@ -1,7 +1,7 @@
 // payroll-advanced.js — 高級薪酬管理頁
 // 一句話模型：**預期**＝本月排定的課全部上完能拿多少；**目前應付**＝已確認出席的課現在該付多少。
 // 數字全部由課表算出（lib/payroll.js monthPayroll），頁面不可手改堂數——要加減錢請用「額外津貼／扣款」。
-//   已確認＝ATTENDED（NOSHOW 依設定 payNoShow）；待確認＝SCHEDULED；請假不算（其補堂是另一筆課堂記錄，落在補堂當月）。
+//   已確認＝ATTENDED 與 NOSHOW（缺席照計：導師已到場）；待確認＝SCHEDULED；請假不算（其補堂是另一筆課堂記錄，落在補堂當月）。
 // 調整／封存／分成走 gacStorage（state.js：serve.cmd 模式是本資料夾的 local-state.json）；深色模式是 UI 偏好，仍在 localStorage
 const advancedPayrollState = {
   adjustments: JSON.parse(gacStorage.getItem('gac_adjustments') || '[]'),
@@ -83,8 +83,7 @@ function advancedTotalPayout(summary, which) {
 function advancedRefresh() {
   const monthKey = advancedMonth();
   if (!monthKey) return;
-  const payNoShow = typeof appSettings === 'undefined' || !appSettings || appSettings.payNoShow !== false;
-  advancedPayrollState.summary = GACPayroll.monthPayroll(lessonsByMonth, monthKey, { payNoShow, rateFn: rateForLesson });
+  advancedPayrollState.summary = GACPayroll.monthPayroll(lessonsByMonth, monthKey, { rateFn: rateForLesson });
   advancedRenderExpiredWarning(monthKey);
   advancedRenderSummary();
   advancedRenderTutors();

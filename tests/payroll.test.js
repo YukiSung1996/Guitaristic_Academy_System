@@ -36,13 +36,12 @@ test('E2: 9 月請假、10 月 5 日補堂 ATTENDED → 9 月不含此節，10 �
     assert.strictEqual(oct[0].lessonId, mu.lessonId);
 });
 
-test('E3: NOSHOW 開關：on（預設）→ 計入；off → 不計', () => {
+test('E3: 缺席（NOSHOW）照計薪——沒有開關', () => {
     const buckets = { '2026-09': S.generateMonthLessons(student(), '2026-09') };
     LS.markStatus(buckets, 'S001-20260901-2130', 'ATTENDED');
     LS.markStatus(buckets, 'S001-20260908-2130', 'NOSHOW');
-    assert.strictEqual(P.payableLessons(buckets, '2026-09').length, 2, '預設 NOSHOW 計薪');
-    assert.strictEqual(P.payableLessons(buckets, '2026-09', { payNoShow: true }).length, 2);
-    assert.strictEqual(P.payableLessons(buckets, '2026-09', { payNoShow: false }).length, 1);
+    assert.strictEqual(P.payableLessons(buckets, '2026-09').length, 2, '已上課＋缺席');
+    assert.strictEqual(P.payableLessons(buckets, '2026-09', { payNoShow: false }).length, 2, '舊參數不再有作用');
 });
 
 test('E4: gross=3000、share=60%、調整 +200/−50 → payout=1950', () => {
@@ -112,7 +111,7 @@ test('E7: monthPayroll——預期＝已確認＋待確認（請假不計）；�
     const r = P.monthPayroll(buckets, '2026-09', { rateFn: l => (l.groupId ? 100 : 300) });
     assert.deepStrictEqual(r.tutors.map(t => t.tutor), ['Instructor A', 'Instructor B']);
     const a = r.tutors[0], b = r.tutors[1];
-    assert.deepStrictEqual([a.current, a.pending, a.expected], [2, 2, 4], '請假那堂不計；NOSHOW 預設算已確認');
+    assert.deepStrictEqual([a.current, a.pending, a.expected], [2, 2, 4], '請假那堂不計；NOSHOW 算已確認');
     assert.deepStrictEqual([a.currentGross, a.expectedGross], [600, 1200]);
     assert.deepStrictEqual([a.currentSessions, a.expectedSessions], [2, 4], '一對一每堂一節');
     assert.strictEqual(a.items.length, 1);
@@ -124,8 +123,5 @@ test('E7: monthPayroll——預期＝已確認＋待確認（請假不計）；�
     assert.deepStrictEqual([r.totals.current, r.totals.pending, r.totals.expected], [4, 4, 8]);
     assert.deepStrictEqual([r.totals.currentGross, r.totals.expectedGross], [800, 1600]);
     assert.deepStrictEqual([r.totals.currentSessions, r.totals.expectedSessions], [3, 6]);
-    // NOSHOW 不計薪：那堂既非已確認也非待確認
-    const off = P.monthPayroll(buckets, '2026-09', { payNoShow: false, rateFn: () => 300 });
-    assert.deepStrictEqual([off.tutors[0].current, off.tutors[0].pending, off.tutors[0].expected], [1, 2, 3]);
     assert.deepStrictEqual(P.monthPayroll(buckets, '2026-01', {}), { tutors: [], totals: { expected: 0, current: 0, pending: 0, expectedGross: 0, currentGross: 0, expectedSessions: 0, currentSessions: 0 } }, '空月份');
 });

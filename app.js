@@ -3423,7 +3423,6 @@
             const monthKey = analyticsMonth();
             const st = GACAnalytics.monthStats(lessonsByMonth, monthKey, {
                 rateFn: rateForLesson,
-                payNoShow: !appSettings || appSettings.payNoShow !== false,
                 tuitionEntries: GACSendlog.tuitionByMonth(sendLog, monthKey)
             });
             const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
@@ -4163,8 +4162,8 @@
         }
 
         // ===== 設定頁模組摺疊：開合狀態只存本機 gac_settings_open（UI 便利，不入備份；預設全部收起）=====
-        // 順序＝頁面順序：常用的在前，「一般」與危險區殿後
-        const SETTINGS_MODULES = ['gcal', 'fee', 'templates', 'tutors', 'rates', 'backup', 'general', 'danger'];
+        // 順序＝頁面順序：常用的在前，危險區殿後
+        const SETTINGS_MODULES = ['gcal', 'fee', 'templates', 'tutors', 'rates', 'backup', 'danger'];
 
         function settingsOpenSet() {
             try {
@@ -4212,9 +4211,7 @@
 
         // ===== 設定頁（gac_settings_v2）=====
         function loadSettingsForm() {
-            const chk = document.getElementById('setPayNoShow');
-            if (!chk) return;
-            chk.checked = appSettings.payNoShow !== false;
+            if (!document.getElementById('setGcalClientId')) return;
             document.getElementById('setGcalClientId').value = appSettings.gcalClientId || '';
             document.getElementById('setGcalCalendarId').value = appSettings.gcalCalendarId || 'primary';
             document.getElementById('setGcalWrite').checked = appSettings.gcalWrite !== false;
@@ -4271,8 +4268,9 @@
         }
 
         function saveSettingsForm() {
-            appSettings.payNoShow = document.getElementById('setPayNoShow').checked;
-            delete appSettings.waSentMode;   // 舊設定（點開 WhatsApp 後的三種處理）已取消：一律點開即已發送
+            // 已取消的舊設定，存檔時順手清掉：缺席是否計薪（一律照計）、點開 WhatsApp 後的三種處理（一律點開即已發送）
+            delete appSettings.payNoShow;
+            delete appSettings.waSentMode;
             appSettings.gcalClientId = document.getElementById('setGcalClientId').value.trim();
             appSettings.gcalCalendarId = GACGcal.normalizeCalendarId(document.getElementById('setGcalCalendarId').value) || 'primary';
             appSettings.gcalWrite = !!document.getElementById('setGcalWrite').checked;

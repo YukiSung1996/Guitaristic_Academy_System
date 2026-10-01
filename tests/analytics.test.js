@@ -42,15 +42,12 @@ test('H1: 狀態分佈／出席率／請假率／待補堂／未確認', () => {
     assert.deepStrictEqual(st.leaveTypes, { L: 1, SL: 0, TL: 0 });
 });
 
-test('H2: 節數／工時／收入（缺席計薪 vs 不計）', () => {
-    const on = A.monthStats(buckets, '2026-09', { rateFn, payNoShow: true });
+test('H2: 節數／工時／收入（缺席照計）', () => {
+    const on = A.monthStats(buckets, '2026-09', { rateFn });
     // 可計薪：a1 a2 g1 g2 g3 g4 b1 b2 = 8 堂；節：a1 a2 (2) + 9/9 小組 (1) + 9/16 小組 (1) + b1 b2 (2) = 6
     assert.strictEqual(on.sessions, 6);
     assert.strictEqual(on.tutorHours, 5, '45×4 + 60×2 = 300 分鐘');
     assert.strictEqual(on.revenue, 300 * 4 + 100 * 4);
-    const off = A.monthStats(buckets, '2026-09', { rateFn, payNoShow: false });
-    assert.strictEqual(off.sessions, 6, 'g3 仍在 9/16 那節，節數不變');
-    assert.strictEqual(off.revenue, 300 * 4 + 100 * 3);
 });
 
 test('H3: 各導師／各課程分項與學費彙總', () => {
