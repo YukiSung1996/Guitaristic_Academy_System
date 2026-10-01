@@ -82,7 +82,7 @@ if (FILE_MODE) {
 
 const files = ['data.js', 'demo_data.js', 'art-rate-data.js', 'lib/schedule.js', 'lib/lessonState.js',
     'lib/payroll.js', 'lib/analytics.js', 'lib/sendlog.js', 'lib/storage.js', 'lib/history.js', 'lib/gcal.js', 'lib/ics.js', 'lib/rates.js', 'state.js', 'app.js',
-    'gcal-ui.js', 'payroll-advanced.js'];
+    'lib/xlsx.js', 'lib/paysheet.js', 'gcal-ui.js', 'payroll-advanced.js', 'paysheet-ui.js'];
 for (const f of files) {
     vm.runInContext(fs.readFileSync(path.join(repo, f), 'utf8'), sandbox, { filename: f });
 }
@@ -2893,6 +2893,65 @@ function __titleFixTail() {
     });
 }
 
+// 41) 糧單下載（Excel）：隔離在 2027-02，測完清掉。PDF 要真的 canvas，這裡的 stub DOM 畫不了，改在真實瀏覽器驗
+function __paysheetTail() {
+    console.log('[41] 糧單下載（Excel／PDF）');
+    const month = '2027-02';
+    const mk = (id, name, tutor, n, extra) => Array.from({ length: n }, (_, i) => Object.assign({
+        lessonId: id + '-202702' + String(i + 1).padStart(2, '0') + '-1000', studentId: id, studentName: name, tutor, program: 'Pop Guitar', level: 'Elementary 初級',
+        classType: '一對一', duration: 45, date: '2027-02-' + String(i + 1).padStart(2, '0'), time: '10:00', status: 'ATTENDED'
+    }, extra || {}));
+    sandbox.__payLessons = [].concat(mk('ZP1', 'Pay One', 'Instructor A', 4), mk('ZP2', 'Pay Two', 'Instructor A', 3), mk('ZP2', 'Pay Two', 'Instructor A', 1, { date: '2027-02-20', lessonId: 'ZP2-20270220-1000', status: 'NOSHOW' }),
+        mk('ZP3', 'Pay Three', 'Instructor B', 2), mk('ZP3', 'Pay Three', 'Instructor B', 1, { date: '2027-02-25', lessonId: 'ZP3-20270225-1000', status: 'SCHEDULED' }));
+    run('lessonsByMonth["2027-02"] = __payLessons');
+    getEl('advancedPayrollMonth').value = month;
+    run("advancedPayrollState.adjustments.length = 0; advancedPayrollState.adjustments.push({ name: '交通津貼', tutor: 'Instructor A', type: 'add', amount: 500 }, { name: '遲到扣款', tutor: 'Instructor A', type: 'sub', amount: 120 }, { name: '全月雜項', tutor: '', type: 'add', amount: 99 }, { name: '還沒填', tutor: 'Instructor B', type: 'add', amount: 0 }); advancedRefresh()");
+    check('導師那一行有這位導師的 Excel／PDF 下載鈕；頁頂有全部導師的下載鈕', getEl('advancedTutorList').innerHTML.includes("advancedDownloadSheet('xlsx', 0)")
+        && getEl('advancedTutorList').innerHTML.includes("advancedDownloadSheet('pdf', 1)")
+        && fs.readFileSync(path.join(repo, 'index.html'), 'utf8').includes('onclick="advancedDownloadSheet(\'pdf\')"'));
+    const models = run('paysheetModels(null, null)');
+    const cellTexts = m => m.rows.map(r => (r.cells || []).map(c => (c ? c.text : '')).join('|')).join('\n');
+    check('每位導師一張；合計＝頁面該導師的「目前應付」（課程總額 × 拆帳 ＋ 指名調整）', models.length === 2
+        && models.every((m, i) => Math.abs(m.totals.total - run('advancedTutorPayout(advancedPayrollState.summary.tutors[' + i + '], "current")')) < 1e-9)
+        && models[0].name === 'Instructor A' && models[1].name === 'Instructor B');
+    check('明細：只算已確認的課（待確認不入）、缺席照計並在備註註明', cellTexts(models[0]).includes('Pay Two|Pop Guitar - Elementary 初級|') && cellTexts(models[0]).includes('|4|') && cellTexts(models[0]).includes('含缺席 1 堂')
+        && /Pay Three\|[^\n]*\|2\|/.test(cellTexts(models[1])));
+    check('調整：只放指名給這位導師而且金額不是 0 的；扣款為負；「全月」的不屬於任何一張', cellTexts(models[0]).includes('交通津貼') && cellTexts(models[0]).includes('-HK$ 120.00')
+        && !cellTexts(models[0]).includes('全月雜項') && !cellTexts(models[1]).includes('全月雜項') && !cellTexts(models[1]).includes('還沒填')
+        && models[0].totals.adjTotal === 380 && models[1].totals.adjTotal === 0);
+    check('標題帶月份；沒有標誌檔時不放圖', cellTexts(models[0]).includes("Teacher's Tuition Fee Mark Sheet (Feb 2027)") && models[0].image === null
+        && !!run('paysheetModels(null, { width: 1200, height: 200 })[0].image'));
+    // 下載：攔下 Blob 與檔名
+    let saved = [], name = '';
+    const blobWas = sandbox.Blob, createWas = sandbox.document.createElement;
+    sandbox.Blob = function (parts, opt) { saved.push({ bytes: parts[0], type: opt && opt.type }); };
+    sandbox.document.createElement = tag => { const el = makeElement('created_' + tag); el.setAttribute = (k, v) => { if (k === 'download') name = v; }; return el; };
+    const isZip = b => !!b && b[0] === 0x50 && b[1] === 0x4B && b.length > 2000;
+    return run("advancedDownloadSheet('xlsx')").then(ok => {
+        check('下載全部導師（Excel）：一個 xlsx、檔名帶月份；提示還有待確認的課、這次沒有標誌', ok === true && saved.length === 1 && isZip(saved[0].bytes)
+            && saved[0].type.includes('spreadsheetml') && name === 'Guitaristic_Paysheet_2027-02.xlsx'
+            && run('lastToast').includes('2 位導師') && run('lastToast').includes('還有 1 堂待確認') && run('lastToast').includes('沒有放標誌'));
+        const all = saved[0].bytes;
+        saved = [];
+        return run("advancedDownloadSheet('xlsx', 0)").then(ok1 => {
+            check('下載單一導師：檔名帶導師、檔案比全部的小；該導師沒有待確認就不提示', ok1 === true && saved.length === 1 && isZip(saved[0].bytes) && saved[0].bytes.length < all.length
+                && name === 'Guitaristic_Paysheet_2027-02_Instructor-A.xlsx' && !run('lastToast').includes('待確認'));
+        });
+    }).then(() => {
+        saved = [];
+        return run("advancedDownloadSheet('xlsx', 9)").then(ok => check('導師位置不存在 → 不出檔', ok === false && saved.length === 0));
+    }).then(() => {
+        run('lessonsByMonth["2027-02"].forEach(l => { l.status = "SCHEDULED"; }); advancedPayrollState.adjustments.length = 0; advancedRefresh()');
+        return run("advancedDownloadSheet('xlsx')").then(ok => check('沒有已確認的課堂 → 不出檔並提示先確認出席', ok === false && saved.length === 0 && run('lastToast').includes('還沒有已確認的課堂')));
+    }).then(() => {
+        sandbox.Blob = blobWas; sandbox.document.createElement = createWas;
+        run('delete lessonsByMonth["2027-02"]; advancedPayrollState.adjustments.length = 0; advancedSaveAdjustments(); persistLessons()');
+        getEl('advancedPayrollMonth').value = '2026-09';
+        run('advancedRefresh()');
+        check('清理完成', !run('lessonsByMonth["2027-02"]'));
+    });
+}
+
 Promise.resolve()
     .then(() => __icsSyncTail())
     .then(() => __muMoveTail())
@@ -2900,6 +2959,7 @@ Promise.resolve()
     .then(() => __tutorCalTail())
     .then(() => __titleFixTail())
     .then(() => __asyncTail())
+    .then(() => __paysheetTail())
     .then(() => __fileModeTail())
     .catch(e => { failures++; console.log('  FAIL - 非同步尾段拋錯：' + ((e && e.stack) || e)); })
     .then(() => {

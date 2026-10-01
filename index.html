@@ -442,6 +442,12 @@
                     <div class="flex flex-wrap items-center gap-3 text-xs">
                         <label class="font-bold text-slate-600">月份 <input id="advancedPayrollMonth" type="month" class="ml-1 px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none"></label>
                         <label class="font-bold text-slate-600">導師拆帳 <input id="advancedShare" type="number" min="0" max="100" class="w-16 px-2 py-1.5 border border-slate-300 rounded-lg text-right focus:ring-2 focus:ring-amber-500 focus:outline-none">%</label>
+                        <!-- 糧單下載：全部導師合成一個檔（Excel 每位導師一個工作表、PDF 每位導師另起一頁）；單獨一位的在下面每位導師那一行 -->
+                        <span class="flex items-center gap-1.5">
+                            <span class="font-bold text-slate-600">下載糧單</span>
+                            <button id="advancedDownloadXlsx" type="button" onclick="advancedDownloadSheet('xlsx')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold transition shadow-sm flex items-center gap-1" title="全部導師的糧單合成一個 Excel 檔（每位導師一個工作表）。只算已確認出席的課"><i class="fa-solid fa-file-excel"></i> Excel</button>
+                            <button id="advancedDownloadPdf" type="button" onclick="advancedDownloadSheet('pdf')" class="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold transition shadow-sm flex items-center gap-1" title="全部導師的糧單合成一個 PDF 檔（每位導師另起一頁）。只算已確認出席的課"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+                        </span>
                     </div>
                 </div>
                 <!-- 計算前置警告：日期已過但未確認出席的課（只算在預期，不算目前應付） -->
@@ -1352,10 +1358,13 @@
     <script src="lib/gcal.js"></script>
     <script src="lib/ics.js"></script>
     <script src="lib/rates.js"></script>
+    <script src="lib/xlsx.js"></script>
+    <script src="lib/paysheet.js"></script>
     <script src="state.js"></script>
     <script src="app.js"></script>
     <script src="gcal-ui.js"></script>
     <script src="payroll-advanced.js"></script>
+    <script src="paysheet-ui.js"></script>
 </body>
 </html>
 

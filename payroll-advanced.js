@@ -132,7 +132,8 @@ function advancedRenderTutors() {
     box.innerHTML = '<div class="p-6 text-center text-slate-400 text-xs">📭 此月份沒有可計薪的課堂。</div>';
     return;
   }
-  box.innerHTML = s.tutors.map(t => {
+  const sheetBtn = 'w-7 h-7 rounded-lg flex items-center justify-center transition';
+  box.innerHTML = s.tutors.map((t, index) => {
     const open = advancedPayrollState.openTutors.has(t.tutor);
     const adj = advancedAdjustFor(t.tutor);
     const rows = t.items.map(i => `<tr>
@@ -145,7 +146,8 @@ function advancedRenderTutors() {
         <td class="p-2 text-right text-slate-500">${advancedMoney(i.expected * i.rate)}</td>
       </tr>`).join('');
     return `<div class="border border-slate-200 rounded-xl overflow-hidden">
-        <button type="button" onclick="toggleAdvTutor('${esc(t.tutor).replace(/'/g, "\\'")}')" class="w-full flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-left text-xs hover:bg-slate-50">
+        <div class="flex items-stretch">
+        <button type="button" onclick="toggleAdvTutor('${esc(t.tutor).replace(/'/g, "\\'")}')" class="flex-1 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-left text-xs hover:bg-slate-50">
           <i class="fa-solid fa-chevron-${open ? 'down' : 'right'} text-slate-400 text-[10px]"></i>
           <b class="text-slate-800">${esc(t.tutor)}</b>
           <span class="text-slate-500">已確認 <b class="text-emerald-700">${t.current}</b> / 預期 ${t.expected} 堂${t.pending ? `　·　<b class="text-amber-600">${t.pending} 堂待確認</b>` : ''}　·　節數 ${t.currentSessions}/${t.expectedSessions}</span>
@@ -154,6 +156,11 @@ function advancedRenderTutors() {
             <span class="block text-[10px] text-slate-400">預期 ${advancedMoney(advancedTutorPayout(t, 'expected'))}${adj ? `（含調整 ${advancedMoney(adj)}）` : ''}</span>
           </span>
         </button>
+        <div class="flex items-center gap-1 px-2 border-l border-slate-100 text-sm" title="下載這位導師的糧單（只算已確認出席的課）">
+          <button type="button" onclick="advancedDownloadSheet('xlsx', ${index})" class="${sheetBtn} text-emerald-700 hover:bg-emerald-50" title="下載 ${esc(t.tutor)} 的糧單（Excel）"><i class="fa-solid fa-file-excel"></i></button>
+          <button type="button" onclick="advancedDownloadSheet('pdf', ${index})" class="${sheetBtn} text-rose-600 hover:bg-rose-50" title="下載 ${esc(t.tutor)} 的糧單（PDF）"><i class="fa-solid fa-file-pdf"></i></button>
+        </div>
+        </div>
         ${open ? `<div class="border-t border-slate-100 overflow-x-auto">
           <table class="w-full text-xs text-left">
             <thead class="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wider">
