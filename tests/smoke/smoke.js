@@ -977,6 +977,24 @@ getEl('paySearch').value = 'S003';
 run('renderPaymentTab()');
 check('搜尋 S003 → 一列', (getEl('paymentTableBody').innerHTML.match(/<tr/g) || []).length === 1);
 getEl('paySearch').value = '';
+// 繳費狀態篩選：只看已繳清／未繳清；只篩名單，上方統計不變
+{
+    const rowsN = () => (getEl('paymentTableBody').innerHTML.match(/<tr/g) || []).length;
+    run('renderPaymentTab()');
+    const allN = rowsN(), due0 = getEl('payKpiDue').textContent;
+    run("payUpdate('TUITION:S003:2026-09', { payMethod: '1' })");
+    const outstanding = getEl('payKpiOutstanding').textContent;
+    getEl('payStatusFilter').value = 'PAID';
+    run('renderPaymentTab()');
+    check('只看已繳清 → 只剩繳清的那一位；應收／未收統計不變', rowsN() === 1 && getEl('paymentTableBody').innerHTML.includes('S003') && getEl('paymentTableBody').innerHTML.includes('已繳清')
+        && getEl('payKpiDue').textContent === due0 && getEl('payKpiOutstanding').textContent === outstanding);
+    getEl('payStatusFilter').value = 'DUE';
+    run('renderPaymentTab()');
+    check('只看未繳清 → 其餘有學費條目的學生，不含已繳清的', rowsN() === allN - 1 && !getEl('paymentTableBody').innerHTML.includes('已繳清</span>'));
+    getEl('payStatusFilter').value = 'ALL';
+    run("payUpdate('TUITION:S003:2026-09', { clearPayment: true })");
+    check('回到所有繳費狀態', rowsN() === allN);
+}
 // 學費單尾段：設定填了才出現
 getEl('setFpsId').value = '123456'; getEl('setInfoUrl').value = 'https://example.test/rules'; getEl('setFeeNotice').value = '附註測試';
 sandbox.__qsaHook = sel => (sel === '#payMethodsEditor .pay-method-input' ? [{ value: '現金' }, { value: 'FPS' }, { value: '轉帳' }] : []);

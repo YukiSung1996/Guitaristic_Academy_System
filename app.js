@@ -3709,6 +3709,10 @@
             setText('payKpiOutstanding', tuitionMoney(totals.outstanding));
             setText('payKpiUnsent', String(entries.filter(e => e.status !== 'SENT').length));
             setText('payKpiAbsent', String(rows.reduce((s, r) => s + r.noshow, 0)));
+            // 繳費狀態篩選只管下面的名單：上面的統計仍是這位導師／這次搜尋範圍的全部（只看已繳清時「未收」不該變成 0）
+            const stSel = document.getElementById('payStatusFilter');
+            const stF = (stSel && stSel.value) || 'ALL';
+            if (stF !== 'ALL') rows = rows.filter(r => !!r.entry && (GACSendlog.paymentStatus(r.entry) === 'paid') === (stF === 'PAID'));
             if (!rows.length) {
                 body.innerHTML = `<tr><td colspan="12" class="p-6 text-center text-slate-400 text-xs">📭 ${monthKey} 尚未生成課表，或沒有符合篩選的學生。到「總課表」生成後，學費條目會出現在這裡。</td></tr>`;
                 return;
