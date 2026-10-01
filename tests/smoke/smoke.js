@@ -293,7 +293,16 @@ console.log('[3] 狀態機操作');
 run('markLessonStatus("S003-20260902-2130","ATTENDED")');
 check('S003 9/2 已上課', run('GACLessonState.findLesson(lessonsByMonth,"S003-20260902-2130").lesson.status') === 'ATTENDED');
 getEl('leaveType_S004-20260909-2130').value = 'SL';
-run('confirmLeave("S004-20260909-2130")');
+{
+    // 按「確認請假」直接標記：不再彈「確定請假？」確認框；之後照樣開請假訊息窗
+    let leaveConfirms = 0;
+    const keepConfirm = sandbox.confirm;
+    sandbox.confirm = () => { leaveConfirms++; return false; };
+    run('confirmLeave("S004-20260909-2130")');
+    sandbox.confirm = keepConfirm;
+    check('確認請假：不彈確認框、直接標記，並開請假訊息窗', leaveConfirms === 0
+        && getEl('msgModalTitle').textContent.includes('請假確認') && getEl('msgModalBody').innerHTML.includes('S004'));
+}
 check('S004 9/9 已請假 SL', run('GACLessonState.findLesson(lessonsByMonth,"S004-20260909-2130").lesson.leaveType') === 'SL');
 check('待補池 1 筆', run('GACLessonState.pendingMakeups(lessonsByMonth, "2026-09-15").length') === 1);
 getEl('poolDate_S004-20260909-2130').value = '2026-10-07';

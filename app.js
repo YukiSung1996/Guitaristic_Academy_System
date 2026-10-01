@@ -1847,7 +1847,8 @@
             renderAll();
         }
 
-        // 兩步之一：標記請假。防誤觸：先彈確認框；TL（導師請假）為小組課時全組聯動（手動模式不聯動）。
+        // 兩步之一：標記請假。按「確認請假」就直接標記，不再另彈確認框（按錯了用「撤銷」）；TL（導師請假）為小組課時全組聯動（手動模式不聯動），
+        // 之後彈出的請假訊息窗會列出全組成員。
         function confirmLeave(lessonId) {
             const sel = document.getElementById('leaveType_' + lessonId);
             const leaveType = sel ? sel.value : 'L';
@@ -1860,8 +1861,6 @@
                     .filter(s => s.status === 'SCHEDULED'));
             }
             const nameList = targets.map(t => `${t.studentName} (${t.studentId})`).join('、');
-            const groupNote = targets.length > 1 ? `\n\n※ 小組課：導師請假對全組生效，將同時為以上 ${targets.length} 位學生請假。` : '';
-            if (!confirm(`確定請假？\n學生：${nameList}\n課堂：${me.date} ${me.time}\n假別：${getLeaveText(leaveType)}${groupNote}`)) return;
             pushHistory(`請假 ${leaveType}：${nameList} ${me.date}`);
             const done = [];
             targets.forEach(t => {
