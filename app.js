@@ -1453,29 +1453,31 @@
             return boxes;
         }
 
-        function lessonButtons(lesson) {
+        // groupRow：小組卡裡的成員行——改期是整節的事，按鈕在卡頭（renderGroupCard），這裡不出；手動模式照出（只搬這一位）
+        function lessonButtons(lesson, groupRow) {
             const id = lesson.lessonId;
             const btns = [];
+            const ownMove = !groupRow || manualMode;
             if (lesson.status === 'SCHEDULED') {
                 btns.push(`<button onclick="markLessonStatus('${id}','ATTENDED')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold flex items-center gap-1" title="確認學生已上課"><i class="fa-solid fa-check"></i> 出席</button>`);
                 btns.push(`<button onclick="markLessonStatus('${id}','NOSHOW')" class="px-2.5 py-1.5 bg-purple-100 hover:bg-purple-200 text-purple-800 rounded-lg font-semibold flex items-center gap-1" title="學生缺席 No Show"><i class="fa-solid fa-user-slash"></i> NS</button>`);
                 btns.push(`<button onclick="toggleLessonBox('leave','${id}')" class="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-pen"></i> 請假</button>`);
                 if (lesson.isMakeup) {
                     btns.push(gcalAddButton(lesson));
-                    btns.push(`<button onclick="openMoveModalForMakeup('${id}')" class="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1" title="把此補堂改到別的日期／時間"><i class="fa-solid fa-arrows-rotate"></i> 改期</button>`);
+                    if (ownMove) btns.push(`<button onclick="openLessonMoveModal('${id}')" class="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1" title="把此補堂改到別的日期／時間"><i class="fa-solid fa-arrows-rotate"></i> 改期</button>`);
                     btns.push(`<button onclick="cancelMakeupUI('${id}')" class="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg font-semibold flex items-center gap-1" title="取消此補堂，原請假課回到待補堂池"><i class="fa-solid fa-xmark"></i> 取消補堂</button>`);
                 } else {
                     btns.push(gcalAddButton(lesson));   // 改期過才會有鈕（Calendar 上還是舊時間）
                     // 雙方提前約好改時間：課照上，只是換時段（不是請假，不產生補堂）
-                    btns.push(`<button onclick="openLessonMoveModal('${id}')" class="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1" title="雙方約好把這一堂改到別的日期／時間（課照上，不算請假）"><i class="fa-solid fa-arrows-rotate"></i> 改期</button>`);
+                    if (ownMove) btns.push(`<button onclick="openLessonMoveModal('${id}')" class="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1" title="雙方約好把這一堂改到別的日期／時間（課照上，不算請假）"><i class="fa-solid fa-arrows-rotate"></i> 改期</button>`);
                 }
             } else {
                 if (lesson.status === 'LEAVE' && !lesson.makeupLessonId) {
                     btns.push(`<button onclick="toggleLessonBox('makeup','${id}')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-calendar-plus"></i> 安排補堂</button>`);
                 }
                 if (lesson.status === 'LEAVE' && lesson.makeupLessonId) {
-                    // 倒回捷徑：不必切月找補堂課，在請假原課行上直接改期／取消
-                    btns.push(`<button onclick="openMoveModal('${id}')" class="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1" title="把已排的補堂改到別的日期／時間"><i class="fa-solid fa-arrows-rotate"></i> 改期補堂</button>`);
+                    // 倒回捷徑：不必切月找補堂課，在請假原課行上直接改期／取消。整組一起補的（補堂那一節不止一人）改期歸卡頭
+                    if (ownMove || !sharedMakeupOf(lesson)) btns.push(`<button onclick="openMoveModal('${id}')" class="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1" title="把已排的補堂改到別的日期／時間"><i class="fa-solid fa-arrows-rotate"></i> 改期補堂</button>`);
                     btns.push(`<button onclick="cancelMakeupUI('${lesson.makeupLessonId}')" class="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg font-semibold flex items-center gap-1" title="取消已排的補堂，此請假回到待補堂池"><i class="fa-solid fa-xmark"></i> 取消補堂</button>`);
                 }
                 btns.push(`<button onclick="markLessonStatus('${id}','SCHEDULED')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-semibold flex items-center gap-1" title="撤銷狀態，還原為已排課${lesson.status === 'LEAVE' && lesson.makeupLessonId ? '（會詢問是否一併取消補堂）' : ''}"><i class="fa-solid fa-rotate-left"></i> 還原</button>`);
@@ -1545,7 +1547,14 @@
             `;
         }
 
-        // 小組課卡片：一個時段一張卡，成員逐列（各自徽章／展開框／按鈕），卡頭提供整組操作
+        // 這堂請假課的補堂是不是「整組一起補」的（補堂那一節仍是已排課、且不止一人）→ 回傳該補堂課，否則 null
+        function sharedMakeupOf(leaveLesson) {
+            const f = leaveLesson.makeupLessonId ? GACLessonState.findLesson(lessonsByMonth, leaveLesson.makeupLessonId) : null;
+            if (!f || f.lesson.status !== 'SCHEDULED') return null;
+            return lessonMoveTargets(f.lesson).length > 1 ? f.lesson : null;
+        }
+
+        // 小組課卡片：一個時段一張卡，成員逐列（各自徽章／展開框／按鈕），卡頭提供整組操作（全組出席／TL 請假／改期）
         function renderGroupCard(cell, clashIds) {
             const first = cell.lessons[0];
             const n = cell.lessons.length;
@@ -1559,6 +1568,23 @@
             const groupBtns = scheduled.length ? `
                 <button onclick="groupMarkAll('ATTENDED','${idsCsv}')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold flex items-center gap-1" title="把仍是已排課的成員全部標記出席"><i class="fa-solid fa-check-double"></i> 全組出席</button>
                 <button onclick="groupTutorLeave('${idsCsv}')" class="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg font-semibold flex items-center gap-1" title="導師請假：全組成員一併標記 TL"><i class="fa-solid fa-user-slash"></i> 全組 TL 請假</button>` : '';
+            // 改期是整節的事：仍是已排課的成員一起搬（手動模式改回逐人，按鈕在成員行）
+            const moveBtns = [];
+            if (!manualMode) {
+                const sky = 'px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1';
+                if (scheduled.length) {
+                    moveBtns.push(`<button onclick="openLessonMoveModal('${scheduled[0].lessonId}')" class="${sky}" title="${scheduled.length > 1 ? '整節一起改到別的日期／時間：仍是已排課的 ' + scheduled.length + ' 位成員一併搬' : '把這一堂改到別的日期／時間'}"><i class="fa-solid fa-arrows-rotate"></i> ${scheduled.length > 1 ? '全組改期' : '改期'}</button>`);
+                }
+                // 請假成員整組一起補的那一節（通常只有一節；補堂時段不一致時各出一顆）
+                const seen = {};
+                cell.lessons.forEach(l => {
+                    const mk = l.status === 'LEAVE' ? sharedMakeupOf(l) : null;
+                    const k = mk ? GACSchedule.cellKey(mk) : '';
+                    if (!mk || seen[k]) return;
+                    seen[k] = true;
+                    moveBtns.push(`<button onclick="openLessonMoveModal('${mk.lessonId}')" class="${sky}" title="整組補堂一起改到別的日期／時間"><i class="fa-solid fa-arrows-rotate"></i> 全組改期補堂（${mk.date.slice(5)} ${mk.time}）</button>`);
+                });
+            }
             const members = cell.lessons.map(l => `
                 <div class="pt-2 border-t border-indigo-100 flex flex-col md:flex-row md:items-center justify-between gap-2">
                     <div class="flex-1 space-y-1">
@@ -1571,7 +1597,7 @@
                         </div>
                         ${lessonBoxes(l)}
                     </div>
-                    <div class="flex items-center gap-1.5 flex-wrap self-end md:self-center md:justify-end">${lessonButtons(l)}</div>
+                    <div class="flex items-center gap-1.5 flex-wrap self-end md:self-center md:justify-end">${lessonButtons(l, true)}</div>
                 </div>`).join('');
             return `
                 <div class="${bgClass} p-3 rounded-r-xl border-y border-r border-slate-200 text-xs space-y-1">
@@ -1584,7 +1610,7 @@
                             <span class="text-sky-700 font-bold">${first.time}</span>
                             <span class="text-slate-700">${first.groupName ? `<b>${first.groupName}</b> · ` : ''}${first.program} · ${first.level}（${first.classType}，${first.duration} 分鐘）</span>
                         </div>
-                        <div class="flex items-center gap-1.5 flex-wrap self-end md:self-center">${groupBtns}</div>
+                        <div class="flex items-center gap-1.5 flex-wrap self-end md:self-center">${groupBtns}${moveBtns.join('')}</div>
                     </div>
                     ${members}
                 </div>
@@ -2076,64 +2102,68 @@
             if (modal) modal.classList.add('hidden');
         }
 
-        // ===== 補堂改期彈窗：選新日期時間，一步調過去（内部＝取消舊補堂＋重排，鏈保持完好） =====
-        let moveModalOriginId = null;
-        let moveModalMode = 'makeup';   // 'makeup'＝改補堂（走補堂鏈）｜'lesson'＝改單堂常規課（只搬時間）
-        let moveModalLessonId = null;
+        // ===== 改期彈窗：選新日期時間，一步調過去 =====
+        // 改期的單位是「一節課」：個別課＝這一堂；小組課＝整節（同時段仍是「已排課」的全體成員）一起搬，不逐個學生改。
+        // 常規課只搬日期時間（課照上，不是請假、不產生補堂，lessonId 不變）；補堂走補堂鏈（取消舊補堂＋重排，鏈保持完好）。
+        // 手動模式不聯動小組：只搬點的那一位（修資料用）。
+        let moveModalIds = [];   // 這次要一起搬的課（開彈窗時定下；送出時只搬仍是「已排課」的）
 
-        function openMoveModal(originLessonId) {
-            const f = GACLessonState.findLesson(lessonsByMonth, originLessonId);
-            if (!f || !f.lesson.makeupLessonId) { alert('⚠️ 此請假沒有已排的補堂'); return; }
-            const mk = GACLessonState.findLesson(lessonsByMonth, f.lesson.makeupLessonId);
-            if (!mk) { alert('⚠️ 找不到補堂課 ' + f.lesson.makeupLessonId); return; }
-            if (mk.lesson.status !== 'SCHEDULED') {
-                alert(`⚠️ 補堂已標記為「${mk.lesson.status}」屬歷史紀錄，請先在該補堂課上「還原」再改期。`);
-                return;
-            }
-            moveModalOriginId = originLessonId;
-            moveModalMode = 'makeup';
-            moveModalLessonId = null;
-            setMoveModalTitle('補堂改期');
-            document.getElementById('moveModalInfo').innerHTML =
-                `${f.lesson.studentName} (${f.lesson.studentId})<br>原課：${f.lesson.date} ${f.lesson.time}<br>目前補堂：<b>${mk.lesson.date} ${mk.lesson.time}</b>` + gcalMoveNote();
-            document.getElementById('moveDate').value = mk.lesson.date;
-            document.getElementById('moveTime').value = mk.lesson.time;
-            document.getElementById('moveModal').classList.remove('hidden');
-            markModalOpened('moveModal');
+        // 一起搬的課：小組課＝同節仍是「已排課」的全體成員；個別課／手動模式＝自己一堂
+        function lessonMoveTargets(lesson) {
+            if (manualMode || !GACSchedule.isGroupLesson(lesson)) return [lesson];
+            return [lesson].concat(GACLessonState.groupSiblings(lessonsByMonth, lesson.lessonId)
+                .filter(s => s.status === 'SCHEDULED'));
         }
 
-        function openMoveModalForMakeup(makeupLessonId) {
-            const prev = GACLessonState.allLessons(lessonsByMonth).find(l => l.makeupLessonId === makeupLessonId);
-            if (!prev) { alert('⚠️ 找不到此補堂對應的請假課'); return; }
-            openMoveModal(prev.lessonId);
+        // 補堂課 → 掛著它的那堂請假課（補堂鏈的上一環）；獨立加課沒有
+        function makeupOriginOf(makeupLessonId) {
+            return GACLessonState.allLessons(lessonsByMonth).find(l => l.makeupLessonId === makeupLessonId) || null;
         }
 
-        // 單堂改期（常規課）：雙方約好換時段——課照上，不是請假、不產生補堂，只把這一堂的日期時間搬走。
-        // 小組課整節一起搬（同時段仍是「已排課」的成員）；搬動前先檢查會不會與同一導師的其他課重疊。
+        // 入口：課卡的「改期」、小組卡頭的「全組改期」（常規課或補堂課本身的 lessonId）
         function openLessonMoveModal(lessonId) {
             const f = GACLessonState.findLesson(lessonsByMonth, lessonId);
             if (!f) { alert('⚠️ 找不到課堂 ' + lessonId); return; }
             const l = f.lesson;
-            if (l.status !== 'SCHEDULED') { alert('⚠️ 只有「已排課」的課堂可以改期；已有結果的請先「還原」。'); return; }
-            if (l.isMakeup) { openMoveModalForMakeup(lessonId); return; }
-            moveModalMode = 'lesson';
-            moveModalLessonId = lessonId;
-            moveModalOriginId = null;
-            setMoveModalTitle('課堂改期');
-            const mates = lessonMoveTargets(l).filter(x => x.lessonId !== l.lessonId);
-            const notes = [];
-            if (mates.length) {
-                notes.push('<div class="mt-1 text-indigo-700"><i class="fa-solid fa-user-group"></i> 小組課：此時段另 ' +
-                    mates.length + ' 位學生（' + mates.map(x => escapeHtml(x.studentName)).join('、') + '）會一併改期。</div>');
+            if (l.status !== 'SCHEDULED') {
+                alert(l.isMakeup
+                    ? `⚠️ 補堂已標記為「${l.status}」屬歷史紀錄，請先在該補堂課上「還原」再改期。`
+                    : '⚠️ 只有「已排課」的課堂可以改期；已有結果的請先「還原」。');
+                return;
             }
-            notes.push(gcalMoveNote());
-            document.getElementById('moveModalInfo').innerHTML =
-                escapeHtml(l.studentName) + ' (' + escapeHtml(l.studentId) + ')<br>目前時間：<b>' +
-                l.date + ' ' + l.time + '</b>（' + l.duration + ' 分鐘）' + notes.join('');
+            const targets = lessonMoveTargets(l);
+            moveModalIds = targets.map(t => t.lessonId);
+            const whole = targets.length > 1;   // 整組一起搬
+            setMoveModalTitle(whole ? (targets.every(t => t.isMakeup) ? '小組補堂改期' : '小組改期') : (l.isMakeup ? '補堂改期' : '課堂改期'));
+            const lines = [whole
+                ? '<b>' + escapeHtml(l.groupName || (l.program + ' ' + l.level + ' 小組')) + '</b>（' + escapeHtml(l.tutor) + '）'
+                : escapeHtml(l.studentName) + ' (' + escapeHtml(l.studentId) + ')'];
+            const origin = l.isMakeup ? makeupOriginOf(lessonId) : null;
+            if (origin) lines.push('原課：' + origin.date + ' ' + origin.time);
+            lines.push((l.isMakeup ? '目前補堂：' : '目前時間：') + '<b>' + l.date + ' ' + l.time + '</b>（' + l.duration + ' 分鐘）');
+            let html = lines.join('<br>');
+            if (whole) {
+                html += '<div class="mt-1 text-indigo-700"><i class="fa-solid fa-user-group"></i> 小組課：全組 ' + targets.length +
+                    ' 位一併改期（' + targets.map(x => escapeHtml(x.studentName)).join('、') + '）。</div>';
+            }
+            if (!manualMode && GACSchedule.isGroupLesson(l)) {
+                const rest = GACLessonState.groupSiblings(lessonsByMonth, lessonId).filter(s => s.status !== 'SCHEDULED');
+                if (rest.length) html += '<div class="mt-1 text-slate-500">同節另 ' + rest.length + ' 位已請假／已有結果（' +
+                    rest.map(x => escapeHtml(x.studentName)).join('、') + '），不會搬動。</div>';
+            }
+            document.getElementById('moveModalInfo').innerHTML = html + gcalMoveNote();
             document.getElementById('moveDate').value = l.date;
             document.getElementById('moveTime').value = l.time;
             document.getElementById('moveModal').classList.remove('hidden');
             markModalOpened('moveModal');
+        }
+
+        // 入口：請假原課行上的「改期補堂」（不必切月找補堂課）
+        function openMoveModal(originLessonId) {
+            const f = GACLessonState.findLesson(lessonsByMonth, originLessonId);
+            if (!f || !f.lesson.makeupLessonId) { alert('⚠️ 此請假沒有已排的補堂'); return; }
+            if (!GACLessonState.findLesson(lessonsByMonth, f.lesson.makeupLessonId)) { alert('⚠️ 找不到補堂課 ' + f.lesson.makeupLessonId); return; }
+            openLessonMoveModal(f.lesson.makeupLessonId);
         }
 
         function setMoveModalTitle(text) {
@@ -2141,58 +2171,47 @@
             if (el) el.innerHTML = '<i class="fa-solid fa-arrows-rotate text-sky-500 mr-1"></i>' + text;
         }
 
-        // 一起搬的課：小組課＝同節仍是「已排課」的全體成員；個別課＝自己一堂
-        function lessonMoveTargets(lesson) {
-            if (!lesson.groupId) return [lesson];
-            return [lesson].concat(GACLessonState.groupSiblings(lessonsByMonth, lesson.lessonId)
-                .filter(s => s.status === 'SCHEDULED' && s.time === lesson.time));
-        }
-
-        // 改到新時段後會與同一導師的哪些課重疊（同組同時段不算撞）
+        // 改到新時段後會與同一導師的哪些課重疊：只看「搬過去的這幾堂」直接撞到的課。
+        // 請假的課不佔時段、同組同時段不算撞；別處原本就有的撞堂與這次改期無關，不列。
         function moveClashNames(targets, date, time) {
             const moved = targets.map(t => Object.assign({}, t, { date: date, time: time }));
-            const others = GACLessonState.allLessons(lessonsByMonth)
-                .filter(l => !targets.some(t => t.lessonId === l.lessonId));
-            const clash = GACSchedule.detectClashes(others.concat(moved));
-            return others.filter(l => clash.has(l.lessonId)).map(l => l.studentName + ' ' + l.date + ' ' + l.time);
+            const ids = new Set(targets.map(t => t.lessonId));
+            return GACLessonState.allLessons(lessonsByMonth)
+                .filter(l => !ids.has(l.lessonId) && l.date === date && GACSchedule.detectClashes(moved.concat([l])).has(l.lessonId))
+                .map(l => l.studentName + ' ' + l.date + ' ' + l.time);
         }
 
-        function submitLessonMove(date, time) {
-            const f = GACLessonState.findLesson(lessonsByMonth, moveModalLessonId);
-            if (!f) { closeMoveModal(); return; }
-            const l = f.lesson;
-            if (l.date === date && l.time === time) { alert('時間沒有變更。'); return; }
-            const targets = lessonMoveTargets(l);
-            const clashes = moveClashNames(targets, date, time);
-            if (clashes.length && !confirm('⚠️ 改到 ' + date + ' ' + time + ' 會與同一導師的課堂重疊：\n' +
-                clashes.join('\n') + '\n\n仍要改期嗎？')) return;
-            pushHistory('課堂改期：' + l.studentName + ' ' + l.date + ' ' + l.time + ' → ' + date + ' ' + time +
-                (targets.length > 1 ? '（小組 ' + targets.length + ' 位）' : ''));
-            const nowIso = new Date().toISOString();
-            const moved = [];
-            targets.forEach(t => {
-                const from = { date: t.date, time: t.time };
-                const snap = GACGcal.moveSnapshot(t);
-                const r = GACLessonState.moveLessonDateTime(lessonsByMonth, t.lessonId, date, time);
-                if (r.ok) {
-                    GACGcal.noteLocalMove(r.lesson, snap);   // 同步時改 Calendar 上原本那個事件，而不是以 Calendar 為準改回來
-                    GACSendlog.ensureMoveEntry(sendLog, r.lesson, from, nowIso);
-                    moved.push(t.lessonId);
-                } else alert('⚠️ ' + t.studentName + '：' + r.error);
-            });
-            if (!moved.length) { dropLastHistory(); return; }
-            closeMoveModal();
-            persistLessons();
-            renderAll();
-            const note = date.slice(0, 7) !== currentMonthKey()
-                ? '課堂已移到 ' + date.slice(0, 7) + '（切換月份可見）。' : '';
-            openMsgModal('move', moved, note);
+        // 搬一堂常規課：只改日期時間；記下 Calendar 上原本那個事件（同步時改它，而不是以 Calendar 為準改回來）、建改期通知
+        function moveRegularLesson(t, date, time, nowIso) {
+            const from = { date: t.date, time: t.time };
+            const snap = GACGcal.moveSnapshot(t);
+            const r = GACLessonState.moveLessonDateTime(lessonsByMonth, t.lessonId, date, time);
+            if (!r.ok) return r;
+            GACGcal.noteLocalMove(r.lesson, snap);
+            GACSendlog.ensureMoveEntry(sendLog, r.lesson, from, nowIso);
+            return { ok: true, lessonId: r.lesson.lessonId, notice: 'move' };
+        }
+
+        // 搬一堂補堂（origin＝掛著它的請假課）：取消舊補堂＋重排，lessonId 會換；舊補堂在 Calendar 的事件由新補堂接手。
+        // 舊補堂時間已通知過（補堂確認或改期通知已發）→ 這次建「改期通知」；未通知過 → 仍是新的補堂確認
+        function moveMakeupOf(origin, date, time, nowIso) {
+            const oldId = origin.makeupLessonId;
+            const oldMkF = oldId ? GACLessonState.findLesson(lessonsByMonth, oldId) : null;
+            const from = oldMkF ? { date: oldMkF.lesson.date, time: oldMkF.lesson.time } : null;
+            const told = !!oldId && ['MAKEUP_CONFIRM:', 'MOVE_CONFIRM:'].some(p => sendLog[p + oldId] && sendLog[p + oldId].status === 'SENT');
+            const snap = oldMkF ? GACGcal.moveSnapshot(oldMkF.lesson) : null;
+            const r = GACLessonState.scheduleMakeup(lessonsByMonth, origin.lessonId, { date, time }, { replaceExisting: true });
+            if (!r.ok) return r;
+            if (snap) GACGcal.noteLocalMove(r.makeup, snap);
+            // 舊補堂的 TODO 確認條目會被 syncSendlog 孤兒清理，這裡為新補堂建新條目
+            const notice = told && from ? 'move' : 'makeup';
+            if (notice === 'move') GACSendlog.ensureMoveEntry(sendLog, r.makeup, from, nowIso);
+            else GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', r.makeup, nowIso);
+            return { ok: true, lessonId: r.makeup.lessonId, notice: notice };
         }
 
         function closeMoveModal() {
-            moveModalOriginId = null;
-            moveModalLessonId = null;
-            moveModalMode = 'makeup';
+            moveModalIds = [];
             const modal = document.getElementById('moveModal');
             if (modal) modal.classList.add('hidden');
         }
@@ -2201,67 +2220,54 @@
             const date = document.getElementById('moveDate')?.value;
             const time = document.getElementById('moveTime')?.value;
             if (!date || !time) { alert('請選擇新的日期與時間！'); return; }
-            if (moveModalMode === 'lesson') { submitLessonMove(date, time); return; }
-            const originId = moveModalOriginId;
-            if (!originId) return;
-            const f = GACLessonState.findLesson(lessonsByMonth, originId);
-            if (!f || !f.lesson.makeupLessonId) { closeMoveModal(); return; }
-            const origin = f.lesson;
-            const oldMk = GACLessonState.findLesson(lessonsByMonth, origin.makeupLessonId);
-            const oldSlot = oldMk ? { date: oldMk.lesson.date, time: oldMk.lesson.time } : null;
-            if (oldSlot && oldSlot.date === date && oldSlot.time === time) { alert('時間沒有變更。'); return; }
-            let targets = [origin];
-            if (!manualMode && origin.leaveType === 'TL' && oldSlot) {
-                // 小組一併改期：同組 TL 補堂在同一舊時段 → 提議整組一起搬
-                const together = GACLessonState.groupSiblings(lessonsByMonth, originId)
-                    .filter(s => s.status === 'LEAVE' && s.leaveType === 'TL' && s.makeupLessonId)
-                    .map(s => ({ s, mk: GACLessonState.findLesson(lessonsByMonth, s.makeupLessonId) }))
-                    .filter(x => x.mk && x.mk.lesson.status === 'SCHEDULED' &&
-                        x.mk.lesson.date === oldSlot.date && x.mk.lesson.time === oldSlot.time);
-                if (together.length) {
-                    const names = together.map(x => `${x.s.studentName} (${x.s.studentId})`).join('、');
-                    if (confirm(`同組學生 ${names} 的補堂也在 ${oldSlot.date} ${oldSlot.time}。\n要一併改期到 ${date} ${time} 嗎？\n（按「取消」則只改 ${origin.studentName}）`)) {
-                        targets = targets.concat(together.map(x => x.s));
-                    }
-                }
-                // 防範：改期後與沒跟著改的同組 TL 補堂不一致 → 攔截確認
-                const targetIds = targets.map(t => t.lessonId);
-                const diverged = GACLessonState.groupSiblings(lessonsByMonth, originId)
-                    .filter(s => targetIds.indexOf(s.lessonId) === -1 &&
-                        s.status === 'LEAVE' && s.leaveType === 'TL' && s.makeupLessonId)
-                    .map(s => ({ s, mk: GACLessonState.findLesson(lessonsByMonth, s.makeupLessonId) }))
-                    .filter(x => x.mk && (x.mk.lesson.date !== date || x.mk.lesson.time !== time));
+            const targets = moveModalIds
+                .map(id => GACLessonState.findLesson(lessonsByMonth, id)).filter(Boolean).map(f => f.lesson)
+                .filter(l => l.status === 'SCHEDULED');
+            if (!targets.length) { closeMoveModal(); return; }
+            const first = targets[0];
+            if (first.date === date && first.time === time) { alert('時間沒有變更。'); return; }
+            const clashes = moveClashNames(targets, date, time);
+            if (clashes.length && !confirm('⚠️ 改到 ' + date + ' ' + time + ' 會與同一導師的課堂重疊：\n' +
+                clashes.join('\n') + '\n\n仍要改期嗎？')) return;
+            const origins = targets.map(t => (t.isMakeup ? makeupOriginOf(t.lessonId) : null));
+            if (!manualMode) {
+                // 防範：導師請假（TL）的小組補堂通常全組同一時段——改期後與沒跟著搬的同組 TL 補堂不一致 → 先問
+                const movingIds = new Set(targets.map(t => t.lessonId));
+                const diverged = [];
+                origins.forEach(o => {
+                    if (!o || o.leaveType !== 'TL') return;
+                    GACLessonState.groupSiblings(lessonsByMonth, o.lessonId).forEach(s => {
+                        if (s.status !== 'LEAVE' || s.leaveType !== 'TL' || !s.makeupLessonId || movingIds.has(s.makeupLessonId)) return;
+                        const mk = GACLessonState.findLesson(lessonsByMonth, s.makeupLessonId);
+                        if (mk && (mk.lesson.date !== date || mk.lesson.time !== time) && !diverged.some(x => x.s === s)) diverged.push({ s, mk });
+                    });
+                });
                 if (diverged.length) {
                     const lines = diverged.map(x => `${x.s.studentName} → ${x.mk.lesson.date} ${x.mk.lesson.time}`).join('\n');
                     if (!confirm(`⚠️ 改期後小組補堂時段將不一致：\n${lines}\n\n仍要繼續嗎？`)) return;
                 }
             }
-            pushHistory(`補堂改期：${origin.studentName} → ${date} ${time}`);
+            const allMakeup = targets.every(t => t.isMakeup);
+            const whole = targets.length > 1;
+            pushHistory((whole ? (allMakeup ? '小組補堂改期：' : '小組改期：') + (first.groupName || first.program + ' 小組') : (allMakeup ? '補堂改期：' : '課堂改期：') + first.studentName) +
+                ' ' + first.date + ' ' + first.time + ' → ' + date + ' ' + time + (whole ? '（' + targets.length + ' 位）' : ''));
+            const nowIso = new Date().toISOString();
             const moved = [];
             let anyMove = false;
-            const nowIso = new Date().toISOString();
-            targets.forEach(t => {
-                // 舊補堂時間已通知過（補堂確認或改期通知已發）→ 這次建「改期通知」；未通知過 → 仍是新的補堂確認
-                const oldId = t.makeupLessonId;
-                const oldMkF = oldId ? GACLessonState.findLesson(lessonsByMonth, oldId) : null;
-                const from = oldMkF ? { date: oldMkF.lesson.date, time: oldMkF.lesson.time } : null;
-                const told = !!oldId && ['MAKEUP_CONFIRM:', 'MOVE_CONFIRM:'].some(p => sendLog[p + oldId] && sendLog[p + oldId].status === 'SENT');
-                const snap = oldMkF ? GACGcal.moveSnapshot(oldMkF.lesson) : null;   // 舊補堂在 Calendar 的事件，新補堂接手
-                const r = GACLessonState.scheduleMakeup(lessonsByMonth, t.lessonId, { date, time }, { replaceExisting: true });
+            targets.forEach((t, i) => {
+                // 補堂有上一環 → 走補堂鏈；常規課與獨立加課 → 只搬時間
+                const r = origins[i] ? moveMakeupOf(origins[i], date, time, nowIso) : moveRegularLesson(t, date, time, nowIso);
                 if (r.ok) {
-                    if (snap) GACGcal.noteLocalMove(r.makeup, snap);
-                    // 舊補堂的 TODO 確認條目會被 syncSendlog 孤兒清理，這裡為新補堂建新條目
-                    if (told && from) { GACSendlog.ensureMoveEntry(sendLog, r.makeup, from, nowIso); anyMove = true; }
-                    else GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', r.makeup, nowIso);
-                    moved.push(r.makeup.lessonId);
-                } else alert(`⚠️ ${t.studentName}：${r.error}`);
+                    moved.push(r.lessonId);
+                    if (r.notice === 'move') anyMove = true;
+                } else alert('⚠️ ' + t.studentName + '：' + r.error);
             });
             if (!moved.length) { dropLastHistory(); return; }
             closeMoveModal();
             persistLessons();
             renderAll();
             const note = date.slice(0, 7) !== currentMonthKey()
-                ? `補堂不在目前檢視月份（切換到 ${date.slice(0, 7)} 可見）。` : '';
+                ? (allMakeup ? `補堂不在目前檢視月份（切換到 ${date.slice(0, 7)} 可見）。` : '課堂已移到 ' + date.slice(0, 7) + '（切換月份可見）。') : '';
             openMsgModal(anyMove ? 'move' : 'makeup', moved, note);
         }
 
@@ -4213,6 +4219,7 @@
             document.getElementById('setGcalCalendarId').value = appSettings.gcalCalendarId || 'primary';
             document.getElementById('setGcalWrite').checked = appSettings.gcalWrite !== false;
             document.getElementById('setGcalConflict').value = appSettings.gcalConflict === 'local' ? 'local' : 'gcal';
+            document.getElementById('setGcalParallel').value = gcalParallel();
             document.getElementById('setFpsId').value = appSettings.fpsId || '';
             document.getElementById('setInfoUrl').value = appSettings.infoUrl || '';
             document.getElementById('setFeeNotice').value = appSettings.feeNotice || '';
@@ -4270,6 +4277,9 @@
             appSettings.gcalCalendarId = GACGcal.normalizeCalendarId(document.getElementById('setGcalCalendarId').value) || 'primary';
             appSettings.gcalWrite = !!document.getElementById('setGcalWrite').checked;
             appSettings.gcalConflict = document.getElementById('setGcalConflict').value === 'local' ? 'local' : 'gcal';
+            // 同時送幾件：1–10，填錯／留空回預設
+            const par = parseInt(document.getElementById('setGcalParallel').value, 10);
+            appSettings.gcalParallel = par >= 1 ? Math.min(par, GCAL_PARALLEL_MAX) : GACStorage.DEFAULT_SETTINGS.gcalParallel;
             appSettings.fpsId = document.getElementById('setFpsId').value.trim();
             appSettings.infoUrl = document.getElementById('setInfoUrl').value.trim();
             appSettings.feeNotice = document.getElementById('setFeeNotice').value.trim();

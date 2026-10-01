@@ -172,8 +172,13 @@ function gcalCalendarErrorText(label, e) {
 }
 
 // 批量操作（推送、刪除、改期、寫回狀態、搬日曆）同時送幾件：逐件送四五十節要等半分鐘以上，並行後快幾倍。
+// 數字在設定 → Google Calendar「同時送幾件」（appSettings.gcalParallel，1–10，預設 6）。
 // 送太密被 Google 限流時 REST client 會自己等一下重試（lib/gcal.js gfetch），所以不必調得很保守。
-const GCAL_PARALLEL = 6;
+const GCAL_PARALLEL_MAX = 10;
+function gcalParallel() {
+    const n = Math.floor(Number(appSettings && appSettings.gcalParallel));
+    return n >= 1 ? Math.min(n, GCAL_PARALLEL_MAX) : GACStorage.DEFAULT_SETTINGS.gcalParallel;
+}
 
 function gcalDefaultCalendarId() { return GACGcal.normalizeCalendarId(appSettings.gcalCalendarId) || 'primary'; }
 // 這位導師的課放哪本日曆：填了導師日曆 ID → 那本；沒填（或不在名單）→ 預設日曆。推送、一鍵推、搬事件都以此為準
@@ -230,7 +235,7 @@ function gcalDeleteAcross(token, items, onEach) {
     const merged = { ok: true, deleted: [], gone: [], failed: [] };
     let chain = Promise.resolve();
     byCal.forEach((list, id) => {
-        chain = chain.then(() => GACGcal.deleteEvents(gcalClient(token, id), list, onEach, { concurrency: GCAL_PARALLEL })).then(r => {
+        chain = chain.then(() => GACGcal.deleteEvents(gcalClient(token, id), list, onEach, { concurrency: gcalParallel() })).then(r => {
             merged.ok = merged.ok && r.ok;
             merged.deleted = merged.deleted.concat(r.deleted); merged.gone = merged.gone.concat(r.gone); merged.failed = merged.failed.concat(r.failed);
         });
@@ -244,7 +249,7 @@ function gcalPushAcross(token, cells, opts) {
     const merged = { ok: true, inserted: [], skipped: [], failed: [], perCalendar: [] };
     let chain = Promise.resolve();
     byCal.forEach((list, id) => {
-        chain = chain.then(() => GACGcal.importCells(gcalClient(token, id), list, Object.assign({ concurrency: GCAL_PARALLEL }, opts))).then(r => {
+        chain = chain.then(() => GACGcal.importCells(gcalClient(token, id), list, Object.assign({ concurrency: gcalParallel() }, opts))).then(r => {
             list.forEach(c => c.lessons.forEach(l => { if (l.gcalEventId) l.gcalCalId = id; }));
             merged.ok = merged.ok && r.ok;
             merged.inserted = merged.inserted.concat(r.inserted); merged.skipped = merged.skipped.concat(r.skipped); merged.failed = merged.failed.concat(r.failed);
@@ -935,7 +940,7 @@ function applyGcalSyncInner() {
         return;
     }
 
-    // 進度顯示：推送每堂 1–2 個請求，同時送 GCAL_PARALLEL 件；整月仍可能要幾秒——沒有進度會像「沒動靜」
+    // 進度顯示：推送每堂 1–2 個請求，同時送 gcalParallel() 件；整月仍可能要幾秒——沒有進度會像「沒動靜」
     const totalRemote = moveItems.length + statusItems.length + relocItems.length + delOrphans.length + pushCells.length;
     let processedRemote = 0;
     const jobs = [];
@@ -944,7 +949,7 @@ function applyGcalSyncInner() {
     if (moveItems.length) jobs.push(`改期 ${moveItems.length} 件`);
     if (statusItems.length) jobs.push(`寫回狀態 ${statusItems.length} 件`);
     if (relocItems.length) jobs.push(`搬日曆 ${relocItems.length} 件`);
-    const busyText = () => `⏳ 執行中（${processedRemote}/${totalRemote}）…` + jobs.join('、') + `。同時處理 ${GCAL_PARALLEL} 件，請稍候，不要關閉此視窗。`;
+    const busyText = () => `⏳ 執行中（${processedRemote}/${totalRemote}）…` + jobs.join('、') + `。同時處理 ${gcalParallel()} 件，請稍候，不要關閉此視窗。`;
     const bump = () => { processedRemote++; gcalSyncShowBusy(busyText()); };
     gcalSyncShowBusy(busyText());
 
@@ -953,8 +958,8 @@ function applyGcalSyncInner() {
     ensureGcalToken()
         .then(token => {
             // 先改期（PATCH 原事件，在它所在的那本日曆）、寫回狀態、搬日曆，再刪殘留、推送（各到該導師的日曆）。
-            // 五步仍是一步做完才到下一步；每一步裡面同時送 GCAL_PARALLEL 件（同一步的每件各改不同的事件，互不相干）
-            const pool = (items, fn) => GACGcal.runPool(items, GCAL_PARALLEL, fn);
+            // 五步仍是一步做完才到下一步；每一步裡面同時送 gcalParallel() 件（同一步的每件各改不同的事件，互不相干）
+            const pool = (items, fn) => GACGcal.runPool(items, gcalParallel(), fn);
             return pool(moveItems, m => {
                 const rep = m.lesson;
                 return gcalClient(token, m.event._calendarId)
@@ -1266,7 +1271,7 @@ function forceWipeCalendarEvents() {
                                 .filter(ev => ev && ev.id && ev.status !== 'cancelled')
                                 .map(ev => ({ eventId: ev.id, lessonId: GACGcal.eventCellKey(ev) || '' }));
                             if (!items.length) return acc.concat([{ label: t.label, deleted: 0, gone: 0, failed: 0 }]);
-                            return GACGcal.deleteEvents(client, items, null, { concurrency: GCAL_PARALLEL })
+                            return GACGcal.deleteEvents(client, items, null, { concurrency: gcalParallel() })
                                 .then(r => acc.concat([{ label: t.label, deleted: r.deleted.length, gone: r.gone.length, failed: r.failed.length }]));
                         })
                         .catch(e => acc.concat([{ label: t.label, deleted: 0, gone: 0, failed: 0, error: gcalCalendarErrorText(t.label, e) }]));

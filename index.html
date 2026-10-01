@@ -678,6 +678,15 @@
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1">批量推送／刪除時同時送幾件</label>
+                            <input type="number" id="setGcalParallel" min="1" max="10" step="1" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white">
+                        </div>
+                        <div class="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-xl p-3">
+                            1–10，預設 6。數字越大，整月推送、清殘留、清場越快；<b>1＝逐件送</b>（最慢）。送太密被 Google 暫時擋下時系統會自動等一下再試，不會漏送或重複建立——只是調太高反而可能因為等待而變慢，常出現等待就調低一點。只在寫入模式用得到。
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
                             <label class="block text-xs font-bold text-slate-600 mb-1">Google OAuth Client ID</label>
                             <input type="text" id="setGcalClientId" placeholder="xxxx.apps.googleusercontent.com" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
                         </div>
@@ -1181,7 +1190,7 @@
     </div>
     <!-- 懸浮「同步 GCal」按鈕：固定在畫面右下，任何頁籤、滑到哪裡都按得到；按住可拖到別處（位置記在這個瀏覽器）。
          點擊由 gcal-ui.js 的 initGcalFab 接（拖完放手那一下不算點擊），所以這裡不寫 onclick -->
-    <button id="gcalSyncFab" type="button" title="同步 Google Calendar——按住可拖到別的位置" class="fixed right-4 bottom-24 z-40 w-14 h-14 rounded-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white shadow-xl flex flex-col items-center justify-center gap-0.5 cursor-pointer select-none touch-none print:hidden">
+    <button id="gcalSyncFab" type="button" title="同步 Google Calendar——按住可拖到別的位置" class="fixed right-4 bottom-32 z-40 w-14 h-14 rounded-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white shadow-xl flex flex-col items-center justify-center gap-0.5 cursor-pointer select-none touch-none print:hidden">
         <i class="fa-solid fa-rotate text-base"></i>
         <span class="text-[9px] font-bold leading-none">GCal</span>
     </button>

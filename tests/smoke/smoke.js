@@ -391,9 +391,20 @@ check('S004 補堂同一時段', run('GACLessonState.findLesson(lessonsByMonth,"
 check('無小組告警（同一時段）', run('GACLessonState.detectGroupInconsistencies(lessonsByMonth,"2026-09").length') === 0);
 check('補堂訊息彈窗列出兩人', getEl('msgModalBody').innerHTML.includes('Student 003') && getEl('msgModalBody').innerHTML.includes('Student 004'));
 
-// 12) 改期彈窗：S003 的補堂 10/14→10/15 19:30，同組一併搬
+// 12) 改期彈窗：S003 的補堂 10/14→10/15 19:30，同組一併搬（改期是整節的事：按鈕在卡頭，不在成員行）
 console.log('[10] 補堂改期（整組一併）');
+{
+    const cardOf = (month, id) => run('renderGroupCard(GACSchedule.groupByCell(lessonsByMonth[' + JSON.stringify(month) + ']).find(c => c.lessons.some(l => l.lessonId === ' + JSON.stringify(id) + ')), new Set())');
+    const originCard = cardOf('2026-09', 'S003-20260916-2130');
+    check('請假原課的小組卡：卡頭一顆「全組改期補堂（10-14 19:00）」、成員行沒有「改期補堂」', (originCard.match(/全組改期補堂（10-14 19:00）/g) || []).length === 1
+        && !originCard.includes("openMoveModal('S003-20260916-2130')") && !originCard.includes("openMoveModal('S004-20260916-2130')"));
+    const mkCard = cardOf('2026-10', 'S003-20261014-1900-MU-20260916-2130');
+    check('補堂那一節的小組卡：卡頭一顆「全組改期」、成員行沒有「改期」', (mkCard.match(/openLessonMoveModal\(/g) || []).length === 1 && mkCard.includes('全組改期')
+        && (mkCard.match(/cancelMakeupUI\(/g) || []).length === 2);
+}
 run('openMoveModal("S003-20260916-2130")');
+check('改期彈窗：標題「小組補堂改期」、寫明全組 2 位一併改期', getEl('moveModalTitle').innerHTML.includes('小組補堂改期')
+    && getEl('moveModalInfo').innerHTML.includes('全組 2 位一併改期') && getEl('moveModalInfo').innerHTML.includes('Student 004'));
 check('改期彈窗預填目前補堂日期', getEl('moveDate').value === '2026-10-14');
 getEl('moveDate').value = '2026-10-15';
 getEl('moveTime').value = '19:30';
@@ -1456,14 +1467,14 @@ run('renderMasterScheduleList()');
 const listHtml = getEl('masterScheduleList').innerHTML;
 check('補堂節縮排在原請假節之下並有連接線、只出現一次', listHtml.includes('data-makeup-of=') && listHtml.includes('rounded-bl-xl')
     && listHtml.indexOf("openMoveModal('S001-20260928-2130')") < listHtml.indexOf('data-makeup-of=')
-    && listHtml.indexOf('data-makeup-of=') < listHtml.indexOf("openMoveModalForMakeup('" + mkId + "')")
-    && (listHtml.match(new RegExp("openMoveModalForMakeup\\('" + mkId + "'\\)", 'g')) || []).length === 1);
+    && listHtml.indexOf('data-makeup-of=') < listHtml.indexOf("openLessonMoveModal('" + mkId + "')")
+    && (listHtml.match(new RegExp("openLessonMoveModal\\('" + mkId + "'\\)", 'g')) || []).length === 1);
 check('補堂列訊息鈕：補堂確認待發徽章', listHtml.includes("openWhatsAppMessage('" + mkId + "', 'makeup')"));
 const wk = run('monthWeeksData.findIndex(w => w.some(d => d && d.dateString === "2026-09-16"))');
 getEl('weekSelect').value = String(wk);
 run('renderMasterScheduleList()');
 check('只看補堂那週（原課不在清單）→ 補堂留原位、不縮排', !getEl('masterScheduleList').innerHTML.includes('data-makeup-of=')
-    && getEl('masterScheduleList').innerHTML.includes("openMoveModalForMakeup('" + mkId + "')"));
+    && getEl('masterScheduleList').innerHTML.includes("openLessonMoveModal('" + mkId + "')"));
 getEl('weekSelect').value = 'ALL';
 run('renderMasterScheduleList()');
 
@@ -1795,14 +1806,29 @@ sandbox.__qsaHook = () => [];
 const gId = run('lessonsByMonth["2026-09"].filter(l => l.groupId && l.status === "SCHEDULED").pop().lessonId');
 const gDate = run('GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(gId) + ').lesson.date');
 const gTime = run('GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(gId) + ').lesson.time');
+{
+    const gCell = run('GACSchedule.groupByCell(lessonsByMonth["2026-09"]).find(c => c.lessons.some(l => l.lessonId === ' + JSON.stringify(gId) + '))');
+    const gCard = run('renderGroupCard(GACSchedule.groupByCell(lessonsByMonth["2026-09"]).find(c => c.lessons.some(l => l.lessonId === ' + JSON.stringify(gId) + ')), new Set())');
+    check('小組卡：改期只在卡頭（一顆「全組改期」），成員行沒有改期鈕', gCell.lessons.length >= 2
+        && (gCard.match(/openLessonMoveModal\(/g) || []).length === 1 && gCard.includes('全組改期')
+        && gCard.includes("openLessonMoveModal('" + gCell.lessons[0].lessonId + "')"));
+    run('manualMode = true');
+    const manualCard = run('renderGroupCard(GACSchedule.groupByCell(lessonsByMonth["2026-09"]).find(c => c.lessons.some(l => l.lessonId === ' + JSON.stringify(gId) + ')), new Set())');
+    check('手動模式：卡頭不出「全組改期」，成員行各有改期（只搬該位）', !manualCard.includes('全組改期')
+        && (manualCard.match(/openLessonMoveModal\(/g) || []).length === gCell.lessons.length
+        && run('lessonMoveTargets(GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(gId) + ').lesson).length') === 1);
+    run('manualMode = false');
+}
 run("openLessonMoveModal('" + gId + "')");
-check('小組課改期彈窗提示會一併改期', getEl('moveModalInfo').innerHTML.includes('小組課：此時段另'));
+check('小組課改期彈窗：標題「小組改期」、寫明全組一併改期', getEl('moveModalTitle').innerHTML.includes('小組改期')
+    && getEl('moveModalInfo').innerHTML.includes('小組課：全組') && getEl('moveModalInfo').innerHTML.includes('位一併改期'));
 getEl('moveDate').value = '2026-09-25'; getEl('moveTime').value = '16:00';
 run('submitMoveModal()');
 const movedMates = run('lessonsByMonth["2026-09"].filter(l => l.date === "2026-09-25" && l.time === "16:00")');
 check('小組同節全體一起搬、每人各一筆改期通知（from 為原時段）', movedMates.length >= 2
     && run('lessonsByMonth["2026-09"].filter(l => l.date === "2026-09-25" && l.time === "16:00").every(l => { const e = sendLog["MOVE_CONFIRM:" + l.lessonId]; return !!e && e.fromDate === ' + JSON.stringify(gDate) + ' && e.fromTime === ' + JSON.stringify(gTime) + '; })'));
 check('改期訊息彈窗列出全體成員', getEl('msgModalBody').innerHTML.includes('共 ' + movedMates.length + ' 位學生'));
+check('快照寫「小組改期」', run('actionHistory[0].description').includes('小組改期'));
 run('closeMsgModal()');
 run('undoLastAction()');
 check('撤銷小組改期 → 全體回原時段', run('GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(gId) + ').lesson.date') === gDate
@@ -1821,6 +1847,33 @@ run('closeMsgModal()');
 run('undoLastAction()');
 check('撤銷後回到原時段、無撞堂', run('GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(mvId) + ').lesson.date') === mvDate
     && run('GACSchedule.detectClashes(lessonsByMonth["2026-09"]).has(' + JSON.stringify(mvId) + ')') === false);
+// 撞堂提示只報這次真的撞到的課：別處原本就有的撞堂不算；請假的課不佔時段
+{
+    const J = JSON.stringify;
+    const L = id => 'GACLessonState.findLesson(lessonsByMonth, ' + J(id) + ').lesson';
+    run('pushHistory("冒煙：改期撞堂提示")');
+    // 先在別處造一對原本就撞的課：複製一堂別的課成同導師同時段的個別課（最後撤銷還原）
+    run('(() => { const base = lessonsByMonth["2026-09"].find(l => l.status === "SCHEDULED" && l.lessonId !== ' + J(mvId) + ' && l.lessonId !== ' + J(clashId) + '); lessonsByMonth["2026-09"].push(Object.assign({}, base, { lessonId: "ZZ-CLASH", studentId: "ZZ", studentName: "Clash Dummy", groupId: null, groupName: "", classType: "一對一" })); })()');
+    check('前置：別處有一對原本就撞的課', run('GACSchedule.detectClashes(lessonsByMonth["2026-09"]).has("ZZ-CLASH")') === true);
+    check('搬到空時段：不報撞堂（原本就有的撞堂與這次無關）', run('moveClashNames([' + L(mvId) + '], "2026-09-27", "09:00").length') === 0);
+    check('搬到別人的時段：只報那一堂', run('moveClashNames([' + L(mvId) + '], ' + J(clashDate) + ', ' + J(clashTime) + ').join()').includes(clashDate + ' ' + clashTime)
+        && run('moveClashNames([' + L(mvId) + '], ' + J(clashDate) + ', ' + J(clashTime) + ').length') === 1);
+    run(L(clashId) + '.status = "LEAVE"; ' + L(clashId) + '.leaveType = "L"');
+    check('那一堂請假了 → 搬過去不報撞堂（請假的課不佔時段）', run('moveClashNames([' + L(mvId) + '], ' + J(clashDate) + ', ' + J(clashTime) + ').length') === 0);
+    const keepConfirm = sandbox.confirm;
+    let asked = 0;
+    sandbox.confirm = () => { asked++; return true; };
+    run("openLessonMoveModal('" + mvId + "')");
+    getEl('moveDate').value = clashDate; getEl('moveTime').value = clashTime;
+    run('submitMoveModal()');
+    sandbox.confirm = keepConfirm;
+    check('實際改期到請假那堂的時段：沒有彈撞堂確認、改期完成', asked === 0 && run(L(mvId) + '.date') === clashDate && run(L(mvId) + '.time') === clashTime);
+    run('closeMsgModal()');
+    run('undoLastAction()');   // 撤銷改期
+    run('undoLastAction()');   // 撤銷上面手改的資料
+    check('清理：回到原狀', run(L(mvId) + '.date') === mvDate && run(L(clashId) + '.status') === 'SCHEDULED'
+        && run('GACSchedule.detectClashes(lessonsByMonth["2026-09"]).size') === 0);
+}
 
 // 37b) 批量確認出席：按鈕顯示可確認堂數、沒有就停用並分辨原因
 console.log('[37b] 批量確認按鈕狀態');
@@ -2121,6 +2174,13 @@ function __statusSyncTail() {
         getEl('setGcalConflict').value = 'local';
         run('saveSettingsForm()');
         check('設定「兩邊都改了時以哪邊為準」可存', run('appSettings.gcalConflict') === 'local');
+        // 設定頁：批量操作同時送幾件（1–10，預設 6；填錯／留空回預設）
+        check('同時送幾件：預設 6、表單帶出目前值', run('GACStorage.DEFAULT_SETTINGS.gcalParallel') === 6 && run('gcalParallel()') === 6
+            && run('loadSettingsForm()') === undefined && String(getEl('setGcalParallel').value) === '6');
+        const savePar = v => { getEl('setGcalParallel').value = v; run('saveSettingsForm()'); return [run('appSettings.gcalParallel'), run('gcalParallel()')].join(); };
+        check('同時送幾件：3 → 3；99 → 上限 10；1 → 逐件；留空／亂填 → 預設 6', savePar('3') === '3,3' && savePar('99') === '10,10' && savePar('1') === '1,1'
+            && savePar('') === '6,6' && savePar('abc') === '6,6' && savePar('0') === '6,6');
+        check('存進設定檔', JSON.parse(fakeStorage.getItem('gac_settings_v2')).gcalParallel === 6);
         getEl('setGcalConflict').value = '';
         sandbox.open = () => {};
         sandbox.fetch = () => Promise.reject(new Error('offline'));
