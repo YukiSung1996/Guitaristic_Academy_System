@@ -1892,13 +1892,31 @@ check('撤銷後回到原時段、無撞堂', run('GACLessonState.findLesson(les
     const baseId = run('(() => { const base = lessonsByMonth["2026-09"].find(l => l.status === "SCHEDULED" && !GACSchedule.isGroupLesson(l)); lessonsByMonth["2026-09"].push(Object.assign({}, base, { lessonId: "ZZ-CLASH", studentId: "ZZ", studentName: "Clash Dummy" })); return base.lessonId; })()');
     const baseName = run('GACLessonState.findLesson(lessonsByMonth, ' + J(baseId) + ').lesson.studentName');
     run('renderAll()');
-    check('撞堂卡：數字 2、提示「查看並處理」', String(getEl('statClashCount').textContent) === '2' && getEl('statClashHint').textContent === '查看並處理');
+    check('撞堂卡：一對重疊的課算 1（不是 2 堂）、提示「查看並處理」', String(getEl('statClashCount').textContent) === '1' && getEl('statClashHint').textContent === '查看並處理'
+        && run('GACSchedule.detectClashes(lessonsByMonth["2026-09"]).size') === 2);
+    check('提示條：寫明幾組', getEl('clashBannerTitle').textContent.includes('有 1 組課堂時間重疊'));
+    {
+        // 顯示全部時：撞堂那一組也排在清單最前面，後面才是其餘課堂；同一節不會出現兩次
+        const was = run('currentViewMode');
+        run("switchView('list')");
+        const all = listHtml();
+        check('顯示全部：撞堂那組排最前、其餘課堂在後、卡片不重複', all.indexOf('data-clash-group="1"') !== -1 && all.indexOf('data-clash-group="1"') < all.indexOf('其餘課堂')
+            && all.indexOf('Clash Dummy') < all.indexOf('其餘課堂') && (all.match(/id="leaveBox_ZZ-CLASH"/g) || []).length === 1
+            && (all.match(new RegExp('id="leaveBox_' + baseId + '"', 'g')) || []).length === 1
+            && (all.match(/id="leaveBox_/g) || []).length === run('lessonsByMonth["2026-09"].filter(l => l.status === "SCHEDULED").length'));
+        run('setClashFocus(true)');
+        check('切到「只顯示撞堂」：只剩那一組，沒有其餘課堂', getEl('schedFocusFilter').value === 'CLASH' && listHtml().includes('data-clash-group="1"')
+            && !listHtml().includes('其餘課堂') && (listHtml().match(/id="leaveBox_/g) || []).length === 2);
+        run('setClashFocus(false)');
+        check('切回「顯示全部」', getEl('schedFocusFilter').value === 'ALL' && listHtml().includes('其餘課堂'));
+        run("switchView('" + was + "')");
+    }
     getEl('schedTutorFilter').value = 'Instructor B';   // 會把要看的課藏住的篩選
     getEl('weekSelect').value = '0';
     run('jumpToClashes()');
     check('點撞堂卡：切到清單、只看撞堂、導師／週次篩選清掉', getEl('schedFocusFilter').value === 'CLASH' && run('currentViewMode') === 'list'
         && getEl('schedTutorFilter').value === 'ALL' && getEl('weekSelect').value === 'ALL');
-    check('清單按重疊分組：一組、寫明誰和誰重疊、只有這兩節的卡', listHtml().includes('只顯示撞堂的課：1 組') && listHtml().includes('撞堂 1／1')
+    check('清單按重疊分組：一組、寫明誰和誰重疊、只有這兩節的卡', listHtml().includes('撞堂 1／1')
         && listHtml().includes(baseName) && listHtml().includes(' ↔ ') && listHtml().includes('Clash Dummy')
         && (listHtml().match(/撞堂重疊<\/span>/g) || []).length === 2 && listHtml().includes("openLessonMoveModal('ZZ-CLASH')"));
     // 把其中一節改期 → 這一組消失，清單提示沒有撞堂
@@ -1906,10 +1924,10 @@ check('撤銷後回到原時段、無撞堂', run('GACLessonState.findLesson(les
     getEl('moveDate').value = '2026-09-27'; getEl('moveTime').value = '08:00';
     run('submitMoveModal()');
     run('closeMsgModal()');
-    check('改期解決後：清單顯示「沒有撞堂的課」＋「顯示所有課堂」，卡上數字歸零', listHtml().includes('沒有撞堂的課') && listHtml().includes('clearScheduleFocus()')
+    check('改期解決後：清單顯示「沒有撞堂的課」＋「顯示全部」，卡上數字歸零', listHtml().includes('沒有撞堂的課') && listHtml().includes('顯示全部') && listHtml().includes('clearScheduleFocus()')
         && String(getEl('statClashCount').textContent) === '0' && getEl('statClashHint').textContent === '');
     run('clearScheduleFocus()');
-    check('顯示所有課堂 → 回到完整清單', getEl('schedFocusFilter').value === 'ALL' && !listHtml().includes('沒有撞堂的課') && listHtml().includes(baseName));
+    check('顯示全部 → 回到完整清單', getEl('schedFocusFilter').value === 'ALL' && !listHtml().includes('沒有撞堂的課') && listHtml().includes(baseName));
     run('undoLastAction()');   // 撤銷改期
     run('undoLastAction()');   // 撤銷假課
     check('清理：假課移除', !run('GACLessonState.findLesson(lessonsByMonth, "ZZ-CLASH")'));
@@ -1929,6 +1947,7 @@ check('撤銷後回到原時段、無撞堂', run('GACLessonState.findLesson(les
     run('jumpToPendingPool()');
     check('沒有待補堂：清單只看「請假與補堂」並提示', run('GACLessonState.pendingMakeups(lessonsByMonth, "2026-09-15").length') === 0 && getEl('statPoolHint').textContent === ''
         && getEl('schedFocusFilter').value === 'LEAVE' && run('lastToast').includes('請假與補堂') && listHtml().includes("'" + lvId + "'")
+        && listHtml().includes('目前只列出請假與補堂的課') && listHtml().includes('顯示全部')
         && run('filterCellsByScheduleFilters(GACSchedule.groupByCell(sortedMonthLessons())).every(c => c.lessons.some(l => l.status === "LEAVE" || l.isMakeup))') === true);
     run('clearScheduleFocus()');
     run('undoLastAction()');

@@ -310,11 +310,15 @@
                 <!-- Clash Warning Banner -->
                 <div id="clashWarningBanner" class="hidden p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3 text-amber-800 text-xs font-medium">
                     <i class="fa-solid fa-triangle-exclamation text-amber-500 text-base"></i>
+                    <!-- 標題由 renderClashBanner 填（幾組撞堂）；右邊是二選一的切換：只顯示撞堂／顯示全部（顯示全部時撞堂的課也排在清單最前面） -->
                     <div>
-                        <span class="font-bold">檢測到導師排堂時間重疊 (Clash Detected)！</span>
-                        <p class="text-amber-700 mt-0.5">請檢查標有 <span class="bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">⚠️ 撞堂重疊</span> 的課堂，把其中一節改期。</p>
+                        <span id="clashBannerTitle" class="font-bold"></span>
+                        <p class="text-amber-700 mt-0.5">撞堂的課排在清單最前面，按「誰和誰重疊」分組；每組把其中一節「改期」（那堂其實不上就標請假）。</p>
                     </div>
-                    <button type="button" onclick="jumpToClashes()" class="ml-auto shrink-0 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold transition">只看撞堂的課</button>
+                    <div class="ml-auto shrink-0 inline-flex rounded-lg border border-amber-300 p-0.5 bg-white font-bold">
+                        <button type="button" id="clashOnlyBtn" onclick="setClashFocus(true)" class="px-3 py-1 rounded-md transition">只顯示撞堂</button>
+                        <button type="button" id="clashAllBtn" onclick="setClashFocus(false)" class="px-3 py-1 rounded-md transition">顯示全部</button>
+                    </div>
                 </div>
 
                 <!-- 小組一致性警告（兜底偵測：TL 導師請假未同步 / 小組補堂時段發散） -->
