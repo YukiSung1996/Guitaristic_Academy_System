@@ -804,3 +804,44 @@ test('restClient：被限流（429／403 rateLimitExceeded）→ 等一下重試
     await assert.rejects(() => always.remove('ev1'), /429/);
     assert.deepStrictEqual([k, waits.length], [5, 4], '最多重試 4 次');
 });
+
+test('標題容錯：學號少了前導零、空格位置不同、編號寫錯，都認得是同一位學生', () => {
+    const ids = ['0212', '0213'];
+    ['0212 Amy([1/5] 09/2026)', '212 Amy ([1/1]09/2026 )', '0212 Amy([2/5] 09/2026)', '212 Amy ([2/4]09/2026 )', '212 Amy ([4/4]09/2026 )']
+        .forEach(t => assert.strictEqual(G.matchStudentPrefix(t, ids), '0212', t));
+    assert.strictEqual(G.matchStudent('212 Amy ([4/4]09/2026 )', [{ id: '0212', name: 'Amy Chan' }, { id: '0213', name: 'Ben' }]), '0212', '名單上的姓名較長也無妨：學號認得');
+});
+
+test('titleKey：空白／全形括號／前導零／大小寫／獨立狀態碼不算差異；編號或名字不同才算', () => {
+    const sys = '0212 Amy([2/5] 09/2026)';
+    ['212 Amy ([2/5]09/2026 )', '0212  amy（[02/05] 9/2026）', '0212 Amy([2/5] 09/2026) L', '0212 Amy([2/5] 09/2026) NS', 'MU 0212 Amy([2/5] 09/2026)']
+        .forEach(t => assert.strictEqual(G.titleKey(t), G.titleKey(sys), t));
+    ['212 Amy ([2/4]09/2026 )', '212 Amy ([1/1]09/2026 )', '0212 Amy', '0212 Amy([2/5] 10/2026)', '0212 Amy Chan([2/5] 09/2026)']
+        .forEach(t => assert.notStrictEqual(G.titleKey(t), G.titleKey(sys), t));
+});
+
+test('planTitleFixes：只列真的對不上的標題，按日期排；編號取自課表；標題裡的請假碼保留', () => {
+    const lessons = S.generateMonthLessons(student({ id: '0212', name: 'Amy' }), '2026-09');   // 9/1、8、15、22、29（週二）
+    const cells = S.groupByCell(lessons);
+    const ev = (i, summary, extra) => ({ cell: cells[i], event: Object.assign({ id: 'e' + i, status: 'confirmed', summary }, extra || {}) });
+    const pairs = [
+        ev(3, '212 Amy ([2/4]09/2026 ) L'),        // 編號錯＋帶請假碼
+        ev(0, '0212 Amy([1/5] 09/2026)'),          // 完全一樣
+        ev(1, '212 Amy ([2/5]09/2026 )'),          // 只是寫法不同 → 不列
+        ev(2, '212 Amy ([1/1]09/2026 )'),          // 編號錯
+        ev(4, '隨便寫', { status: 'cancelled' })   // 已取消的事件不管
+    ];
+    const fixes = G.planTitleFixes(pairs, IMPORT_OPTS);
+    assert.deepStrictEqual(fixes.map(f => [f.lesson.date, f.from, f.to]), [
+        ['2026-09-15', '212 Amy ([1/1]09/2026 )', '0212 Amy([3/5] 09/2026)'],
+        ['2026-09-22', '212 Amy ([2/4]09/2026 ) L', '0212 Amy([4/5] 09/2026) L']
+    ]);
+    assert.strictEqual(fixes[0].event.id, 'e2');
+    assert.deepStrictEqual(G.planTitleFixes([], IMPORT_OPTS), []);
+    // 小組節：用小組標題比
+    const g = id => student({ id, name: 'Kid ' + id, type: '3人小組', program: 'Music Theory', level: 'Grade 5', duration: 60, tutor: 'Instructor B', weekday: 6, time: '15:00' });
+    const gCells = S.groupByCell([].concat(S.generateMonthLessons(g('S030'), '2026-09'), S.generateMonthLessons(g('S031'), '2026-09')));
+    const gFix = G.planTitleFixes([{ cell: gCells[0], event: { id: 'g0', summary: 'Theory class' } },
+        { cell: gCells[1], event: { id: 'g1', summary: G.cellToEventPayload(gCells[1], IMPORT_OPTS).summary } }], IMPORT_OPTS);
+    assert.deepStrictEqual(gFix.map(f => [f.event.id, f.to]), [['g0', G.cellToEventPayload(gCells[0], IMPORT_OPTS).summary]]);
+});

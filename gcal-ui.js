@@ -334,6 +334,7 @@ function setGcalBusy(busy) {
 //   ➕ 手動新建 GCal 手動建立、可歸屬學生 → 收編為補堂或獨立加課（需逐條選擇，預設不勾）
 //   🔁 本地改期  本地改了時間、Calendar 仍是舊時間 → PATCH 原事件（唯讀：列「請到 Calendar 改」）
 //   📤 寫回狀態  本地標了請假／缺席、Calendar 沒填或不同 → PATCH 地點欄＋說明欄「狀態：」一行（唯讀：列「請到 Calendar 填」）
+//   ✏️ 更正標題  配上的事件標題和課表對不上（第幾節／共幾節不對、手打的）→ PATCH summary（唯讀：列「請到 Calendar 改標題」）
 // 「兩邊都有資訊、又不一樣」（時間：本地改了、Calendar 也被拖到第三個時間；狀態：本地 L、Calendar SL）
 // 以哪邊為準看設定 appSettings.gcalConflict（'gcal' 預設｜'local'）；只有一邊改了的一律跟那一邊。
 let gcalSyncPlan = null;
@@ -401,20 +402,33 @@ function openGcalSync() {
             });
             const delKeys = new Set(diff.deletions.map(d => d.cell.key));
             // 本月的課＋視窗內（前後 7 天）別的月份的補堂：從待補堂池排到下個月初的補堂也推得到
-            const toPush = GACSchedule.groupByCell(windowLessons.filter(l => l.date.slice(0, 7) === monthKey || l.isMakeup))
+            let toPush = GACSchedule.groupByCell(windowLessons.filter(l => l.date.slice(0, 7) === monthKey || l.isMakeup))
                 .filter(c => !evByKey[c.key] && !diff.matchedKeys[c.key] && !moveKeys.has(c.key) && !delKeys.has(c.key));
             let timeChanges = diff.timeChanges, deletions = diff.deletions, manualNew = diff.manualNew;
             let unmatched = 0, missingOff = false, staleMoves = writeOn ? [] : relinks.slice();
             // 已配對的課節 ↔ 事件（狀態雙向用；要改期的節不算——改期的 PATCH 已含狀態）
             let pairs = diff.pairs.filter(pr => !moveKeys.has(pr.cell.key));
-            if (!writeOn) {
-                // 唯讀模式：本系統沒寫過標籤 → 無標籤事件按內容（學生 ID／姓名、小組名稱）配對；有標籤的仍按標籤。
-                // 已由標籤配對／判定刪除的課節不再進內容配對（避免同一節兩行）。
-                const skip = {};
-                events.forEach(ev => { const k = ev && GACGcal.eventCellKey(ev); if (k) skip[k] = true; });
-                diff.deletions.forEach(d => { skip[d.cell.key] = true; });
-                Object.keys(diff.matchedKeys).forEach(k => { skip[k] = true; });
-                moveKeys.forEach(k => { skip[k] = true; });
+            // 無標籤事件（導師自己在 Calendar 建的）按內容配對：學生 ID／姓名、小組名稱＋同一天＝同一節；有標籤的仍按標籤。
+            // 已由標籤配對／判定刪除的課節不再進內容配對（避免同一節兩行）。
+            const skip = {};
+            events.forEach(ev => { const k = ev && GACGcal.eventCellKey(ev); if (k) skip[k] = true; });
+            diff.deletions.forEach(d => { skip[d.cell.key] = true; });
+            Object.keys(diff.matchedKeys).forEach(k => { skip[k] = true; });
+            moveKeys.forEach(k => { skip[k] = true; });
+            if (writeOn) {
+                // 寫入模式：配上的手動事件就當成那一節的事件——不再另推一個、也不列「手動新建」；時間不同照「時間變更」，
+                // 標題不合列進「更正標題」。配上後記下事件 id（下面 pairs.forEach），之後靠 id 認回。「Calendar 沒有這堂」不在這裡判（沒有就推）
+                const loose = events.filter(ev => ev && !(ev.id && (diff.matchedEventIds[ev.id] || moveEvIds.has(ev.id))));
+                const r = GACGcal.reconcileByContent(windowLessons, loose, Object.assign(contentOpts(null, skip, monthKey), { detectMissing: false }));
+                if (r.pairs.length) {
+                    const evIds = new Set(r.pairs.map(pr => pr.event.id)), keys = new Set(r.pairs.map(pr => pr.cell.key));
+                    pairs = pairs.concat(r.pairs);
+                    timeChanges = timeChanges.concat(r.timeChanges);
+                    manualNew = manualNew.filter(m => !evIds.has(m.event.id));
+                    toPush = toPush.filter(c => !keys.has(c.key));
+                }
+            } else {
+                // 唯讀模式：本系統沒寫過標籤，全靠內容配對；按導師逐本日曆比（「Calendar 沒有這堂」只限該導師的課）
                 const byTutor = new Map();
                 events.forEach(ev => {
                     if (ev && ev.id && diff.matchedEventIds[ev.id]) return;   // 已靠事件 id 認回某一節的，不再進內容配對（否則會被當成手動新建）
@@ -470,11 +484,15 @@ function openGcalSync() {
             // 狀態雙向：Calendar 的碼 → 本地（statusChanges）；本地的狀態 → Calendar（寫入：PATCH 一項勾選；唯讀：請到 Calendar 填）
             const st = GACGcal.planStatusSync(pairs, rule);
             const statusChanges = st.toLocal;
+            // 標題核對：配上的事件，標題和課表算出來的不一樣（多半是第幾節／共幾節不對）→ 寫入：勾選即改；唯讀：列出來逐個改
+            const titleFixes = GACGcal.planTitleFixes(pairs, opts);
             if (settleNow.length || pairs.length) persistLessons();   // 只是中繼資料（改期記號／事件 id、eid、碼），課堂本身沒變
             gcalSyncPlan = {
                 rule: rule,
                 pushStatus: writeOn ? st.toGcal : [],
                 fillStatus: writeOn ? [] : st.toGcal,
+                fixTitles: writeOn ? titleFixes : [],
+                staleTitles: writeOn ? [] : titleFixes,
                 monthKey: monthKey,
                 source: 'gcal', readOnly: !writeOn, contentMode: !writeOn, unmatched: unmatched, missingOff: missingOff,
                 calendars: gcalCalendarsToRead().length, perTutor: gcalCalendarsToRead().filter(c => c.tutor).map(c => c.tutor),
@@ -547,7 +565,8 @@ function renderGcalSyncModal() {
     const parts = [];
     const total = p.toPush.length + p.timeChanges.length + p.statusChanges.length +
         p.deletions.length + p.orphans.length + p.manualNew.length + (p.moves || []).length + (p.staleMoves || []).length +
-        (p.pushStatus || []).length + (p.fillStatus || []).length + (p.relocations || []).length;
+        (p.pushStatus || []).length + (p.fillStatus || []).length + (p.relocations || []).length +
+        (p.fixTitles || []).length;   // 唯讀的「請到 Calendar 改標題」只是提醒，不算差異（標題不影響配對與同步）
     const ruleName = p.rule === 'local' ? '本系統' : 'Calendar';
     gcalSyncFooterMode(total ? 'act' : 'ack');
     const title = document.getElementById('gcalSyncTitle');
@@ -574,7 +593,7 @@ function renderGcalSyncModal() {
         parts.push('<div class="text-[11px] text-slate-500">按內容配對：事件標題以學生 ID 開頭或含學生姓名／小組名稱；同一學生（小組）同一天＝同一節。改到別的日子的課會同時出現在「Calendar 沒有」與「手動新建」，勾選＝請假＋補堂。</div>');
     }
     if (!total) {
-        parts.push('<div class="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs font-semibold">✅ 本地與 Google Calendar 完全一致，沒有需要同步的項目。</div>');
+        parts.push(`<div class="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs font-semibold">✅ 本地與 Google Calendar 完全一致，沒有需要同步的項目。${(p.staleTitles || []).length ? '（下面的標題提醒不影響同步，有空再改）' : ''}</div>`);
     } else {
         parts.push(`<div class="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-800 text-xs">範圍：${p.monthKey}（前後各 7 天）。共 ${total} 項差異——<b>預設勾選＝執行後兩邊一致</b>（只有一邊改了的跟那一邊；兩邊都改了時以 ${ruleName} 為準——設定 → Google Calendar 可改）。個別不想動的項目取消勾選即可；每組可按標題收起，標題右邊是該組的全選／全不選。</div>`);
     }
@@ -635,6 +654,22 @@ function renderGcalSyncModal() {
                 const url = gcalEventEditUrl(s.event);
                 const link = url ? ` <a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="text-indigo-600 underline">在 Calendar 打開（編輯）</a>` : '';
                 return `<div class="p-2 border border-amber-200 bg-amber-50 rounded-lg text-xs text-amber-900">${gcalCellLabel(s)} ${s.lesson.date} ${s.lesson.time}：請填 <b>狀態：${s.code || '（清空）'}</b>${s.conflict ? '（⚠️ 衝突：系統已確認出席，Calendar 卻填了「' + (GACGcal.calStatusCode(s.event) || '') + '」——先查清楚哪邊對）' : ''}${link}</div>`;
+            }), { info: true }));
+    }
+    // 標題更正：只改標題（時間、說明等不動）；空格、學號補零這類寫法差異不算
+    const titleDesc = 'Calendar 上的標題和課表對不上（多半是「第幾節／共幾節」寫錯，或手打的標題）。認人不受影響——配對只看學生和日期；這裡是把標題改成本系統的寫法，編號按課表的日期先後。空格、學號補零這類寫法差異不算';
+    if ((p.fixTitles || []).length) {
+        parts.push(gcalSyncSection('title', '✏️ 更正標題', titleDesc + ' → 勾選＝直接改 Calendar 上那個事件的標題（其他內容不動）',
+            p.fixTitles.map((t, i) => gcalSyncRow('gsN_' + i,
+                `${gcalCellLabel(t)} ${t.lesson.date} ${t.lesson.time}：「${escapeHtml(t.from)}」 → <b>${escapeHtml(t.to)}</b>`, '', true))));
+    }
+    if ((p.staleTitles || []).length) {
+        parts.push(gcalSyncSection('titleInfo', '✏️ 標題提醒：請到 Calendar 改標題', titleDesc + '。唯讀模式不會替你改 → 逐個「複製正確標題」，到 Calendar 打開該事件貼上；改好再同步就會消失（按日期時間排）。只是提醒，不改也不影響同步',
+            p.staleTitles.map((t, i) => {
+                const url = gcalEventEditUrl(t.event);
+                const link = url ? ` <a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="text-indigo-600 underline">在 Calendar 打開（編輯）</a>` : '';
+                return `<div class="p-2 border border-amber-200 bg-amber-50 rounded-lg text-xs text-amber-900">${gcalCellLabel(t)} ${t.lesson.date} ${t.lesson.time}：「${escapeHtml(t.from)}」 → <b>${escapeHtml(t.to)}</b>
+                    <button type="button" onclick="gcalCopyFixedTitle(${i})" class="ml-1 px-2 py-0.5 bg-white border border-amber-300 hover:bg-amber-100 rounded font-semibold"><i class="fa-solid fa-copy"></i> 複製正確標題</button>${link}</div>`;
             }), { info: true }));
     }
     if (p.timeChanges.length) {
@@ -706,6 +741,12 @@ function renderGcalSyncModal() {
     body.onchange = gcalSyncRefreshCounts;   // 手動勾／取消勾一項 → 該組的「已勾 x／n」跟著變
     gcalSyncRefreshCounts();
     document.getElementById('gcalSyncModal').classList.remove('hidden');
+}
+
+// 「請到 Calendar 改標題」那一行的「複製正確標題」
+function gcalCopyFixedTitle(i) {
+    const t = gcalSyncPlan && (gcalSyncPlan.staleTitles || [])[i];
+    if (t) copyToClipboard(t.to);
 }
 
 function gcalSyncSetAll(checked) {
@@ -931,8 +972,9 @@ function applyGcalSyncInner() {
     const moveItems = (p.moves || []).filter((m, i) => gcalChk('gsV_' + i));
     const statusItems = (p.pushStatus || []).filter((s, i) => gcalChk('gsW_' + i));
     const relocItems = (p.relocations || []).filter((m, i) => gcalChk('gsR_' + i));
+    const titleItems = (p.fixTitles || []).filter((t, i) => gcalChk('gsN_' + i));
 
-    if (!pushCells.length && !delOrphans.length && !moveItems.length && !statusItems.length && !relocItems.length) {
+    if (!pushCells.length && !delOrphans.length && !moveItems.length && !statusItems.length && !relocItems.length && !titleItems.length) {
         if (!done.length && !errs.length) { alert('沒有勾選任何項目。'); return; }
         persistLessons();
         renderAll();
@@ -941,13 +983,14 @@ function applyGcalSyncInner() {
     }
 
     // 進度顯示：推送每堂 1–2 個請求，同時送 gcalParallel() 件；整月仍可能要幾秒——沒有進度會像「沒動靜」
-    const totalRemote = moveItems.length + statusItems.length + relocItems.length + delOrphans.length + pushCells.length;
+    const totalRemote = moveItems.length + statusItems.length + titleItems.length + relocItems.length + delOrphans.length + pushCells.length;
     let processedRemote = 0;
     const jobs = [];
     if (delOrphans.length) jobs.push(`刪除殘留 ${delOrphans.length} 件`);
     if (pushCells.length) jobs.push(`推送 ${pushCells.length} 節`);
     if (moveItems.length) jobs.push(`改期 ${moveItems.length} 件`);
     if (statusItems.length) jobs.push(`寫回狀態 ${statusItems.length} 件`);
+    if (titleItems.length) jobs.push(`更正標題 ${titleItems.length} 件`);
     if (relocItems.length) jobs.push(`搬日曆 ${relocItems.length} 件`);
     const busyText = () => `⏳ 執行中（${processedRemote}/${totalRemote}）…` + jobs.join('、') + `。同時處理 ${gcalParallel()} 件，請稍候，不要關閉此視窗。`;
     const bump = () => { processedRemote++; gcalSyncShowBusy(busyText()); };
@@ -957,8 +1000,8 @@ function applyGcalSyncInner() {
     setGcalBusy(true);
     ensureGcalToken()
         .then(token => {
-            // 先改期（PATCH 原事件，在它所在的那本日曆）、寫回狀態、搬日曆，再刪殘留、推送（各到該導師的日曆）。
-            // 五步仍是一步做完才到下一步；每一步裡面同時送 gcalParallel() 件（同一步的每件各改不同的事件，互不相干）
+            // 先改期（PATCH 原事件，在它所在的那本日曆）、寫回狀態、更正標題、搬日曆，再刪殘留、推送（各到該導師的日曆）。
+            // 更正標題排在搬日曆之前：搬走之後事件就不在原本那本日曆了。各步仍是一步做完才到下一步；每一步裡面同時送 gcalParallel() 件（同一步的每件各改不同的事件，互不相干）
             const pool = (items, fn) => GACGcal.runPool(items, gcalParallel(), fn);
             return pool(moveItems, m => {
                 const rep = m.lesson;
@@ -983,6 +1026,12 @@ function applyGcalSyncInner() {
                         .catch(e => errs.push(`寫回狀態失敗（${rep.studentName} ${rep.date} ${rep.time}）：${(e && e.message) || e}`))
                         .then(bump);
                 }))
+                // 更正標題：PATCH 只送 summary，時間／說明／標籤都不動
+                .then(() => pool(titleItems, t => gcalClient(token, t.event._calendarId)
+                    .patch(t.event.id, { summary: t.to })
+                    .then(() => { t.event.summary = t.to; done.push(`更正標題：${t.to}（${t.lesson.date}）`); })
+                    .catch(e => errs.push(`更正標題失敗（${t.lesson.studentName} ${t.lesson.date} ${t.lesson.time}）：${(e && e.message) || e}`))
+                    .then(bump)))
                 // 搬到導師的日曆：events.move（id 不變）；本地記下新的所在日曆
                 .then(() => pool(relocItems, m => {
                     const rep = m.lesson;
@@ -1419,7 +1468,8 @@ function icsImportFromText(text, tutorName, timeZone) {
         readOnly: true, contentMode: true, missingOff: !canDetectMissing(tutor || null),
         eventCount: events.filter(e => e.status !== 'cancelled').length, unmatched: diff.unmatched.length,
         toPush: [], orphans: [],
-        timeChanges: diff.timeChanges, statusChanges: diff.statusChanges, deletions: diff.deletions, manualNew: diff.manualNew
+        timeChanges: diff.timeChanges, statusChanges: diff.statusChanges, deletions: diff.deletions, manualNew: diff.manualNew,
+        staleTitles: GACGcal.planTitleFixes(diff.pairs, { titleFn: GACSchedule.lessonTitle })
     };
     closeIcsImportModal();
     renderGcalSyncModal();

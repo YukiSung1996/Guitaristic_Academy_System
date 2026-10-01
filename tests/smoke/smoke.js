@@ -2688,11 +2688,102 @@ function __tutorCalTail() {
     });
 }
 
+// 38f) 標題容錯與更正：導師手打的標題（學號少零、空格不同、編號寫錯）照樣配到那一節；寫入模式勾選即改標題，唯讀列出來逐個改
+function __titleFixTail() {
+    console.log('[38f] Calendar 標題容錯與更正');
+    const J = JSON.stringify;
+    const waitFor = cond => new Promise(resolve => { const t0 = Date.now(); (function wait() { if (cond() || Date.now() - t0 > 3000) resolve(); else setTimeout(wait, 10); })(); });
+    const L = id => 'GACLessonState.findLesson(lessonsByMonth, ' + J(id) + ').lesson';
+    // 隔離在 2026-12：只生成 S001（週一 21:30：12/7、14、21、28），測完清掉
+    const was = run('({ w: appSettings.gcalWrite, c: appSettings.gcalClientId })');
+    getEl('batchMonth').value = '2026-12';
+    run('rebuildMonthContext()');
+    sandbox.__qsaHook = sel => (sel === '.batch-student-chk:checked' ? [{ value: String(run('studentDatabase.findIndex(s => s.id === "S001")')) }] : []);
+    run('generateMasterSchedule()');
+    sandbox.__qsaHook = () => [];
+    run('appSettings.gcalWrite = true; appSettings.gcalClientId = "test-client-id"; appSettings.gcalCalendarId = "primary"; appSettings.gcalConflict = "gcal"');
+    run('tutorsList.forEach(t => { t.calendarId = ""; })');
+    run('gcalToken = { accessToken: "t", scope: GCAL_WRITE_SCOPE, expiresAt: Date.now() + 3600000 }');
+    run('GACLessonState.allLessons(lessonsByMonth).forEach(l => { delete l.gcalEventId; delete l.gcalMovedFrom; delete l.gcalCalId; delete l.gcalEid; delete l.gcalAdded; delete l.gcalCode; })');
+    const regs = run('(lessonsByMonth["2026-12"] || []).filter(l => l.studentId === "S001" && !l.isMakeup).map(l => l.lessonId)');
+    const r1 = regs[0], r2 = regs[1], r3 = regs[2];
+    check('有三堂 S001 常規課可用', !!r1 && !!r2 && !!r3);
+    const at = id => run(L(id) + '.date') + 'T' + run(L(id) + '.time') + ':00+08:00';
+    const good = id => run('GACSchedule.lessonTitle(' + L(id) + ')');
+    const num = id => '[' + run(L(id) + '.lessonNum') + '/' + run(L(id) + '.totalRegular') + ']';
+    const items = [
+        // 導師手打：學號寫成 s1（少了零、小寫）、空格位置不同、編號寫錯——沒有系統標籤
+        { id: 'evA', status: 'confirmed', summary: 's1 Student 001 ([1/1]12/2026 )', start: { dateTime: at(r1) } },
+        // 系統標籤的事件，只是空格寫法不同 → 不算
+        { id: 'evB', status: 'confirmed', summary: 'S001 Student 001 (' + num(r2) + '12/2026 )', start: { dateTime: at(r2) }, extendedProperties: { private: { gacLessonId: r2 } } },
+        // 手打、編號對、後面帶了請假碼 L → 標題不算錯（狀態另列）
+        { id: 'evC', status: 'confirmed', summary: good(r3) + ' L', start: { dateTime: at(r3) } }
+    ];
+    const calls = [];
+    sandbox.fetch = (url, init) => {
+        const method = (init && init.method) || 'GET';
+        calls.push({ method, url, body: init && init.body });
+        if (method === 'GET' && url.includes('timeMin=')) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ items: items.map(x => Object.assign({}, x)) }) });
+        if (method === 'GET') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ items: [] }) });
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: 'x' }) });
+    };
+    const sync = () => { run('gcalSyncPlan = null'); sandbox.alerts.length = 0; run('openGcalSync()'); return waitFor(() => run('!!gcalSyncPlan') || sandbox.alerts.length).then(() => run('gcalSyncPlan')); };
+    return sync().then(p => {
+        const html = getEl('gcalSyncBody').innerHTML;
+        check('寫入模式：手打標題的事件配到那一節（不重推、不當手動新建），記下事件 id', !!p && sandbox.alerts.length === 0
+            && !p.toPush.some(c => c.lessons.some(l => l.lessonId === r1 || l.lessonId === r3))
+            && !p.manualNew.some(m => m.event.id === 'evA' || m.event.id === 'evC')
+            && run(L(r1) + '.gcalEventId') === 'evA' && run(L(r3) + '.gcalEventId') === 'evC');
+        check('「更正標題」只列編號寫錯的那一件；寫法不同、帶請假碼的不列', p.fixTitles.length === 1 && p.fixTitles[0].event.id === 'evA'
+            && p.fixTitles[0].to === good(r1) && p.staleTitles.length === 0
+            && html.includes('✏️ 更正標題') && html.includes('s1 Student 001 ([1/1]12/2026 )') && html.includes('<b>' + good(r1) + '</b>') && html.includes('id="gsN_0" checked'));
+        check('帶請假碼 L 的那件 → 列在狀態變更', p.statusChanges.some(s => s.lesson.lessonId === r3 && s.to.leaveType === 'L'));
+        // 只勾「更正標題」那一項執行
+        for (const [id, el] of elements) if (/^gs[A-Z]_\d+$/.test(id)) el.checked = false;
+        getEl('gsN_0').checked = true;
+        calls.length = 0;
+        run('applyGcalSync()');
+        return waitFor(() => run('gcalSyncPlan === null'));
+    }).then(() => {
+        const patches = calls.filter(c => c.method === 'PATCH');
+        check('執行：只 PATCH 那一個事件、只送 summary', patches.length === 1 && patches[0].url.includes('/events/evA')
+            && JSON.stringify(JSON.parse(patches[0].body)) === JSON.stringify({ summary: good(r1) })
+            && !calls.some(c => c.method === 'POST' || c.method === 'DELETE')
+            && getEl('gcalSyncBody').innerHTML.includes('更正標題：' + good(r1)));
+        items[0].summary = good(r1);   // Calendar 上已改好
+        return sync();
+    }).then(p => {
+        check('改好後再同步：不再列', !!p && p.fixTitles.length === 0 && !getEl('gcalSyncBody').innerHTML.includes('✏️ 更正標題'));
+        // —— 唯讀：列出來逐個改（只是提醒，不算差異）——
+        items[0].summary = '1 Student 001 ([9/9]12/2026 )';
+        run('appSettings.gcalWrite = false; gcalToken = { accessToken: "t", scope: GCAL_READ_SCOPE, expiresAt: Date.now() + 3600000 }');
+        return sync();
+    }).then(p => {
+        const html = getEl('gcalSyncBody').innerHTML;
+        check('唯讀：列在「請到 Calendar 改標題」、有「複製正確標題」、不出現勾選的更正', !!p && p.fixTitles.length === 0 && p.staleTitles.length === 1 && p.staleTitles[0].to === good(r1)
+            && html.includes('請到 Calendar 改標題') && html.includes('gcalCopyFixedTitle(0)') && !html.includes('id="gsN_0"'));
+        let copied = '';
+        const clipWas = sandbox.navigator.clipboard.writeText;
+        sandbox.navigator.clipboard.writeText = t => { copied = t; return Promise.resolve(); };
+        run('gcalCopyFixedTitle(0)');
+        sandbox.navigator.clipboard.writeText = clipWas;
+        check('複製正確標題 → 剪貼簿是系統標題', copied === good(r1));
+    }).then(() => {
+        sandbox.fetch = () => Promise.reject(new Error('offline'));
+        run('gcalSyncPlan = null; gcalToken = null; appSettings.gcalWrite = ' + J(was.w) + '; appSettings.gcalClientId = ' + J(was.c));
+        run('delete lessonsByMonth["2026-12"]; GACSendlog.purgeMonth(sendLog, "2026-12", []); persistLessons();');
+        getEl('batchMonth').value = '2026-09';
+        run('rebuildMonthContext(); renderAll()');
+        check('清理完成', !run('lessonsByMonth["2026-12"]'));
+    });
+}
+
 Promise.resolve()
     .then(() => __icsSyncTail())
     .then(() => __muMoveTail())
     .then(() => __statusSyncTail())
     .then(() => __tutorCalTail())
+    .then(() => __titleFixTail())
     .then(() => __asyncTail())
     .then(() => __fileModeTail())
     .catch(e => { failures++; console.log('  FAIL - 非同步尾段拋錯：' + ((e && e.stack) || e)); })
