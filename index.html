@@ -114,25 +114,34 @@
                     </div>
                 </div>
 
-                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80 flex items-center space-x-3">
-                    <div class="w-10 h-10 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center font-bold text-lg">
+                <!-- 這兩張卡可點：直接跳到要處理的地方（jumpToPendingPool／jumpToClashes） -->
+                <button type="button" onclick="jumpToPendingPool()" title="跳到「待補堂池」安排補堂；沒有待補的就列出本月的請假與補堂" class="text-left bg-slate-50 hover:bg-amber-50 hover:border-amber-300 p-3 rounded-xl border border-slate-200/80 flex items-center space-x-3 transition">
+                    <div class="w-10 h-10 shrink-0 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center font-bold text-lg">
                         <i class="fa-solid fa-arrow-rotate-right"></i>
                     </div>
-                    <div>
+                    <div class="min-w-0 flex-1">
                         <div class="text-xs text-slate-500 font-medium">辦理補堂/請假</div>
-                        <div id="statMakeupCount" class="text-lg font-bold text-amber-600">0</div>
+                        <div class="flex items-baseline gap-2">
+                            <div id="statMakeupCount" class="text-lg font-bold text-amber-600">0</div>
+                            <span id="statPoolHint" class="text-[11px] text-amber-700 font-semibold whitespace-nowrap"></span>
+                        </div>
                     </div>
-                </div>
+                    <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
+                </button>
 
-                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/80 flex items-center space-x-3">
-                    <div class="w-10 h-10 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center font-bold text-lg">
+                <button type="button" onclick="jumpToClashes()" title="跳到清單並只列撞堂的課：按「誰和誰重疊」分組，把其中一節改期即可" class="text-left bg-slate-50 hover:bg-rose-50 hover:border-rose-300 p-3 rounded-xl border border-slate-200/80 flex items-center space-x-3 transition">
+                    <div class="w-10 h-10 shrink-0 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center font-bold text-lg">
                         <i class="fa-solid fa-triangle-exclamation"></i>
                     </div>
-                    <div>
+                    <div class="min-w-0 flex-1">
                         <div class="text-xs text-slate-500 font-medium">時間衝突/撞堂警報</div>
-                        <div id="statClashCount" class="text-lg font-bold text-rose-600">0</div>
+                        <div class="flex items-baseline gap-2">
+                            <div id="statClashCount" class="text-lg font-bold text-rose-600">0</div>
+                            <span id="statClashHint" class="text-[11px] text-rose-700 font-semibold whitespace-nowrap"></span>
+                        </div>
                     </div>
-                </div>
+                    <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
+                </button>
             </div>
         </div>
     </div>
@@ -256,7 +265,7 @@
             </div>
 
             <!-- Schedule Display Container -->
-            <div id="masterScheduleWrapper" class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
+            <div id="masterScheduleWrapper" class="scroll-mt-32 bg-white rounded-2xl p-5 border border-slate-200/90 shadow-sm space-y-4">
                 
                 <!-- Schedule Controls Header：左＝標題＋視圖切換（永不換行）；右＝篩選列（空間不足時整列換到下一行） -->
                 <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-100 pb-3">
@@ -280,6 +289,11 @@
                         <select id="schedStudentFilter" onchange="onScheduleFilterChange('student')" title="按學生或小組班篩選：導師下拉自動跟隨；選了學生後看的是該生全部課堂（含別的導師的小組課），月曆略過該生整週沒課的星期" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium max-w-[11rem]">
                             <option value="ALL">所有學生</option>
                         </select>
+                        <select id="schedFocusFilter" onchange="onScheduleFilterChange()" title="只看某一類課堂：請假與補堂，或撞堂（同一導師時間重疊）。撞堂會按「誰和誰重疊」分組列出，把其中一節改期即可" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
+                            <option value="ALL">所有課堂</option>
+                            <option value="LEAVE">請假與補堂</option>
+                            <option value="CLASH">⚠️ 撞堂</option>
+                        </select>
                         <select id="weekSelect" onchange="onWeekSelectChange()" title="按週次篩選（清單）：選了導師／學生時只列該範圍內有課的星期" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
                             <option value="ALL">全月</option>
                         </select>
@@ -298,8 +312,9 @@
                     <i class="fa-solid fa-triangle-exclamation text-amber-500 text-base"></i>
                     <div>
                         <span class="font-bold">檢測到導師排堂時間重疊 (Clash Detected)！</span>
-                        <p class="text-amber-700 mt-0.5">請檢查標有 <span class="bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">⚠️ 撞堂重疊</span> 的課堂並為學生調整補堂時間。</p>
+                        <p class="text-amber-700 mt-0.5">請檢查標有 <span class="bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">⚠️ 撞堂重疊</span> 的課堂，把其中一節改期。</p>
                     </div>
+                    <button type="button" onclick="jumpToClashes()" class="ml-auto shrink-0 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold transition">只看撞堂的課</button>
                 </div>
 
                 <!-- 小組一致性警告（兜底偵測：TL 導師請假未同步 / 小組補堂時段發散） -->
@@ -311,7 +326,7 @@
             </div>
 
             <!-- 待補堂池（跨月：所有已請假但未安排補堂的課）：放在月曆／清單下面，預設展開（點標題可收起；有待補的才顯示） -->
-            <div id="pendingPoolBanner" class="hidden bg-amber-50 border border-amber-300 rounded-2xl p-4 space-y-2">
+            <div id="pendingPoolBanner" class="hidden scroll-mt-32 bg-amber-50 border border-amber-300 rounded-2xl p-4 space-y-2 transition-shadow">
                 <button onclick="togglePendingPool()" class="w-full flex items-center justify-between text-left">
                     <span class="text-sm font-bold text-amber-900 flex items-center gap-2">
                         <i class="fa-solid fa-hourglass-half text-amber-500"></i>

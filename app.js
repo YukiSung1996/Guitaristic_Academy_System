@@ -527,6 +527,8 @@
 
             const clashCount = GACSchedule.detectClashes(lessons).size;
             document.getElementById('statClashCount').textContent = clashCount;
+            const clashHint = document.getElementById('statClashHint');
+            if (clashHint) clashHint.textContent = clashCount ? '查看並處理' : '';
 
             const banner = document.getElementById('clashWarningBanner');
             banner.classList.toggle('hidden', clashCount === 0);
@@ -1158,7 +1160,9 @@
         function scheduleFilterValues() {
             const t = document.getElementById('schedTutorFilter');
             const s = document.getElementById('schedStudentFilter');
-            return { tutor: (t && t.value) || 'ALL', student: (s && s.value) || 'ALL' };
+            const c = document.getElementById('schedFocusFilter');
+            // focus：只看某一類課——'LEAVE' 請假與補堂｜'CLASH' 撞堂｜'ALL' 不限（只影響清單／月曆顯示，批量確認與導出不看它）
+            return { tutor: (t && t.value) || 'ALL', student: (s && s.value) || 'ALL', focus: (c && c.value) || 'ALL' };
         }
 
         // 單堂是否落在篩選範圍（批量確認用：選某學生只算該生自己的課；選小組班算該組全體）
@@ -1169,11 +1173,96 @@
             return f.tutor === 'ALL' || l.tutor === f.tutor;
         }
 
-        // 課節是否落在篩選範圍（清單／月曆用：選某學生時整節小組卡保留，看得到同組其他成員）
-        function filterCellsByScheduleFilters(cells) {
+        // 課節是否落在篩選範圍（清單／月曆用：選某學生時整節小組卡保留，看得到同組其他成員）。
+        // clashIds：本月撞堂的 lessonId（「只看撞堂」用；呼叫方已算好就傳進來）
+        function filterCellsByScheduleFilters(cells, clashIds) {
             const f = scheduleFilterValues();
-            if (f.tutor === 'ALL' && f.student === 'ALL') return cells;
-            return cells.filter(cell => cell.lessons.some(l => lessonMatchesScheduleFilters(l, f)));
+            let out = cells;
+            if (f.tutor !== 'ALL' || f.student !== 'ALL') out = out.filter(cell => cell.lessons.some(l => lessonMatchesScheduleFilters(l, f)));
+            if (f.focus === 'LEAVE') out = out.filter(cell => cell.lessons.some(l => l.status === 'LEAVE' || l.isMakeup));
+            if (f.focus === 'CLASH') {
+                const ids = clashIds || GACSchedule.detectClashes(sortedMonthLessons());
+                out = out.filter(cell => cell.lessons.some(l => ids.has(l.lessonId)));
+            }
+            return out;
+        }
+
+        // ===== 頂部統計卡的跳轉：直接帶到要處理的地方 =====
+        function jumpScrollTo(el, flashClass) {
+            if (!el) return;
+            if (el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (flashClass) {   // 閃一下外框，眼睛跟得上
+                el.classList.add('ring-4', flashClass);
+                setTimeout(() => el.classList.remove('ring-4', flashClass), 1600);
+            }
+        }
+
+        // 回到總課表的清單，清掉導師／學生／週次篩選（免得把要看的課藏住），只看某一類課
+        function showScheduleFocus(focus) {
+            switchTab('masterTab');
+            ['schedTutorFilter', 'schedStudentFilter', 'weekSelect'].forEach(id => { const el = document.getElementById(id); if (el) el.value = 'ALL'; });
+            const sel = document.getElementById('schedFocusFilter');
+            if (sel) sel.value = focus;
+            rebuildScheduleFilters();
+            switchView('list');
+            renderMasterCalendarView();
+            updateBatchConfirmBtn();
+            jumpScrollTo(document.getElementById('masterScheduleWrapper'));
+        }
+
+        // 「時間衝突／撞堂警報」卡：清單只列撞堂的課，按重疊分組
+        function jumpToClashes() {
+            if (!GACSchedule.detectClashes(currentMonthLessons()).size) { showToast(`✅ ${currentMonthKey()} 沒有撞堂`); return; }
+            showScheduleFocus('CLASH');
+        }
+
+        // 「辦理補堂／請假」卡：有待補堂的請假 → 跳到待補堂池（收起了就打開）；沒有 → 列出本月的請假與補堂
+        function jumpToPendingPool() {
+            if (GACLessonState.pendingMakeups(lessonsByMonth, localDateStr(new Date())).length) {
+                switchTab('masterTab');
+                const list = document.getElementById('pendingPoolList');
+                if (list && list.classList.contains('hidden')) togglePendingPool();
+                jumpScrollTo(document.getElementById('pendingPoolBanner'), 'ring-amber-300');
+                return;
+            }
+            const n = currentMonthLessons().filter(l => l.status === 'LEAVE' || l.isMakeup).length;
+            if (!n) { showToast(`目前沒有待補堂的請假，${currentMonthKey()} 也沒有請假或補堂`); return; }
+            showScheduleFocus('LEAVE');
+            showToast(`沒有待補堂的請假；下面是 ${currentMonthKey()} 的請假與補堂（${n} 堂）`);
+        }
+
+        function clearScheduleFocus() {
+            const sel = document.getElementById('schedFocusFilter');
+            if (sel) sel.value = 'ALL';
+            onScheduleFilterChange();
+        }
+
+        // 「只看撞堂」的清單：同一導師、同一天、時間連著重疊的幾節圈成一組，寫明誰和誰重疊——把其中一節改期，這一組就解決
+        function renderClashGroups(cells, clashIds) {
+            const startOf = c => GACSchedule.timeToMinutes(c.time);
+            const endOf = c => startOf(c) + (Number(c.lessons[0].duration) || 45);
+            const sorted = cells.slice().sort((a, b) => (a.tutor + ' ' + a.date).localeCompare(b.tutor + ' ' + b.date) || startOf(a) - startOf(b));
+            const groups = [];
+            sorted.forEach(c => {
+                const g = groups[groups.length - 1];
+                if (g && g.tutor === c.tutor && g.date === c.date && startOf(c) < g.end) { g.cells.push(c); g.end = Math.max(g.end, endOf(c)); }
+                else groups.push({ tutor: c.tutor, date: c.date, end: endOf(c), cells: [c] });
+            });
+            groups.sort((a, b) => (a.date + ' ' + a.cells[0].time).localeCompare(b.date + ' ' + b.cells[0].time));
+            const nameOf = c => (c.isGroup ? (c.lessons[0].groupName || c.lessons[0].program + ' 小組') + ' ×' + c.lessons.length : c.lessons[0].studentName);
+            const cardHtml = c => (c.isGroup ? renderGroupCard(c, clashIds) : renderLessonRow(c.lessons[0], clashIds.has(c.lessons[0].lessonId)));
+            const head = `<div class="flex items-center gap-2 flex-wrap text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                    <span class="font-bold">只顯示撞堂的課：${groups.length} 組</span>
+                    <span>每組把其中一節按「改期」（小組按「全組改期」）移到別的時段；其中一堂其實不上，就標請假。</span>
+                    <button type="button" onclick="clearScheduleFocus()" class="ml-auto px-2.5 py-1 bg-white border border-amber-300 hover:bg-amber-100 rounded-lg font-semibold">顯示所有課堂</button>
+                </div>`;
+            return head + groups.map((g, i) => `
+                <div class="border-2 border-amber-300 rounded-2xl p-2.5 space-y-2 bg-amber-50/30" data-clash-group="${i + 1}">
+                    <div class="text-xs font-bold text-amber-900 px-1">⚠️ 撞堂 ${i + 1}／${groups.length}：${dateHeading(g.cells[0].lessons[0])} · ${escapeHtml(g.tutor)} · ${g.cells.length > 1
+                        ? g.cells.map(c => c.time + ' ' + escapeHtml(nameOf(c))).join(' ↔ ')
+                        : g.cells[0].time + ' ' + escapeHtml(nameOf(g.cells[0])) + '（與目前篩選範圍以外的課重疊）'}</div>
+                    ${g.cells.map(cardHtml).join('')}
+                </div>`).join('');
         }
 
         function scheduleFilterLabel() {
@@ -1320,13 +1409,18 @@
             }
 
             // 按課節渲染：小組課同時段一張卡（成員列在卡內）；一對一每堂一張卡；再套導師／學生篩選
-            const cells = filterCellsByScheduleFilters(GACSchedule.groupByCell(filtered));
+            const cells = filterCellsByScheduleFilters(GACSchedule.groupByCell(filtered), clashIds);
+            const focus = scheduleFilterValues().focus;
             if (cells.length === 0) {
+                const showAll = ' <button type="button" onclick="clearScheduleFocus()" class="underline text-sky-600 font-semibold">顯示所有課堂</button>';
                 listContainer.innerHTML = allLessons.length === 0
                     ? `<div class="text-center py-8 text-slate-400 text-xs">📭 ${monthKey} 尚未生成課表。勾選學生後按「生成」；重複生成採 merge 模式，不會覆蓋已有狀態。</div>`
+                    : focus === 'CLASH' ? `<div class="text-center py-8 text-emerald-600 text-xs font-semibold">✅ 所選範圍內沒有撞堂的課。${showAll}</div>`
+                    : focus === 'LEAVE' ? `<div class="text-center py-8 text-slate-400 text-xs">所選範圍內沒有請假或補堂的課。${showAll}</div>`
                     : `<div class="text-center py-8 text-slate-400 text-xs">⚠️ 所選範圍內無排定課堂。</div>`;
                 return;
             }
+            if (focus === 'CLASH') { listContainer.innerHTML = renderClashGroups(cells, clashIds); return; }
 
             // 補堂節緊接在原請假節之下、縮排並以連接線標示——兩者都在本次清單內才如此排；否則各自留原位，靠徽章互指
             const cellByLessonId = {};
@@ -1806,7 +1900,7 @@
                 `;
 
                 // 小組課一個時段一個色塊（人數在括號，成員列在 title）
-                const cells = filterCellsByScheduleFilters(GACSchedule.groupByCell(dayLessons));
+                const cells = filterCellsByScheduleFilters(GACSchedule.groupByCell(dayLessons), clashIds);
 
                 // 同一開始時間的課併成一格「時段」：時間只印一次，下面掛該時段的所有課。
                 // 不同導師同時段＝並行（正常，標「並行」）；同一導師重疊才是撞堂（紅框＋「撞堂」）。
@@ -2367,6 +2461,8 @@
             if (!banner) return;
             const pool = GACLessonState.pendingMakeups(lessonsByMonth, localDateStr(new Date()));
             document.getElementById('pendingPoolCount').textContent = pool.length;
+            const hint = document.getElementById('statPoolHint');   // 頂部「辦理補堂／請假」卡：點了會跳到這裡
+            if (hint) hint.textContent = pool.length ? `待補堂 ${pool.length} 筆` : '';
             banner.classList.toggle('hidden', pool.length === 0);
             const list = document.getElementById('pendingPoolList');
             list.innerHTML = pool.map(({ lesson, waitingDays }) => {

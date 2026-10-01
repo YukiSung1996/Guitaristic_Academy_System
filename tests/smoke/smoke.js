@@ -1880,6 +1880,62 @@ check('撤銷後回到原時段、無撞堂', run('GACLessonState.findLesson(les
     check('清理：回到原狀', run(L(mvId) + '.date') === mvDate && run(L(clashId) + '.status') === 'SCHEDULED'
         && run('GACSchedule.detectClashes(lessonsByMonth["2026-09"]).size') === 0);
 }
+// 頂部統計卡跳轉：撞堂卡 → 清單只列撞堂、按重疊分組；補堂／請假卡 → 待補堂池（沒有待補就列本月請假與補堂）
+{
+    const J = JSON.stringify;
+    const view0 = run('currentViewMode');
+    const listHtml = () => getEl('masterScheduleList').innerHTML;
+    run('jumpToClashes()');
+    check('沒有撞堂時點撞堂卡：只提示、不改篩選', run('lastToast').includes('沒有撞堂') && (getEl('schedFocusFilter').value || 'ALL') === 'ALL' && getEl('statClashHint').textContent === '');
+    run('pushHistory("冒煙：統計卡跳轉")');
+    // 複製一堂別的課成同導師同時段的個別課 → 一組撞堂（兩節）
+    const baseId = run('(() => { const base = lessonsByMonth["2026-09"].find(l => l.status === "SCHEDULED" && !GACSchedule.isGroupLesson(l)); lessonsByMonth["2026-09"].push(Object.assign({}, base, { lessonId: "ZZ-CLASH", studentId: "ZZ", studentName: "Clash Dummy" })); return base.lessonId; })()');
+    const baseName = run('GACLessonState.findLesson(lessonsByMonth, ' + J(baseId) + ').lesson.studentName');
+    run('renderAll()');
+    check('撞堂卡：數字 2、提示「查看並處理」', String(getEl('statClashCount').textContent) === '2' && getEl('statClashHint').textContent === '查看並處理');
+    getEl('schedTutorFilter').value = 'Instructor B';   // 會把要看的課藏住的篩選
+    getEl('weekSelect').value = '0';
+    run('jumpToClashes()');
+    check('點撞堂卡：切到清單、只看撞堂、導師／週次篩選清掉', getEl('schedFocusFilter').value === 'CLASH' && run('currentViewMode') === 'list'
+        && getEl('schedTutorFilter').value === 'ALL' && getEl('weekSelect').value === 'ALL');
+    check('清單按重疊分組：一組、寫明誰和誰重疊、只有這兩節的卡', listHtml().includes('只顯示撞堂的課：1 組') && listHtml().includes('撞堂 1／1')
+        && listHtml().includes(baseName) && listHtml().includes(' ↔ ') && listHtml().includes('Clash Dummy')
+        && (listHtml().match(/撞堂重疊<\/span>/g) || []).length === 2 && listHtml().includes("openLessonMoveModal('ZZ-CLASH')"));
+    // 把其中一節改期 → 這一組消失，清單提示沒有撞堂
+    run("openLessonMoveModal('ZZ-CLASH')");
+    getEl('moveDate').value = '2026-09-27'; getEl('moveTime').value = '08:00';
+    run('submitMoveModal()');
+    run('closeMsgModal()');
+    check('改期解決後：清單顯示「沒有撞堂的課」＋「顯示所有課堂」，卡上數字歸零', listHtml().includes('沒有撞堂的課') && listHtml().includes('clearScheduleFocus()')
+        && String(getEl('statClashCount').textContent) === '0' && getEl('statClashHint').textContent === '');
+    run('clearScheduleFocus()');
+    check('顯示所有課堂 → 回到完整清單', getEl('schedFocusFilter').value === 'ALL' && !listHtml().includes('沒有撞堂的課') && listHtml().includes(baseName));
+    run('undoLastAction()');   // 撤銷改期
+    run('undoLastAction()');   // 撤銷假課
+    check('清理：假課移除', !run('GACLessonState.findLesson(lessonsByMonth, "ZZ-CLASH")'));
+
+    // 補堂／請假卡
+    const poolN = run('GACLessonState.pendingMakeups(lessonsByMonth, "2026-09-15").length');
+    run('renderAll()');
+    check('補堂／請假卡：寫出待補堂筆數', getEl('statPoolHint').textContent === (poolN ? '待補堂 ' + poolN + ' 筆' : ''));
+    run('pushHistory("冒煙：補堂卡跳轉")');
+    const lvId = run('lessonsByMonth["2026-09"].find(l => l.status === "SCHEDULED" && !GACSchedule.isGroupLesson(l)).lessonId');
+    run('GACLessonState.markStatus(lessonsByMonth, ' + J(lvId) + ', "LEAVE", { leaveType: "L" }); renderAll()');
+    check('多一筆請假 → 待補堂筆數 +1', getEl('statPoolHint').textContent === '待補堂 ' + (poolN + 1) + ' 筆');
+    run('lastToast = ""; jumpToPendingPool()');
+    check('有待補堂：跳到待補堂池，不動課表篩選', (getEl('schedFocusFilter').value || 'ALL') === 'ALL' && run('lastToast') === '');
+    // 把待補的全部排上補堂 → 池空 → 改列本月的請假與補堂
+    run('GACLessonState.pendingMakeups(lessonsByMonth, "2026-09-15").forEach((p, i) => GACLessonState.scheduleMakeup(lessonsByMonth, p.lesson.lessonId, { date: "2026-12-0" + (i + 1), time: "09:00" })); renderAll()');
+    run('jumpToPendingPool()');
+    check('沒有待補堂：清單只看「請假與補堂」並提示', run('GACLessonState.pendingMakeups(lessonsByMonth, "2026-09-15").length') === 0 && getEl('statPoolHint').textContent === ''
+        && getEl('schedFocusFilter').value === 'LEAVE' && run('lastToast').includes('請假與補堂') && listHtml().includes("'" + lvId + "'")
+        && run('filterCellsByScheduleFilters(GACSchedule.groupByCell(sortedMonthLessons())).every(c => c.lessons.some(l => l.status === "LEAVE" || l.isMakeup))') === true);
+    run('clearScheduleFocus()');
+    run('undoLastAction()');
+    run("switchView('" + view0 + "')");
+    check('清理：請假與補堂還原', run('GACLessonState.findLesson(lessonsByMonth, ' + J(lvId) + ').lesson.status') === 'SCHEDULED' && !run('lessonsByMonth["2026-12"]')
+        && run('GACLessonState.pendingMakeups(lessonsByMonth, "2026-09-15").length') === poolN);
+}
 
 // 37b) 批量確認出席：按鈕顯示可確認堂數、沒有就停用並分辨原因
 console.log('[37b] 批量確認按鈕狀態');
