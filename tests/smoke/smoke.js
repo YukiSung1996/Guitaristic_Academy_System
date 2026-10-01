@@ -2771,10 +2771,19 @@ function __tutorCalTail() {
     }).then(() => {
         check('寫回後記下碼 → 按鈕消失', run(L(reg1) + '.gcalCode') === 'NS' && run('gcalStatusButton(' + L(reg1) + ')') === '' && run('lastToast').includes('已寫回'));
 
-        // —— 衝突：系統改回已確認出席、Calendar 卻是 NS → 面板「⚠️ 狀態衝突」、預設不勾、不列在一般的狀態碼變更 ——
+        // —— 只比最後結果：Calendar 的 NS 是本系統剛寫上去的（基準），之後本地改成已上課 → 是本地改的：寫回 A，不是衝突 ——
         run('Object.assign(' + L(reg1) + ', { status: "ATTENDED", leaveType: "" })');
         const evObj = calItems[C1].find(e => e.id === ev1);
         evObj.description = evObj.description.replace(/狀態：[^\n]*/, '狀態：NS'); evObj.location = 'NS';
+        check('寫回狀態後記下基準（Calendar NS／本地 NS）', JSON.stringify(run('gcalBase[' + J(ev1) + ']')).includes('"cal":"NS","loc":"NS"'));
+        return sync();
+    }).then(p => {
+        const ws = p ? p.pushStatus.filter(x => x.lesson.lessonId === reg1) : [];
+        check('Calendar 的 NS 是本系統寫上去的、本地之後改成已上課 → 列「寫回狀態」寫 A（勾選），不當衝突、不拉回本地', !!p && ws.length === 1 && ws[0].code === 'A' && !ws[0].conflict
+            && p.statusChanges.length === 0 && /id="gsW_0" checked/.test(getEl('gcalSyncBody').innerHTML));
+        run('closeGcalSyncModal(); gcalSyncPlan = null');
+        // —— 衝突：不知道 Calendar 的 NS 是誰填的（沒有基準）、系統是已確認出席 → 面板「⚠️ 狀態衝突」、預設不勾、不列在一般的狀態碼變更 ——
+        run('delete gcalBase[' + J(ev1) + ']');
         return sync();
     }).then(p => {
         const cf = p ? p.statusChanges.filter(x => x.conflict) : [];
@@ -2892,6 +2901,28 @@ function __titleFixTail() {
         check('清理完成', !run('lessonsByMonth["2026-12"]'));
     });
 }
+
+// 42) 同步面板排序：每節課記最後一次改動的時間（存檔時比對），撤銷也算改動；面板每組最近改動的排最前
+console.log('[42] 改動時間與同步面板排序');
+(() => {
+    const id = run('lessonsByMonth["2026-09"].find(l => l.status === "ATTENDED" && !l.isMakeup && !l.groupId).lessonId');
+    const L = 'GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(id) + ').lesson';
+    run('GACLessonState.allLessons(lessonsByMonth).forEach(l => { delete l.changedAt; }); persistLessons()');
+    check('存檔時沒改的課不蓋時間', run('GACLessonState.allLessons(lessonsByMonth).every(l => !l.changedAt)'));
+    run(L + '.gcalCode = "L"; ' + L + '.gcalEventId = "evX"; persistLessons()');
+    check('只改 GCal 中繼資料不算改動', !run(L + '.changedAt'));
+    run('pushHistory("測試：請假"); GACLessonState.markStatus(lessonsByMonth, ' + JSON.stringify(id) + ', "SCHEDULED"); persistLessons()');
+    check('已上課改回已排課 → 這節蓋上改動時間、其他課不蓋', !!run(L + '.changedAt') && run('GACLessonState.allLessons(lessonsByMonth).filter(l => l.changedAt).length') === 1);
+    run('GACLessonState.allLessons(lessonsByMonth).forEach(l => { delete l.changedAt; })');
+    run('undoLastAction()');
+    check('撤銷 → 改回來的這節也算剛改過', run(L + '.status') === 'ATTENDED' && !!run(L + '.changedAt'));
+    run(L + '.gcalCode = ""; ' + L + '.gcalEventId = null; persistLessons()');
+    const order = run('(() => { const mk = (sid, date, at) => ({ lessons: [{ studentId: sid, date: date, time: "10:00", changedAt: at }] });' +
+        ' const p = { toPush: [mk("A", "2026-09-03", ""), mk("B", "2026-09-01", "2026-09-15T01:00:00.000Z"), mk("C", "2026-09-02", ""), mk("D", "2026-09-20", "2026-09-15T03:00:00.000Z")],' +
+        ' orphans: [{ id: "o1", summary: "x", start: { dateTime: "2026-09-05T10:00:00+08:00" }, updated: "2026-09-01T00:00:00.000Z" }, { id: "o2", summary: "y", start: { dateTime: "2026-09-09T10:00:00+08:00" }, updated: "2026-09-14T00:00:00.000Z" }] };' +
+        ' gcalSortPlan(p); return p.toPush.map(x => x.lessons[0].studentId).join("") + "|" + p.orphans.map(e => e.id).join(","); })()');
+    check('面板排序：最近改動的在前（D 比 B 晚改），沒有改動時間的按上課日期；殘留按事件的 updated', order === 'DBCA|o2,o1');
+})();
 
 // 41) 糧單下載（Excel）：隔離在 2027-02，測完清掉。PDF 要真的 canvas，這裡的 stub DOM 畫不了，改在真實瀏覽器驗
 function __paysheetTail() {

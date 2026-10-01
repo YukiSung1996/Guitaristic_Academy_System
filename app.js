@@ -13,6 +13,7 @@
             studentDatabase.forEach(s => { if (s.longLeaves) { if (!s.inactivePeriods) s.inactivePeriods = GACSchedule.normalizeInactivePeriods(s.longLeaves); delete s.longLeaves; } });
             groupClasses = gacStore.loadGroups(typeof defaultGroups !== 'undefined' ? defaultGroups : []);
             lessonsByMonth = gacStore.loadLessons();
+            stampLessonChanges(true);
             sendLog = gacStore.loadSendlog();
             appSettings = gacStore.loadSettings();
             actionHistory = gacStore.loadHistory();
@@ -183,8 +184,25 @@
         }
 
         function persistLessons() {
+            stampLessonChanges();
             gacStore.saveLessons(lessonsByMonth);
             syncSendlog();
+        }
+
+        // ===== 每節課最後一次改動的時間（lesson.changedAt）：同步面板按它排，剛改的在最前 =====
+        // 不在每個操作裡逐個記：存檔時跟上次存的比，課堂本身（日期時間、狀態、補堂鏈、導師…）有變就蓋上現在的時間；
+        // GCal 的中繼資料（事件 id、碼、eid）不算改動。新生成的課＝新的一節，也蓋時間。撤銷／還原＝又一次改動，同樣蓋時間。
+        const LESSON_FP_FIELDS = ['date', 'time', 'status', 'leaveType', 'makeupLessonId', 'originLessonId', 'isMakeup', 'tutor', 'duration', 'program', 'level', 'classType', 'groupId'];
+        let lessonFingerprints = null;   // lessonId → 上次存檔時的指紋；null＝還沒建立（載入時建立，不蓋時間）
+        function stampLessonChanges(baselineOnly) {
+            const nowIso = new Date().toISOString();
+            const next = new Map();
+            GACLessonState.allLessons(lessonsByMonth).forEach(l => {
+                const fp = LESSON_FP_FIELDS.map(k => (l[k] === undefined || l[k] === null) ? '' : String(l[k])).join('|');
+                if (lessonFingerprints && !baselineOnly && lessonFingerprints.get(l.lessonId) !== fp) l.changedAt = nowIso;
+                next.set(l.lessonId, fp);
+            });
+            lessonFingerprints = next;
         }
 
         function persistSendlog() {
@@ -234,6 +252,7 @@
             renderRateTableEditor();
             gacStore.saveStudents(studentDatabase);
             persistGroups();
+            stampLessonChanges();   // 撤銷／還原改回來的課，也算剛改過（同步面板排最前）
             gacStore.saveLessons(lessonsByMonth);
             persistSendlog();
             renderBatchCheckboxes();
@@ -3285,6 +3304,7 @@
                 persistRateOverrides();
                 gacStore.saveStudents(studentDatabase);
                 persistGroups();
+                stampLessonChanges(true);   // 還原備份：備份裡的課當新的起點，不算改動
                 gacStore.saveLessons(lessonsByMonth);
                 gacStore.saveSendlog(sendLog);
                 gacStore.saveSettings(appSettings);

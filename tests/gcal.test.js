@@ -845,3 +845,73 @@ test('planTitleFixes：只列真的對不上的標題，按日期排；編號取
         { cell: gCells[1], event: { id: 'g1', summary: G.cellToEventPayload(gCells[1], IMPORT_OPTS).summary } }], IMPORT_OPTS);
     assert.deepStrictEqual(gFix.map(f => [f.event.id, f.to]), [['g0', G.cellToEventPayload(gCells[0], IMPORT_OPTS).summary]]);
 });
+
+// ===== 只比最後結果：基準（上次兩邊一致時的樣子）決定差異是哪一邊改的 =====
+const BL = (st, lt, extra) => Object.assign({ lessonId: 'S001-20261111-1330', studentId: 'S001', studentName: 'Student 001', date: '2026-11-11', time: '13:30', duration: 45,
+    classType: '一對一', tutor: 'Instructor A', status: st || 'SCHEDULED', leaveType: lt || '' }, extra || {});
+const BC = (...ls) => ({ key: ls[0].lessonId, isGroup: ls.length > 1, date: ls[0].date, time: ls[0].time, lessons: ls });
+const BE = (time, code) => ({ id: 'e1', status: 'confirmed', start: { dateTime: '2026-11-11T' + time + ':00+08:00' }, end: { dateTime: '2026-11-11T' + time + ':00+08:00' },
+    description: '一對一\n導師：A\n狀態：' + (code || ''), location: code || '' });
+
+test('changedSide：基準／本地／Calendar → 哪一邊改了；沒有基準＝不知道', () => {
+    assert.strictEqual(G.changedSide('a', 'a', 'a'), 'none');
+    assert.strictEqual(G.changedSide('a', 'b', 'a'), 'local');
+    assert.strictEqual(G.changedSide('a', 'a', 'b'), 'gcal');
+    assert.strictEqual(G.changedSide('a', 'b', 'c'), 'both');
+    assert.strictEqual(G.changedSide(undefined, 'b', 'c'), null);
+});
+
+test('splitTimeChanges：改期並同步之後撤銷（Calendar 仍是同步時的樣子）→ 本地為準，改 Calendar 上那個事件；導師在 Calendar 改的照舊拉回', () => {
+    const c = { cell: BC(BL()), lessons: [BL()], lesson: BL(), event: BE('11:30'), date: '2026-11-11', time: '11:30' };
+    // 基準 11:30（本系統把改期寫上去時記下的）；本地撤銷回 13:30；Calendar 仍 11:30 → 本地改的
+    let r = G.splitTimeChanges([c], () => ({ at: '2026-11-11 11:30' }), 'gcal');
+    assert.strictEqual(r.pull.length, 0);
+    assert.deepStrictEqual([r.push.length, r.push[0].from, r.push[0].tagOnly, r.push[0].conflict, r.push[0].event.id], [1, { date: '2026-11-11', time: '11:30' }, false, false, 'e1']);
+    // 基準 13:30（兩邊一致時）；Calendar 被導師改成 11:30 → Calendar 改的 → 拉回
+    r = G.splitTimeChanges([c], () => ({ at: '2026-11-11 13:30' }), 'local');
+    assert.deepStrictEqual([r.pull.length, r.push.length], [1, 0]);
+    // 兩邊都改了：看設定
+    assert.deepStrictEqual((r = G.splitTimeChanges([c], () => ({ at: '2026-11-11 09:00' }), 'gcal'), [r.pull.length, r.push.length]), [1, 0]);
+    r = G.splitTimeChanges([c], () => ({ at: '2026-11-11 09:00' }), 'local');
+    assert.deepStrictEqual([r.pull.length, r.push.length, r.push[0].conflict], [0, 1, true]);
+    // 沒有基準（舊資料）→ 照舊拉回
+    assert.deepStrictEqual((r = G.splitTimeChanges([c], () => null, 'local'), [r.pull.length, r.push.length]), [1, 0]);
+});
+
+test('planStatusSync 帶基準：撤銷了已寫上去的請假 → 清碼；本系統寫的缺席、本地之後改成已上課 → 寫 A（不當衝突）；導師在 Calendar 填的照舊拉回', () => {
+    const shape = r => [r.toLocal.map(x => x.to.status + (x.conflict ? '!' : '')), r.toGcal.map(x => '「' + x.code + '」' + (x.conflict ? '!' : ''))];
+    const run = (lesson, code, base, rule) => shape(G.planStatusSync([{ cell: BC(lesson), event: BE('13:30', code) }], rule || 'gcal', () => base));
+    // 請假寫上去了（基準 SL/SL），之後撤銷（本地已排課）→ 寫回清空，不把請假拉回來
+    assert.deepStrictEqual(run(BL(), 'SL', { cal: 'SL', loc: 'SL' }), [[], ['「」']]);
+    // 沒有基準＝改動前的邏輯：拉回請假
+    assert.deepStrictEqual(run(BL(), 'SL', null), [['LEAVE'], []]);
+    // 本系統寫的 NS、本地改成已上課 → 寫 A
+    assert.deepStrictEqual(run(BL('ATTENDED'), 'NS', { cal: 'NS', loc: 'NS' }), [[], ['「A」']]);
+    // 沒有基準 → 衝突旗標、按規則（Calendar 為準拉回）
+    assert.deepStrictEqual(run(BL('ATTENDED'), 'NS', null), [['NOSHOW!'], []]);
+    // 導師在 Calendar 填了 L（基準兩邊都空）→ 拉回，即使設定以本系統為準
+    assert.deepStrictEqual(run(BL(), 'L', { cal: '', loc: '' }, 'local'), [['LEAVE'], []]);
+    // 系統已上課（基準 A／空），導師填了 NS → 只有 Calendar 改了 → 拉回，仍標衝突（預設不勾）
+    assert.deepStrictEqual(run(BL('ATTENDED'), 'NS', { cal: '', loc: 'A' }), [['NOSHOW!'], []]);
+    // 本地標已上課、Calendar 留空 → 不必寫 A
+    assert.deepStrictEqual(run(BL('ATTENDED'), '', { cal: '', loc: '' }), [[], []]);
+    // 兩邊都跟基準一樣 → 什麼都不列
+    assert.deepStrictEqual(run(BL('LEAVE', 'L'), 'L', { cal: 'L', loc: 'L' }), [[], []]);
+    // 導師在 Calendar 把碼清掉（本地仍請假）→ 留空不算狀態，照舊把本地的碼寫回
+    assert.deepStrictEqual(run(BL('LEAVE', 'L'), '', { cal: 'L', loc: 'L' }), [[], ['「L」']]);
+    // 兩邊都改了 → 照規則
+    assert.deepStrictEqual(run(BL('LEAVE', 'SL'), 'TL', { cal: 'L', loc: 'L' }, 'gcal'), [['LEAVE'], []]);
+    assert.deepStrictEqual(run(BL('LEAVE', 'SL'), 'TL', { cal: 'L', loc: 'L' }, 'local'), [[], ['「SL」']]);
+});
+
+test('observedBase／writtenBase：兩邊一致的才記；時間與狀態各自記', () => {
+    const cell = BC(BL('LEAVE', 'L'));
+    assert.deepStrictEqual(G.observedBase([{ cell, event: BE('13:30', 'L') }], {}), { e1: { at: '2026-11-11 13:30', cal: 'L', loc: 'L' } });
+    assert.deepStrictEqual(G.observedBase([{ cell, event: BE('11:30', 'L') }], {}), { e1: { cal: 'L', loc: 'L' } }, '時間不一致不記時間');
+    assert.deepStrictEqual(G.observedBase([{ cell, event: BE('13:30', '') }], { [cell.key]: true }), { e1: { at: '2026-11-11 13:30' } }, '狀態仍有差異不記狀態');
+    assert.deepStrictEqual(G.observedBase([{ cell: BC(BL('ATTENDED')), event: BE('13:30', '') }], {}), { e1: { at: '2026-11-11 13:30', cal: '', loc: 'A' } });
+    assert.deepStrictEqual(G.observedBase([{ cell, event: Object.assign(BE('13:30', 'L'), { id: '' }) }], {}), {}, '沒有事件 id 不記');
+    const opts = { titleFn: S.lessonTitle, timeZone: 'Asia/Hong_Kong' };
+    assert.deepStrictEqual(G.writtenBase(cell, G.cellToEventPayload(cell, opts)), { at: '2026-11-11 13:30', cal: 'L', loc: 'L' });
+    assert.deepStrictEqual(G.writtenBase(BC(BL('ATTENDED')), G.cellToEventPayload(BC(BL('ATTENDED')), opts)), { at: '2026-11-11 13:30', cal: '', loc: 'A' }, '出席不寫進 Calendar');
+});
