@@ -714,3 +714,93 @@ test('matchStudent：學號容錯先於姓名', () => {
     assert.strictEqual(G.matchStudent('32 補課', students), '0032');
     assert.strictEqual(G.matchStudent('補課 lee siu ming', students), '0125');
 });
+
+test('runPool：同時最多 limit 件、全部跑完；limit 省略＝逐件；空清單不出錯', async () => {
+    let live = 0, peak = 0;
+    const seen = [];
+    const worker = (x, i) => {
+        live++; peak = Math.max(peak, live);
+        return new Promise(r => setTimeout(r, 5)).then(() => { live--; seen.push(i); });
+    };
+    await G.runPool([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 4, worker);
+    assert.strictEqual(peak, 4);
+    assert.deepStrictEqual(seen.slice().sort((a, b) => a - b), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    peak = 0;
+    await G.runPool([1, 2, 3], undefined, worker);
+    assert.strictEqual(peak, 1, '沒給 limit ＝逐件');
+    peak = 0;
+    await G.runPool([1, 2], 6, worker);
+    assert.strictEqual(peak, 2, 'limit 比件數多 → 只開件數那麼多');
+    await G.runPool([], 6, worker);
+});
+
+test('importCells／deleteEvents 並行：同時最多 concurrency 件、不重複建立、結果按傳入順序', async () => {
+    const lessons = S.generateMonthLessons(student(), '2026-09')
+        .concat(S.generateMonthLessons(student({ id: 'S002', name: 'Student 002', weekday: 3 }), '2026-09'))
+        .concat(S.generateMonthLessons(student({ id: 'S003', name: 'Student 003', weekday: 4 }), '2026-09'));
+    const cells = S.groupByCell(lessons);
+    const cal = mockCalendar();
+    let live = 0, peak = 0, n = 0;
+    // 每個請求延遲不一（先送的不一定先回），並數同時在路上的請求
+    const slow = fn => (...args) => {
+        live++; peak = Math.max(peak, live);
+        return new Promise(r => setTimeout(r, 2 + (n++ % 4) * 3)).then(() => fn(...args)).finally(() => { live--; });
+    };
+    const client = { listByLessonId: slow(cal.client.listByLessonId), insert: slow(cal.client.insert), remove: slow(cal.client.remove) };
+    const opts = Object.assign({ concurrency: 4 }, IMPORT_OPTS);
+    let progress = 0;
+    const r1 = await G.importCells(client, cells, Object.assign({ onEach: (d, t) => { progress = d; assert.strictEqual(t, cells.length); } }, opts));
+    assert.ok(peak > 1 && peak <= 4, '同時在路上的請求 ≤ 4（實際 ' + peak + '）');
+    assert.strictEqual(r1.ok, true);
+    assert.strictEqual(progress, cells.length, '進度回調每節一次');
+    assert.deepStrictEqual(r1.inserted.map(x => x.cellKey), cells.map(c => c.key), '結果按傳入順序');
+    assert.strictEqual(cal.events.length, cells.length, '一節一個事件，沒有重複');
+    assert.ok(lessons.every(l => l.gcalEventId), '每節回填事件 id');
+    const r2 = await G.importCells(client, cells, opts);
+    assert.deepStrictEqual([r2.inserted.length, r2.skipped.length, cal.events.length], [0, cells.length, cells.length], '再推一次全部跳過');
+    assert.deepStrictEqual(r2.skipped.map(x => x.cellKey), cells.map(c => c.key));
+    // 刪除也並行；其中一件早已不在 → gone
+    const items = lessons.map(l => ({ eventId: l.gcalEventId, lessonId: l.lessonId }));
+    cal.events.find(ev => ev.id === items[2].eventId).status = 'cancelled';
+    peak = 0;
+    const d = await G.deleteEvents(client, items, null, { concurrency: 4 });
+    assert.ok(peak > 1 && peak <= 4);
+    assert.deepStrictEqual([d.ok, d.deleted.length, d.gone.length, d.failed.length], [true, items.length - 1, 1, 0]);
+    assert.deepStrictEqual(d.deleted.map(x => x.eventId), items.filter((x, i) => i !== 2).map(x => x.eventId), '結果按傳入順序');
+});
+
+test('restClient：被限流（429／403 rateLimitExceeded）→ 等一下重試；一般 403 不重試；一直被限流 → 試 5 次後報錯', async () => {
+    const res = (status, body) => Promise.resolve({ ok: status < 300, status, json: () => Promise.resolve(body) });
+    const limited = reason => res(403, { error: { message: 'Rate Limit Exceeded', errors: [{ reason }] } });
+    const waits = [];
+    const sleep = ms => { waits.push(ms); return Promise.resolve(); };
+    let n = 0;
+    const bodies = [];
+    const client = G.createRestClient({
+        token: 'tok', sleep,
+        fetchFn: (url, opts) => {
+            n++; bodies.push(opts.body);
+            if (n === 1) return limited('rateLimitExceeded');
+            if (n === 2) return limited('userRateLimitExceeded');
+            if (n === 3) return res(429, { error: { message: 'Too Many Requests' } });
+            return res(200, { id: 'ev1' });
+        }
+    });
+    const ev = await client.insert({ summary: 'x' });
+    assert.strictEqual(ev.id, 'ev1');
+    assert.strictEqual(n, 4, '被擋 3 次，第 4 次成功');
+    assert.ok(bodies.every(b => b === bodies[0]), '重試送的是同一個內容');
+    assert.strictEqual(waits.length, 3);
+    assert.ok(waits[0] >= 1000 && waits[0] < 1300 && waits[1] >= 2000 && waits[1] < 2300 && waits[2] >= 4000 && waits[2] < 4300, '等待逐次加倍：' + waits.join());
+
+    let m = 0;
+    const forbidden = G.createRestClient({ token: 'tok', sleep, fetchFn: () => { m++; return res(403, { error: { message: 'Forbidden', errors: [{ reason: 'forbidden' }] } }); } });
+    await assert.rejects(() => forbidden.insert({ summary: 'x' }), /403.*Forbidden/);
+    assert.strictEqual(m, 1, '不是限流的 403 不重試');
+
+    let k = 0;
+    waits.length = 0;
+    const always = G.createRestClient({ token: 'tok', sleep, fetchFn: () => { k++; return res(429, { error: { message: 'Too Many Requests' } }); } });
+    await assert.rejects(() => always.remove('ev1'), /429/);
+    assert.deepStrictEqual([k, waits.length], [5, 4], '最多重試 4 次');
+});

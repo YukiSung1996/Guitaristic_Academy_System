@@ -591,7 +591,7 @@ check('同步面板預設全勾（手動新建除外）', (getEl('gcalSyncBody')
     check('本組全不選：只動該組', delBoxes.every(b => !b.checked) && otherBoxes[0].checked === true);
     run("gcalSyncSetGroup('del', true)");
     run('gcalSyncSetAll(false)');
-    check('頁腳全不選：所有組', delBoxes.concat(otherBoxes).every(b => !b.checked));
+    check('頂部操作列全不選：所有組', delBoxes.concat(otherBoxes).every(b => !b.checked));
     const secs = [{ open: true }, { open: false }];
     sandbox.__qsaHook = sel => (sel === '#gcalSyncBody details' ? secs : []);
     run('gcalSyncToggleSections()');
@@ -630,7 +630,13 @@ check('11 月桶＝補堂＋加課共 2 節且已落盤', run('lessonsByMonth["2
 check('套用後 gcalSyncPlan 清空', run('gcalSyncPlan') === null);
 check('結果顯示在面板內（不彈 alert）', getEl('gcalSyncBody').innerHTML.includes('同步完成')
     && getEl('gcalSyncBody').innerHTML.includes('本地更新 5 項'));
-// 零差異：只顯示「完全一致」（頁腳切到單一「確認」）
+// 懸浮同步按鈕：標示目前模式；讀取／執行中和頂部那顆一起停用
+run('applyGcalModeUi(); setGcalBusy(true)');
+check('懸浮「GCal」按鈕：有提示文字、忙碌時與頂部按鈕一起停用', getEl('gcalSyncFab').title.includes('同步 Google Calendar') && getEl('gcalSyncFab').title.includes('拖')
+    && getEl('gcalSyncFab').disabled === true && getEl('gcalSyncBtn').disabled === true);
+run('setGcalBusy(false)');
+check('忙完恢復可按', getEl('gcalSyncFab').disabled === false && getEl('gcalSyncBtn').disabled === false);
+// 零差異：只顯示「完全一致」（操作列收起，只剩底部「確認」）
 run(`gcalSyncPlan = { monthKey: '2026-09', toPush: [], orphans: [], timeChanges: [], statusChanges: [], deletions: [], manualNew: [] }`);
 run('renderGcalSyncModal()');
 check('零差異面板顯示完全一致', getEl('gcalSyncBody').innerHTML.includes('完全一致'));

@@ -1179,27 +1179,36 @@
             </div>
         </div>
     </div>
+    <!-- 懸浮「同步 GCal」按鈕：固定在畫面右下，任何頁籤、滑到哪裡都按得到；按住可拖到別處（位置記在這個瀏覽器）。
+         點擊由 gcal-ui.js 的 initGcalFab 接（拖完放手那一下不算點擊），所以這裡不寫 onclick -->
+    <button id="gcalSyncFab" type="button" title="同步 Google Calendar——按住可拖到別的位置" class="fixed right-4 bottom-24 z-40 w-14 h-14 rounded-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white shadow-xl flex flex-col items-center justify-center gap-0.5 cursor-pointer select-none touch-none print:hidden">
+        <i class="fa-solid fa-rotate text-base"></i>
+        <span class="text-[9px] font-bold leading-none">GCal</span>
+    </button>
     <!-- 同步 GCal 面板：一次抓取，兩邊差異分組（推送/時間/狀態碼/已刪/殘留/手動新建）勾選執行；每組可收起，各有全選／全不選 -->
     <div id="gcalSyncModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-5 space-y-3 max-h-[85vh] overflow-y-auto">
-            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                <h3 id="gcalSyncTitle" class="text-sm font-bold text-slate-800"><i class="fa-solid fa-rotate text-indigo-500 mr-1"></i>同步 Google Calendar</h3>
-                <button onclick="closeGcalSyncModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <div id="gcalSyncBody" class="space-y-2 text-xs"></div>
-            <!-- 兩種頁腳：有差異＝全選/全不選/全部收起／展開/取消/執行；零差異或執行完畢＝只有「確認」 -->
-            <div id="gcalSyncActions" class="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
-                <div class="flex gap-2">
-                    <button onclick="gcalSyncSetAll(true)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全選</button>
-                    <button onclick="gcalSyncSetAll(false)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全不選</button>
-                    <button onclick="gcalSyncToggleSections()" title="把所有分組一次收起；再按一次全部展開。收起不影響勾選" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全部收起／展開</button>
+        <!-- 版面：標題＋操作列固定在面板頂部、「確認」固定在底部，只有中間的差異清單捲動——清單再長也不用滑到最下面才按得到 -->
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col">
+            <div class="px-5 pt-5 pb-3 space-y-3 border-b border-slate-100">
+                <div class="flex items-center justify-between">
+                    <h3 id="gcalSyncTitle" class="text-sm font-bold text-slate-800"><i class="fa-solid fa-rotate text-indigo-500 mr-1"></i>同步 Google Calendar</h3>
+                    <button onclick="closeGcalSyncModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
                 </div>
-                <div class="flex gap-2">
-                    <button onclick="closeGcalSyncModal()" id="gcalSyncCancelBtn" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition disabled:opacity-50">取消</button>
-                    <button onclick="applyGcalSync()" id="gcalSyncApplyBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition disabled:opacity-50">執行勾選項目</button>
+                <!-- 操作列（有差異時）：全選/全不選/全部收起／展開/取消/執行；零差異或執行完畢改顯示底部的「確認」 -->
+                <div id="gcalSyncActions" class="flex items-center justify-between gap-2 flex-wrap">
+                    <div class="flex gap-2">
+                        <button onclick="gcalSyncSetAll(true)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全選</button>
+                        <button onclick="gcalSyncSetAll(false)" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全不選</button>
+                        <button onclick="gcalSyncToggleSections()" title="把所有分組一次收起；再按一次全部展開。收起不影響勾選" class="px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition">全部收起／展開</button>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="closeGcalSyncModal()" id="gcalSyncCancelBtn" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition disabled:opacity-50">取消</button>
+                        <button onclick="applyGcalSync()" id="gcalSyncApplyBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition disabled:opacity-50">執行勾選項目</button>
+                    </div>
                 </div>
             </div>
-            <div id="gcalSyncAck" class="hidden flex justify-end pt-2 border-t border-slate-100">
+            <div id="gcalSyncBody" class="px-5 py-3 space-y-2 text-xs overflow-y-auto flex-1 min-h-0"></div>
+            <div id="gcalSyncAck" class="hidden flex justify-end px-5 py-3 border-t border-slate-100">
                 <button onclick="closeGcalSyncModal()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition">確認</button>
             </div>
         </div>

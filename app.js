@@ -27,6 +27,7 @@
             loadSettingsForm();
             renderStorageLocationNote();
             if (typeof applyGcalModeUi === 'function') applyGcalModeUi();
+            if (typeof initGcalFab === 'function') initGcalFab();
             populateTutorSelects();
             renderBatchCheckboxes();
             renderStudentTable();
