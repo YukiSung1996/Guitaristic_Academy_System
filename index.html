@@ -289,7 +289,8 @@
                         <select id="schedStudentFilter" onchange="onScheduleFilterChange('student')" title="按學生或小組班篩選：導師下拉自動跟隨；選了學生後看的是該生全部課堂（含別的導師的小組課），月曆略過該生整週沒課的星期" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium max-w-[11rem]">
                             <option value="ALL">所有學生</option>
                         </select>
-                        <select id="schedFocusFilter" onchange="onScheduleFilterChange()" title="只看某一類課堂：請假與補堂，或撞堂（同一導師時間重疊）。撞堂會按「誰和誰重疊」分組列出，把其中一節改期即可" class="px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
+                        <!-- 只在清單視圖出現（switchView 控制）：月曆一律顯示全部，撞堂在月曆上本來就有紅框 -->
+                        <select id="schedFocusFilter" onchange="onScheduleFilterChange()" title="（清單）只看某一類課堂：請假與補堂，或撞堂（同一導師時間重疊）" class="hidden px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none bg-white font-medium">
                             <option value="ALL">所有課堂</option>
                             <option value="LEAVE">請假與補堂</option>
                             <option value="CLASH">⚠️ 撞堂</option>
@@ -310,15 +311,17 @@
                 <!-- Clash Warning Banner -->
                 <div id="clashWarningBanner" class="hidden p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3 text-amber-800 text-xs font-medium">
                     <i class="fa-solid fa-triangle-exclamation text-amber-500 text-base"></i>
-                    <!-- 標題由 renderClashBanner 填（幾組撞堂）；右邊是二選一的切換：只顯示撞堂／顯示全部（顯示全部時撞堂的課也排在清單最前面） -->
+                    <!-- 標題與說明由 renderClashBanner 填。右邊：清單視圖＝二選一切換（只顯示撞堂／顯示全部，顯示全部時撞堂也排最前）；
+                         月曆視圖＝一律顯示全部（撞堂有紅框），只給一顆「到清單處理」 -->
                     <div>
                         <span id="clashBannerTitle" class="font-bold"></span>
-                        <p class="text-amber-700 mt-0.5">撞堂的課排在清單最前面，按「誰和誰重疊」分組；每組把其中一節「改期」（那堂其實不上就標請假）。</p>
+                        <p id="clashBannerText" class="text-amber-700 mt-0.5"></p>
                     </div>
-                    <div class="ml-auto shrink-0 inline-flex rounded-lg border border-amber-300 p-0.5 bg-white font-bold">
+                    <div id="clashToggle" class="hidden ml-auto shrink-0 inline-flex rounded-lg border border-amber-300 p-0.5 bg-white font-bold">
                         <button type="button" id="clashOnlyBtn" onclick="setClashFocus(true)" class="px-3 py-1 rounded-md transition">只顯示撞堂</button>
                         <button type="button" id="clashAllBtn" onclick="setClashFocus(false)" class="px-3 py-1 rounded-md transition">顯示全部</button>
                     </div>
+                    <button type="button" id="clashGoListBtn" onclick="jumpToClashes()" class="ml-auto shrink-0 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold transition">到清單處理</button>
                 </div>
 
                 <!-- 小組一致性警告（兜底偵測：TL 導師請假未同步 / 小組補堂時段發散） -->

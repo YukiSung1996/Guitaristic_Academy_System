@@ -533,7 +533,8 @@
             renderClashBanner(clashCount);
         }
 
-        // 課表上方的撞堂提示條：寫明有幾組撞堂；右邊二選一的切換——只顯示撞堂／顯示全部（亮著的是目前的狀態）
+        // 課表上方的撞堂提示條：寫明有幾組撞堂。清單視圖：右邊二選一的切換——只顯示撞堂／顯示全部（亮著的是目前的狀態）；
+        // 月曆視圖：一律顯示全部（撞堂的課有紅框），只給一顆「到清單處理」
         function renderClashBanner(groupCount) {
             const banner = document.getElementById('clashWarningBanner');
             if (!banner) return;
@@ -541,6 +542,14 @@
             banner.classList.toggle('hidden', n === 0);
             const title = document.getElementById('clashBannerTitle');
             if (title) title.textContent = `有 ${n} 組課堂時間重疊（撞堂）`;
+            const inList = currentViewMode === 'list';
+            const text = document.getElementById('clashBannerText');
+            if (text) text.textContent = inList
+                ? '撞堂的課排在清單最前面，按「誰和誰重疊」分組；每組把其中一節「改期」（那堂其實不上就標請假）。'
+                : '月曆上有紅框的就是撞堂的課。要處理請到清單：撞堂的課會排在最前面，逐組改期。';
+            const toggle = document.getElementById('clashToggle'), goList = document.getElementById('clashGoListBtn');
+            if (toggle) toggle.classList.toggle('hidden', !inList);
+            if (goList) goList.classList.toggle('hidden', inList);
             const focus = scheduleFilterValues().focus;
             [['clashOnlyBtn', focus === 'CLASH'], ['clashAllBtn', focus === 'ALL']].forEach(([id, on]) => {
                 const b = document.getElementById(id);
@@ -551,7 +560,7 @@
             });
         }
 
-        // 提示條的切換：只顯示撞堂／顯示全部（只換清單與月曆顯示的範圍，不動其他篩選、不換視圖）
+        // 提示條的切換（清單視圖）：只顯示撞堂／顯示全部——只換清單顯示的範圍，不動其他篩選
         function setClashFocus(only) {
             const sel = document.getElementById('schedFocusFilter');
             if (sel) sel.value = only ? 'CLASH' : 'ALL';
@@ -1137,6 +1146,10 @@
                 document.getElementById('btnListView').classList.add('bg-white', 'text-sky-600', 'shadow-sm');
                 renderMasterScheduleList();
             }
+            // 「只看某一類課」只屬於清單：月曆一律顯示全部，下拉在月曆視圖收起來
+            const focusSel = document.getElementById('schedFocusFilter');
+            if (focusSel) focusSel.classList.toggle('hidden', mode === 'calendar');
+            renderClashBanner();
         }
 
         function onWeekSelectChange() {
@@ -1185,7 +1198,7 @@
             const t = document.getElementById('schedTutorFilter');
             const s = document.getElementById('schedStudentFilter');
             const c = document.getElementById('schedFocusFilter');
-            // focus：只看某一類課——'LEAVE' 請假與補堂｜'CLASH' 撞堂｜'ALL' 不限（只影響清單／月曆顯示，批量確認與導出不看它）
+            // focus：只看某一類課——'LEAVE' 請假與補堂｜'CLASH' 撞堂｜'ALL' 不限（只影響清單；月曆、批量確認、導出都不看它）
             return { tutor: (t && t.value) || 'ALL', student: (s && s.value) || 'ALL', focus: (c && c.value) || 'ALL' };
         }
 
@@ -1197,18 +1210,19 @@
             return f.tutor === 'ALL' || l.tutor === f.tutor;
         }
 
-        // 課節是否落在篩選範圍（清單／月曆用：選某學生時整節小組卡保留，看得到同組其他成員）。
-        // clashIds：本月撞堂的 lessonId（「只看撞堂」用；呼叫方已算好就傳進來）
-        function filterCellsByScheduleFilters(cells, clashIds) {
+        // 課節是否落在篩選範圍（清單／月曆用：選某學生時整節小組卡保留，看得到同組其他成員）
+        function filterCellsByScheduleFilters(cells) {
             const f = scheduleFilterValues();
-            let out = cells;
-            if (f.tutor !== 'ALL' || f.student !== 'ALL') out = out.filter(cell => cell.lessons.some(l => lessonMatchesScheduleFilters(l, f)));
-            if (f.focus === 'LEAVE') out = out.filter(cell => cell.lessons.some(l => l.status === 'LEAVE' || l.isMakeup));
-            if (f.focus === 'CLASH') {
-                const ids = clashIds || GACSchedule.detectClashes(sortedMonthLessons());
-                out = out.filter(cell => cell.lessons.some(l => ids.has(l.lessonId)));
-            }
-            return out;
+            if (f.tutor === 'ALL' && f.student === 'ALL') return cells;
+            return cells.filter(cell => cell.lessons.some(l => lessonMatchesScheduleFilters(l, f)));
+        }
+
+        // 清單專用：只看某一類課（月曆不套用——一律顯示全部，撞堂在月曆上本來就有紅框）。clashIds＝本月撞堂的 lessonId
+        function filterCellsByFocus(cells, clashIds) {
+            const focus = scheduleFilterValues().focus;
+            if (focus === 'LEAVE') return cells.filter(cell => cell.lessons.some(l => l.status === 'LEAVE' || l.isMakeup));
+            if (focus === 'CLASH') return cells.filter(cell => cell.lessons.some(l => clashIds.has(l.lessonId)));
+            return cells;
         }
 
         // ===== 頂部統計卡的跳轉：直接帶到要處理的地方 =====
@@ -1442,7 +1456,7 @@
             }
 
             // 按課節渲染：小組課同時段一張卡（成員列在卡內）；一對一每堂一張卡；再套導師／學生篩選
-            const cells = filterCellsByScheduleFilters(GACSchedule.groupByCell(filtered), clashIds);
+            const cells = filterCellsByFocus(filterCellsByScheduleFilters(GACSchedule.groupByCell(filtered)), clashIds);
             const focus = scheduleFilterValues().focus;
             if (cells.length === 0) {
                 const showAll = ' <button type="button" onclick="clearScheduleFocus()" class="underline text-sky-600 font-semibold">顯示全部</button>';
@@ -1942,7 +1956,7 @@
                 `;
 
                 // 小組課一個時段一個色塊（人數在括號，成員列在 title）
-                const cells = filterCellsByScheduleFilters(GACSchedule.groupByCell(dayLessons), clashIds);
+                const cells = filterCellsByScheduleFilters(GACSchedule.groupByCell(dayLessons));
 
                 // 同一開始時間的課併成一格「時段」：時間只印一次，下面掛該時段的所有課。
                 // 不同導師同時段＝並行（正常，標「並行」）；同一導師重疊才是撞堂（紅框＋「撞堂」）。
