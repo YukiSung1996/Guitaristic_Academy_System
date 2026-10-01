@@ -9,6 +9,8 @@
             rateOverrides = gacStore.loadRateOverrides();
             GACRates.applyOverrides(rateTable, rateOverrides);
             studentDatabase = gacStore.loadStudents(defaultStudents);
+            // 上一版叫「長假」（longLeaves）：改名為停課紀錄 inactivePeriods
+            studentDatabase.forEach(s => { if (s.longLeaves) { if (!s.inactivePeriods) s.inactivePeriods = GACSchedule.normalizeInactivePeriods(s.longLeaves); delete s.longLeaves; } });
             groupClasses = gacStore.loadGroups(typeof defaultGroups !== 'undefined' ? defaultGroups : []);
             lessonsByMonth = gacStore.loadLessons();
             sendLog = gacStore.loadSendlog();
@@ -518,7 +520,11 @@
         }
 
         function updateDashboardKPIs() {
-            document.getElementById('statTotalStudents').textContent = studentDatabase.length;
+            const todayStr = localDateStr(new Date());
+            const inactiveN = studentDatabase.filter(s => GACSchedule.isInactiveOn(s, todayStr)).length;
+            document.getElementById('statTotalStudents').textContent = studentDatabase.length - inactiveN;
+            const inactiveHint = document.getElementById('statInactiveHint');
+            if (inactiveHint) inactiveHint.textContent = inactiveN ? `另 ${inactiveN} 位停課` : '';
             const lessons = currentMonthLessons();
             document.getElementById('statTotalLessons').textContent = lessons.length;
 
@@ -600,7 +606,7 @@
 
                 const sched = getStudentScheduleForMonth(student, batchMonthVal);
                 const hasSlot = hasIndividualSlot(sched);
-                const leaveTag = hasSlot ? batchLongLeaveTag(student, batchMonthVal) : '';
+                const leaveTag = hasSlot ? batchInactiveTag(student, batchMonthVal) : '';
                 const div = document.createElement('div');
                 div.className = 'flex items-center space-x-2 text-xs bg-white p-2 rounded-lg border border-slate-200 hover:border-sky-300 transition';
 
@@ -624,7 +630,7 @@
                 const memberNames = (g.memberIds || []).map(id => { const s = studentDatabase.find(x => x.id === id); return s ? s.name : id; });
                 const groupDates = GACSchedule.monthDatesForWeekday(batchMonthVal, g.weekday);
                 const onLeave = (g.memberIds || []).map(id => studentDatabase.find(x => x.id === id))
-                    .filter(s => s && groupDates.some(d => GACSchedule.isOnLongLeave(s, d)));
+                    .filter(s => s && groupDates.some(d => GACSchedule.isInactiveOn(s, d)));
                 const hay = (g.name + ' ' + g.id + ' ' + memberNames.join(' ')).toLowerCase();
                 if (searchKeyword && !hay.includes(searchKeyword)) return;
                 const div = document.createElement('div');
@@ -634,7 +640,7 @@
                     <label for="batch_grp_${g.id}" class="cursor-pointer font-medium truncate flex-1" title="${memberNames.join('、')}">
                         <span class="font-bold text-indigo-800"><i class="fa-solid fa-user-group"></i> ${g.name}</span>
                         <span class="text-indigo-600 font-semibold">(${(g.memberIds || []).length} 人)（${getWeekdayName(g.weekday)} ${g.time}）</span>
-                        ${onLeave.length ? `<span class="text-violet-700 font-semibold" title="長假中的成員那幾天不生成：${escapeHtml(onLeave.map(s => s.name).join('、'))}">🌙 ${onLeave.length} 位長假</span>` : ''}
+                        ${onLeave.length ? `<span class="text-slate-500 font-semibold" title="停課的成員那幾天不生成：${escapeHtml(onLeave.map(s => s.name).join('、'))}">⏸ ${onLeave.length} 位停課</span>` : ''}
                     </label>
                     <button onclick="openGroupModal('${g.id}')" class="shrink-0 px-1.5 py-1 text-slate-400 hover:text-indigo-700 hover:bg-indigo-100 rounded transition" title="編輯小組：成員／時段／導師">
                         <i class="fa-solid fa-pen"></i>
@@ -1042,16 +1048,7 @@
                 const s = studentDatabase.find(x => x.id === id);
                 if (s) touched.set(s.id, s);
             }));
-            touched.forEach(s => {
-                const mine = (lessonsByMonth[monthKey] || []).filter(l => l.studentId === s.id && !l.isMakeup);
-                if (!mine.length) { dropStaleTuition(s.id, monthKey); return; }
-                GACSendlog.upsertTuition(sendLog, {
-                    studentId: s.id, studentName: s.name, phone: s.phone, monthKey: monthKey,
-                    amount: mine.reduce((sum, l) => sum + rateForLesson(l), 0), count: mine.length,
-                    dates: mine.map(l => l.date).sort(), now: tuitionNow,
-                    items: GACSendlog.tuitionItems(mine, rateForLesson)
-                });
-            });
+            touched.forEach(s => refreshTuition(s, monthKey, tuitionNow));
             persistLessons();
 
             rebuildMonthContext();
@@ -1059,10 +1056,10 @@
 
             let msg = `✅ ${monthKey} 課表已生成（merge 模式，不會清空既有狀態）：\n• 新增 ${res.added.length} 堂\n• 保留 ${res.lessons.length - res.added.length} 堂\n• 學費待發條目已更新（見「發送中心」頁籤）`;
             if (res.removed.length) {
-                msg += `\n• 刪除 ${res.removed.length} 堂（僅限仍是「已排課」、且學生已移除／改時間／長假中的課）`;
+                msg += `\n• 刪除 ${res.removed.length} 堂（僅限仍是「已排課」、且學生已移除／改時間／停課中的課）`;
             }
-            const leaveSkips = longLeaveSkipSummary(selectedStudents, selectedGroups, monthKey);
-            if (leaveSkips.length) msg += `\n• 🌙 長假不生成：${leaveSkips.join('、')}`;
+            const leaveSkips = inactiveSkipSummary(selectedStudents, selectedGroups, monthKey);
+            if (leaveSkips.length) msg += `\n• ⏸ 停課不生成：${leaveSkips.join('、')}`;
             if (res.conflicts.length) {
                 msg += `\n\n⚠️ 以下 ${res.conflicts.length} 堂已有狀態，生成邏輯不會改動，請人工處理：\n` +
                     res.conflicts.map(c => `  • ${c.lesson.date} ${c.lesson.time} ${c.lesson.studentName}（${c.lesson.status}）`).join('\n');
@@ -1075,7 +1072,20 @@
             if (res.conflicts.length) alert(msg); else showToast(msg);
         }
 
-        // 某生某月已沒有常規課（整月長假等）→ 未發送、未記收款、金額沒手改過的學費條目刪掉；已發送或已有收款的保留（人工處理）
+        // 某生某月的學費條目跟著課表更新：金額＝該生當月所有常規課（個別＋小組）各按自身費率加總。
+        // 已發送的條目絕不改動、金額手改過的不覆蓋（lib/sendlog.js 保證）；整月已沒有常規課（停課等）→ 見 dropStaleTuition
+        function refreshTuition(s, monthKey, nowIso) {
+            const mine = (lessonsByMonth[monthKey] || []).filter(l => l.studentId === s.id && !l.isMakeup);
+            if (!mine.length) { dropStaleTuition(s.id, monthKey); return; }
+            GACSendlog.upsertTuition(sendLog, {
+                studentId: s.id, studentName: s.name, phone: s.phone, monthKey: monthKey,
+                amount: mine.reduce((sum, l) => sum + rateForLesson(l), 0), count: mine.length,
+                dates: mine.map(l => l.date).sort(), now: nowIso,
+                items: GACSendlog.tuitionItems(mine, rateForLesson)
+            });
+        }
+
+        // 某生某月已沒有常規課（整月停課等）→ 未發送、未記收款、金額沒手改過的學費條目刪掉；已發送或已有收款的保留（人工處理）
         function dropStaleTuition(studentId, monthKey) {
             const key = GACSendlog.tuitionKey(studentId, monthKey);
             const e = sendLog[key];
@@ -1084,18 +1094,18 @@
             return true;
         }
 
-        // 生成時因長假不出的課：「0032 陳大文（3 堂）」「0032 陳大文 · 樂理小組（2 堂）」
-        function longLeaveSkipSummary(students, groups, monthKey) {
+        // 生成時因停課不出的課：「0032 陳大文（3 堂）」「0032 陳大文 · 樂理小組（2 堂）」
+        function inactiveSkipSummary(students, groups, monthKey) {
             const out = [];
             (students || []).forEach(s => {
-                const n = GACSchedule.longLeaveSkippedDates(s, monthKey).length;
+                const n = GACSchedule.inactiveSkippedDates(s, monthKey).length;
                 if (n) out.push(`${s.id} ${s.name}（${n} 堂）`);
             });
             (groups || []).forEach(g => {
                 const dates = GACSchedule.monthDatesForWeekday(monthKey, g.weekday);
                 (g.memberIds || []).forEach(id => {
                     const s = studentDatabase.find(x => x.id === id);
-                    const n = s ? dates.filter(d => GACSchedule.isOnLongLeave(s, d)).length : 0;
+                    const n = s ? dates.filter(d => GACSchedule.isInactiveOn(s, d)).length : 0;
                     if (n) out.push(`${s.id} ${s.name} · ${g.name}（${n} 堂）`);
                 });
             });
@@ -2578,35 +2588,42 @@
             renderAll();
         }
 
+        // 名單分兩段：在學的在上面；今天正在停課的收在下面「停課學生」（預設收起）。預定停課但還沒到日子的仍在上面、帶標記
+        let inactiveStudentsOpen = false;
+        function toggleInactiveStudents() {
+            inactiveStudentsOpen = !inactiveStudentsOpen;
+            renderStudentTable();
+        }
+
         function renderStudentTable() {
             const tbody = document.getElementById('studentTableBody');
             const search = document.getElementById('dbSearch').value.toLowerCase().trim();
-            tbody.innerHTML = '';
+            const todayStr = localDateStr(new Date());
+            const rows = { active: [], inactive: [] };
 
             studentDatabase.forEach((student, index) => {
                 const myGroups = groupsOfStudent(student.id);
-                const matchSearch = !search || 
-                    student.name.toLowerCase().includes(search) || 
-                    idMatchesQuery(student.id, search) || 
+                const matchSearch = !search ||
+                    student.name.toLowerCase().includes(search) ||
+                    idMatchesQuery(student.id, search) ||
                     (student.phone && student.phone.includes(search)) ||
                     (student.email && student.email.toLowerCase().includes(search)) ||
-                    student.tutor.toLowerCase().includes(search) || 
+                    student.tutor.toLowerCase().includes(search) ||
                     student.program.toLowerCase().includes(search) ||
                     myGroups.some(g => g.name.toLowerCase().includes(search));
 
                 if (!matchSearch) return;
                 const hasSlot = hasIndividualSlot(student);
+                const inactive = GACSchedule.isInactiveOn(student, todayStr);
                 // 報讀項目：個別課一行＋每個所屬小組一行（一人可同時多項）
                 const enrollments = [];
                 if (hasSlot) enrollments.push(`<div><span class="bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded text-[10px] font-bold">個別</span> ${student.program} · ${student.level}（${student.type}）逢 ${getWeekdayName(student.weekday)} ${student.time} · ${student.tutor}</div>`);
                 myGroups.forEach(g => enrollments.push(`<div><span class="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded text-[10px] font-bold"><i class="fa-solid fa-user-group"></i> 小組</span> <b>${g.name}</b>（${(g.memberIds || []).length} 人）逢 ${getWeekdayName(g.weekday)} ${g.time} · ${g.tutor}</div>`));
                 if (!enrollments.length) enrollments.push('<span class="text-amber-600">尚未報讀任何課程</span>');
 
-                const tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-50 transition";
-                tr.innerHTML = `
+                rows[inactive ? 'inactive' : 'active'].push(`<tr class="hover:bg-slate-50 transition">
                     <td class="p-3 font-bold text-slate-800">${student.id}</td>
-                    <td class="p-3 font-semibold text-slate-900">${student.name}${longLeaveBadge(student)}</td>
+                    <td class="p-3 font-semibold text-slate-900">${student.name}${studentStatusBadge(student)}</td>
                     <td class="p-3 font-mono text-slate-700">
                         ${student.phone ? `<a href="tel:${student.phone}" class="hover:text-sky-600 flex items-center gap-1"><i class="fa-solid fa-phone text-slate-400 text-[10px]"></i> ${student.phone}</a>` : '<span class="text-slate-300">-</span>'}
                     </td>
@@ -2618,19 +2635,35 @@
                     <td class="p-3 font-medium text-sky-700">${hasSlot ? student.tutor : `<span class="text-slate-400">${[...new Set(myGroups.map(g => g.tutor))].join('、') || '—'}</span>`}</td>
                     <td class="p-3 font-medium space-y-1">${enrollments.join('')}</td>
                     <td class="p-3 text-right whitespace-nowrap">
-                        ${hasSlot ? `<button onclick="scheduleStudentFromDb(${index})" class="text-sky-600 hover:text-sky-800 px-2 py-1 font-semibold hover:bg-sky-50 rounded-lg transition" title="調整常規時間／升班（含撞堂預覽）">
+                        ${inactive ? `<button onclick="reactivateStudent(${index})" class="text-emerald-700 hover:text-emerald-900 px-2 py-1 font-semibold hover:bg-emerald-50 rounded-lg transition" title="今天起復課（改回在學）；已生成的月份會問你要不要補生成">
+                            <i class="fa-solid fa-play"></i> 復課
+                        </button>` : (hasSlot ? `<button onclick="scheduleStudentFromDb(${index})" class="text-sky-600 hover:text-sky-800 px-2 py-1 font-semibold hover:bg-sky-50 rounded-lg transition" title="調整常規時間／升班（含撞堂預覽）">
                             <i class="fa-solid fa-clock"></i> 改時間/升班
-                        </button>` : ''}
-                        <button onclick="openStudentModal(${index})" class="text-amber-600 hover:text-amber-800 px-2 py-1 font-semibold hover:bg-amber-50 rounded-lg transition" title="編輯學生與電話電郵">
+                        </button>` : '')}
+                        <button onclick="openStudentModal(${index})" class="text-amber-600 hover:text-amber-800 px-2 py-1 font-semibold hover:bg-amber-50 rounded-lg transition" title="編輯學生資料、電話電郵與在學／停課狀態">
                             <i class="fa-solid fa-pen-to-square"></i> 編輯
                         </button>
                         <button onclick="deleteStudentFromDb(${index})" class="text-rose-600 hover:text-rose-800 px-2 py-1 font-semibold hover:bg-rose-50 rounded-lg transition" title="刪除學生">
                             <i class="fa-solid fa-trash"></i> 刪除
                         </button>
                     </td>
-                `;
-                tbody.appendChild(tr);
+                </tr>`);
             });
+            tbody.innerHTML = rows.active.join('');
+
+            // 停課學生：沒有就整塊不顯示；搜尋時有命中就自動展開
+            const box = document.getElementById('inactiveStudentsBox');
+            if (box) {
+                const total = studentDatabase.filter(s => GACSchedule.isInactiveOn(s, todayStr)).length;
+                const open = inactiveStudentsOpen || (!!search && rows.inactive.length > 0);
+                box.classList.toggle('hidden', total === 0);
+                document.getElementById('inactiveStudentsCount').textContent = search ? `${rows.inactive.length}／${total}` : String(total);
+                document.getElementById('inactiveStudentTableBody').innerHTML = rows.inactive.join('')
+                    || '<tr><td class="p-3 text-slate-400 italic">沒有符合搜尋的停課學生。</td></tr>';
+                document.getElementById('inactiveStudentsBody').classList.toggle('hidden', !open);
+                const chev = document.getElementById('inactiveStudentsChevron');
+                if (chev) chev.classList.toggle('rotate-90', open);
+            }
             renderGroupTable();
         }
 
@@ -2715,8 +2748,12 @@
                 renderModalGroups(null);
             }
             onModalHasSlotChange();
-            modalLongLeaves = editIdx >= 0 ? GACSchedule.normalizeLongLeaves(studentDatabase[editIdx].longLeaves) : [];
-            renderModalLongLeaves();
+            // 學生狀態：帶出「目前那一段」停課（正在停課／預定停課）；沒有＝在學
+            const curStatus = editIdx >= 0 ? GACSchedule.currentInactivePeriod(studentDatabase[editIdx], localDateStr(new Date())) : null;
+            document.getElementById('modalStatus').value = curStatus ? 'INACTIVE' : 'ACTIVE';
+            document.getElementById('modalInactiveFrom').value = curStatus ? curStatus.period.from : '';
+            document.getElementById('modalInactiveResume').value = curStatus ? curStatus.period.resume : '';
+            onModalStatusChange();
 
             modal.classList.remove('hidden');
             markModalOpened('studentModal');
@@ -2732,59 +2769,118 @@
                 || '<span class="text-slate-400 italic text-[11px]">尚無小組班（本頁右上「+ 新增小組」）</span>';
         }
 
-        // ===== 長假（停課）：學生弹窗內的長假列表，存為 student.longLeaves（判斷在 lib/schedule.js）=====
-        // 開始日期＝第一天不上課；復課日期＝當天起恢復上課，留空＝未定（之後生成的月份一律略過，回來時再填上）
-        let modalLongLeaves = [];
-        function renderModalLongLeaves() {
-            const box = document.getElementById('modalLongLeaves');
-            if (!box) return;
-            box.innerHTML = modalLongLeaves.map((p, i) => `<div class="flex flex-wrap items-center gap-1.5 bg-violet-50 border border-violet-200 rounded-lg px-2 py-1.5">
-                <label class="flex items-center gap-1 text-slate-600">開始 <input type="date" id="mllFrom_${i}" value="${escapeHtml(p.from || '')}" onchange="onModalLongLeaveInput(${i}, 'from', this.value)" class="p-1 border border-slate-300 rounded bg-white"></label>
-                <label class="flex items-center gap-1 text-slate-600">復課 <input type="date" id="mllResume_${i}" value="${escapeHtml(p.resume || '')}" onchange="onModalLongLeaveInput(${i}, 'resume', this.value)" class="p-1 border border-slate-300 rounded bg-white" title="復課日當天恢復上課；留空＝未定"></label>
-                ${p.resume ? '' : '<span class="text-[11px] text-violet-700 font-bold">未定</span>'}
-                <input type="text" id="mllNote_${i}" value="${escapeHtml(p.note || '')}" oninput="onModalLongLeaveInput(${i}, 'note', this.value)" placeholder="備註（如：出國）" class="flex-1 min-w-[6rem] p-1 border border-slate-300 rounded bg-white">
-                <button type="button" onclick="removeModalLongLeave(${i})" class="text-rose-500 hover:text-rose-700 px-1" title="刪除這段長假"><i class="fa-solid fa-xmark"></i></button>
-            </div>`).join('') || '<span class="text-slate-400 italic text-[11px]">沒有長假。</span>';
-        }
-        function addModalLongLeave() {
-            modalLongLeaves.push({ from: localDateStr(new Date()), resume: '', note: '' });
-            renderModalLongLeaves();
-        }
-        function removeModalLongLeave(i) {
-            modalLongLeaves.splice(i, 1);
-            renderModalLongLeaves();
-        }
-        function onModalLongLeaveInput(i, field, value) {
-            if (!modalLongLeaves[i]) return;
-            modalLongLeaves[i][field] = value;
-            if (field !== 'note') renderModalLongLeaves();   // 「未定」標記跟著復課日期更新；備註打字時不重繪（免得游標跑掉）
+        // ===== 學生狀態：在學／停課（紀錄存 student.inactivePeriods；判斷與表單 → 紀錄的換算在 lib/schedule.js）=====
+        // 選「停課」才出現日期欄；剛選上時開始日預設今天（要預定就改成將來的日子）
+        function onModalStatusChange() {
+            const inactive = document.getElementById('modalStatus').value === 'INACTIVE';
+            document.getElementById('modalInactiveFields').classList.toggle('hidden', !inactive);
+            const from = document.getElementById('modalInactiveFrom');
+            if (inactive && !from.value) from.value = localDateStr(new Date());
         }
 
-        // 一段長假的文字：「2026-10-10 起（復課日未定）」／「2026-10-10 → 2026-12-15 復課」
-        function longLeaveText(p) {
-            return p.resume ? `${p.from} → ${p.resume} 復課` : `${p.from} 起（復課日未定）`;
+        // 一段停課的文字：「2026-10-10 起（復課日未定）」／「2026-10-10 起，2026-12-15 復課」
+        function inactivePeriodText(p) {
+            return p.resume ? `${p.from} 起，${p.resume} 復課` : `${p.from} 起（復課日未定）`;
         }
-        // 名單上要標的長假：今天正在放的；否則最近一段還沒開始的；已結束的不標
-        function currentLongLeave(student, todayStr) {
-            const list = GACSchedule.normalizeLongLeaves(student.longLeaves);
-            const on = list.find(p => todayStr >= p.from && (!p.resume || todayStr < p.resume));
-            if (on) return { p: on, on: true };
-            const next = list.find(p => p.from > todayStr);
-            return next ? { p: next, on: false } : null;
+        // 名單上的狀態標記：停課中／將於某天停課；在學不標
+        function studentStatusBadge(student) {
+            const cur = GACSchedule.currentInactivePeriod(student, localDateStr(new Date()));
+            if (!cur) return '';
+            return `<div class="mt-1"><span class="inline-flex items-center gap-1 ${cur.on ? 'bg-slate-200 text-slate-700' : 'bg-amber-100 text-amber-800'} px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap"><i class="fa-solid fa-circle-pause"></i> ${cur.on ? '停課中：' : '將停課：'}${inactivePeriodText(cur.period)}</span></div>`;
         }
-        function longLeaveBadge(student) {
-            const hit = currentLongLeave(student, localDateStr(new Date()));
-            if (!hit) return '';
-            return `<div class="mt-1"><span class="inline-flex items-center gap-1 bg-violet-100 text-violet-800 px-1.5 py-0.5 rounded text-[10px] font-bold"${hit.p.note ? ` title="${escapeHtml(hit.p.note)}"` : ''}><i class="fa-solid fa-moon"></i> ${hit.on ? '長假中' : '將放長假'}：${longLeaveText(hit.p)}</span></div>`;
-        }
-        // 生成勾選區：本月有幾堂落在長假（整月都在 → 「本月長假」）
-        function batchLongLeaveTag(student, monthKey) {
+        // 生成勾選區：本月有幾堂落在停課期間（整月都在 → 「本月停課」）
+        function batchInactiveTag(student, monthKey) {
             if (!monthKey) return '';
-            const skipped = GACSchedule.longLeaveSkippedDates(student, monthKey);
+            const skipped = GACSchedule.inactiveSkippedDates(student, monthKey);
             if (!skipped.length) return '';
             const all = GACSchedule.monthDatesForWeekday(monthKey, getStudentScheduleForMonth(student, monthKey).weekday).length;
-            const text = skipped.length >= all ? '本月長假' : `長假略過 ${skipped.length} 堂`;
-            return `<span class="text-violet-700 font-semibold" title="長假的日子生成時不出課：${skipped.join('、')}">🌙 ${text}</span>`;
+            const text = skipped.length >= all ? '本月停課' : `停課略過 ${skipped.length} 堂`;
+            return `<span class="text-slate-500 font-semibold" title="停課的日子生成時不出課：${skipped.join('、')}">⏸ ${text}</span>`;
+        }
+
+        // ===== 狀態改了 → 已生成的月份跟著處理 =====
+        // 只看「這位學生」：停課期間仍是「已排課」的課移除、復課後空出來的日子補生成、學費條目更新；同組其他成員不動。
+        // 只動這次改動影響到的月份——該月至少有一個上課日的停課與否變了，而且該月本來就有他的課
+        // （或他整月是因為停課才沒有課：復課時要問要不要補生成）。已有狀態的課、補堂一律不動，列出來請人工處理。
+        // apply=false 只算不改（給確認框用）；apply=true 寫入課表並更新學費條目。回傳 [{ monthKey, added, removed, kept }]
+        function syncScheduleToStatus(student, oldPeriods, apply) {
+            const before = Object.assign({}, student, { inactivePeriods: oldPeriods });
+            const changed = d => GACSchedule.isInactiveOn(before, d) !== GACSchedule.isInactiveOn(student, d);
+            const mine = l => l.studentId === student.id;
+            const out = [];
+            Object.keys(lessonsByMonth).sort().forEach(monthKey => {
+                let bucket = lessonsByMonth[monthKey] || [];
+                const sched = getStudentScheduleForMonth(student, monthKey);
+                const indivDates = hasIndividualSlot(sched) ? GACSchedule.monthDatesForWeekday(monthKey, sched.weekday) : [];
+                const hadIndiv = bucket.some(l => mine(l) && !l.groupId && !l.isMakeup);
+                const offAllMonth = indivDates.length > 0 && indivDates.every(d => GACSchedule.isInactiveOn(before, d));
+                const doIndiv = indivDates.some(changed) && (hadIndiv || offAllMonth);
+                // 小組：該月已生成過這個小組（有它的課）、而且小組上課日的停課與否變了
+                const groups = groupsOfStudent(student.id).filter(g => bucket.some(l => l.groupId === g.id)
+                    && GACSchedule.monthDatesForWeekday(monthKey, g.weekday).some(changed));
+                if (!doIndiv && !groups.length) return;
+                const added = [], removed = [], kept = [];
+                if (doIndiv) {
+                    const res = GACSchedule.mergeMonthLessons(bucket, GACSchedule.generateMonthLessons(student, monthKey),
+                        { selectedStudentIds: [student.id], allStudentIds: studentDatabase.map(s => s.id), selectedGroupIds: [], allGroupIds: groupClasses.map(g => g.id) });
+                    bucket = res.lessons;
+                    added.push(...res.added); removed.push(...res.removed); kept.push(...res.conflicts.map(c => c.lesson));
+                }
+                groups.forEach(g => {
+                    const members = (g.memberIds || []).map(id => studentDatabase.find(s => s.id === id)).filter(Boolean);
+                    const res = GACSchedule.mergeMemberGroupLessons(bucket, GACSchedule.generateGroupMonthLessons(g, members, monthKey).filter(mine), g.id, student.id);
+                    bucket = res.lessons;
+                    added.push(...res.added); removed.push(...res.removed); kept.push(...res.conflicts.map(c => c.lesson));
+                });
+                // 停課期間仍掛著的補堂：生成邏輯不管補堂，列出來提醒
+                kept.push(...bucket.filter(l => mine(l) && l.isMakeup && l.status === 'SCHEDULED' && GACSchedule.isInactiveOn(student, l.date)));
+                if (!added.length && !removed.length && !kept.length) return;
+                out.push({ monthKey, added, removed, kept });
+                if (apply && (added.length || removed.length)) {
+                    if (bucket.length) lessonsByMonth[monthKey] = bucket; else delete lessonsByMonth[monthKey];
+                    refreshTuition(student, monthKey, new Date().toISOString());
+                }
+            });
+            return out;
+        }
+
+        // 存好學生狀態之後呼叫：有受影響的月份就問一次，確定才動課表。回傳給提示用的一句話（沒有受影響 → ''）
+        function offerScheduleSyncAfterStatusChange(student, oldPeriods) {
+            const plan = syncScheduleToStatus(student, oldPeriods, false);
+            if (!plan.length) return '';
+            const lines = plan.filter(m => m.added.length || m.removed.length).map(m => `• ${m.monthKey}：` +
+                [m.removed.length ? `移除 ${m.removed.length} 堂停課期間的課` : '', m.added.length ? `補生成 ${m.added.length} 堂` : ''].filter(Boolean).join('、'));
+            const keptN = plan.reduce((n, m) => n + m.kept.length, 0);
+            const keptNote = keptN ? `\n\n⚠️ 另有 ${keptN} 堂落在停課期間、但已有狀態（已上課／請假／缺席）或是補堂——系統不會動，請人工處理：\n` +
+                plan.reduce((a, m) => a.concat(m.kept), []).map(l => `  • ${l.date} ${l.time}${l.isMakeup ? '（補堂）' : ''}（${STATUS_LABEL[l.status] || l.status}）`).join('\n') : '';
+            if (!lines.length) { alert(`「${student.name}」的狀態已儲存。${keptNote}`); return ''; }
+            const inCal = plan.some(m => m.removed.some(l => l.gcalEventId || l.gcalAdded));
+            if (!confirm(`「${student.name}」的狀態改了，已生成的課表受影響：\n${lines.join('\n')}${keptNote}\n\n` +
+                '按「確定」＝現在一併處理（只動仍是「已排課」的課，學費條目跟著更新）。\n按「取消」＝只存狀態；之後到該月按「生成」也會套用。' +
+                (inCal ? '\n\n移除的課有些已在 Google Calendar：下次「同步 GCal」會列出要刪的事件（唯讀模式要自己到 Calendar 刪）。' : ''))) {
+                return '已生成的月份未改動（到該月按「生成」即可套用）';
+            }
+            const done = syncScheduleToStatus(student, oldPeriods, true);
+            persistLessons();
+            rebuildMonthContext();
+            const rm = done.reduce((n, m) => n + m.removed.length, 0), ad = done.reduce((n, m) => n + m.added.length, 0);
+            return [rm ? `移除 ${rm} 堂` : '', ad ? `補生成 ${ad} 堂` : ''].filter(Boolean).join('、') + '，學費條目已更新';
+        }
+
+        // 停課學生列表的「復課」：今天起改回在學
+        function reactivateStudent(index) {
+            const student = studentDatabase[index];
+            if (!student) return;
+            const oldPeriods = GACSchedule.normalizeInactivePeriods(student.inactivePeriods);
+            const next = GACSchedule.applyStatusEdit(oldPeriods, localDateStr(new Date()), { inactive: false });
+            pushHistory(`復課：${student.name}（${student.id}）`);
+            if (next.length) student.inactivePeriods = next; else delete student.inactivePeriods;
+            saveToLocalStorage();
+            const note = offerScheduleSyncAfterStatusChange(student, oldPeriods);
+            renderBatchCheckboxes();
+            renderStudentTable();
+            renderAll();
+            showToast(`✅ ${student.name} 今天起復課${note ? '；' + note : ''}`);
         }
 
         // 搜尋框比對學號：一般的子字串之外，前導零不同也算同一號（搜「0032」找得到登記成 32 的學生，反之亦然）
@@ -2857,9 +2953,14 @@
                 alert(`學生 ID「${id}」與現有學生「${dupStudent.id} ${dupStudent.name}」是同一個號碼（前面補不補零都算同一號），請換一個 ID。`);
                 return;
             }
-            const leaveErr = GACSchedule.validateLongLeaves(modalLongLeaves);
-            if (leaveErr) { alert(leaveErr); return; }
-            const longLeaves = GACSchedule.normalizeLongLeaves(modalLongLeaves);
+            // 學生狀態 → 停課紀錄（「目前那一段」按表單改；已結束的舊紀錄保留）
+            const statusEdit = document.getElementById('modalStatus').value === 'INACTIVE'
+                ? { inactive: true, from: document.getElementById('modalInactiveFrom').value, resume: document.getElementById('modalInactiveResume').value }
+                : { inactive: false };
+            const statusErr = statusEdit.inactive ? GACSchedule.validateInactivePeriod(statusEdit) : '';
+            if (statusErr) { alert(statusErr); return; }
+            const oldPeriods = editIdx >= 0 ? GACSchedule.normalizeInactivePeriods(studentDatabase[editIdx].inactivePeriods) : [];
+            const inactivePeriods = GACSchedule.applyStatusEdit(oldPeriods, localDateStr(new Date()), statusEdit);
             if (hasSlot && (isNaN(weekday) || !time)) {
                 alert('請選擇常規星期與上課時間；只上小組的學生請取消勾選「有常規私教課」。');
                 return;
@@ -2886,17 +2987,13 @@
                 student.time = time;
                 student.duration = duration;
                 if (!hasSlot) { student.effectiveMonth = ''; student.futureWeekday = null; student.futureTime = ''; } // 沒有個別課就沒有「未來時段」
-                if (longLeaves.length) student.longLeaves = longLeaves; else delete student.longLeaves;
-
-                showToast(`✅ 已更新學生 ${name}（${id}）`);
+                if (inactivePeriods.length) student.inactivePeriods = inactivePeriods; else delete student.inactivePeriods;
             } else {
                 // Add New Student
                 studentDatabase.push(Object.assign({
                     id, name, phone, email, type, program, level, duration, tutor, tutorLevel, weekday, time,
                     effectiveMonth: "", futureWeekday: null, futureTime: ""
-                }, longLeaves.length ? { longLeaves } : {}));
-
-                showToast(`✅ 已新增學生 ${name}（${id}）`);
+                }, inactivePeriods.length ? { inactivePeriods } : {}));
             }
 
             // 同步小組成員：勾選的小組加入此學生、未勾選的移除（含改 id 的情況）
@@ -2908,9 +3005,14 @@
             persistGroups();
 
             saveToLocalStorage();
+            // 狀態（在學／停課）改了 → 已生成的月份要不要跟著處理（改了學號的不處理：課表仍記在舊學號下）
+            const statusNote = (editIdx >= 0 && oldId === id && JSON.stringify(oldPeriods) !== JSON.stringify(inactivePeriods))
+                ? offerScheduleSyncAfterStatusChange(studentDatabase[editIdx], oldPeriods) : '';
             renderBatchCheckboxes();
             renderStudentTable();
             closeStudentModal();
+            renderAll();
+            showToast(`✅ 已${editIdx >= 0 ? '更新' : '新增'}學生 ${name}（${id}）${statusNote ? '\n' + statusNote : ''}`);
         }
 
         // lesson → 匯出用事件（Date 在此重建；UID 用 lessonId 保證導入查重）
@@ -3127,17 +3229,17 @@
         //（頁面平時只讀 localStorage，換了 data.js 要按這個才生效）。src 沒有導師名單 → 從學生／小組的 tutor／tutorLevel 推出。
         // 導師日曆 ID 按名字記在設定 tutorCalendarMemo：演示名單 ↔ 真實名單來回切換，各自的 ID 都不用重填。
         // 課表、發送紀錄、設定不動（舊名單生成的課要清就用「全部清場」）；整個動作可撤銷。
-        // 學生的長假是在系統裡設的（data.js 沒有）→ 按學號（前導零容錯）帶到新名單，重新載入不會弄丟
+        // 學生的停課紀錄是在系統裡設的（data.js 沒有）→ 按學號（前導零容錯）帶到新名單，重新載入不會弄丟
         function applyRoster(src, label) {
             pushHistory(label);
             const memo = Object.assign({}, appSettings.tutorCalendarMemo || {});
             tutorsList.forEach(t => { if (t.calendarId) memo[t.name] = t.calendarId; });
             const leavesByKey = {};
-            studentDatabase.forEach(s => { if (s.longLeaves && s.longLeaves.length) leavesByKey[GACSchedule.studentIdKey(s.id)] = s.longLeaves; });
+            studentDatabase.forEach(s => { if (s.inactivePeriods && s.inactivePeriods.length) leavesByKey[GACSchedule.studentIdKey(s.id)] = s.inactivePeriods; });
             studentDatabase = (src.students || []).map(s => {
                 const out = Object.assign({}, s);
                 const kept = leavesByKey[GACSchedule.studentIdKey(s.id)];
-                if (kept && !(out.longLeaves && out.longLeaves.length)) out.longLeaves = kept.map(p => Object.assign({}, p));
+                if (kept && !(out.inactivePeriods && out.inactivePeriods.length)) out.inactivePeriods = kept.map(p => Object.assign({}, p));
                 return out;
             });
             groupClasses = (src.groups || []).map(g => Object.assign({}, g, { memberIds: (g.memberIds || []).slice() }));
@@ -4011,18 +4113,21 @@
         function renderBroadcastList() {
             const tutor = document.getElementById('bcTutor').value || 'ALL';
             const list = document.getElementById('bcList');
+            const bcToday = localDateStr(new Date());
             const rows = [];
             studentDatabase.forEach((s, idx) => {
                 if (tutor !== 'ALL' && s.tutor !== tutor && !groupsOfStudent(s.id).some(g => g.tutor === tutor)) return;
+                const paused = GACSchedule.isInactiveOn(s, bcToday);   // 停課中：預設不勾（要發給他就自己勾）
                 rows.push(`
                     <label class="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 cursor-pointer hover:border-violet-300 transition">
-                        <input type="checkbox" value="${idx}" checked class="accent-violet-600 rounded">
+                        <input type="checkbox" value="${idx}"${paused ? '' : ' checked'} class="accent-violet-600 rounded">
                         <span class="truncate"><b>${s.id}</b> ${s.name} <span class="text-slate-400">· ${s.tutor || '只上小組'}</span>
+                        ${paused ? '<span class="text-slate-500 font-semibold">（停課中）</span>' : ''}
                         ${s.phone ? '' : '<span class="text-amber-600 font-semibold">（無電話，僅可複製）</span>'}</span>
                     </label>`);
             });
             list.innerHTML = rows.join('') || '<span class="text-slate-400 italic">此導師沒有學生。</span>';
-            document.getElementById('bcCount').textContent = `符合篩選：${rows.length} 位學生（預設全勾）`;
+            document.getElementById('bcCount').textContent = `符合篩選：${rows.length} 位學生（預設全勾；停課中的不勾）`;
         }
 
         function bcSetAll(checked) {

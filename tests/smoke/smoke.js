@@ -2061,69 +2061,146 @@ check('未確認出席的課只算預期：全部標出席後 目前應付＝預
         && getEl('advancedExpiredWarning').innerHTML === '';
 })());
 
-// 40) 長假（停課）與學號容錯：隔離在 2026-11，測完清掉
-console.log('[40] 長假與學號容錯');
+// 40) 學生狀態（在學／停課，可預定）與學號容錯：隔離在 2026-11，測完清掉
 sandbox.__qsaHook = () => [];
+console.log('[40] 學生狀態（在學／停課）與學號容錯');
 {
+    const J = JSON.stringify;
     const idx = run('studentDatabase.findIndex(s => s.id === "S001")');   // 週一 21:30；11 月的週一：2/9/16/23/30
     const g01 = run('groupClasses.findIndex(g => g.id === "G01")');
-    const s001Nov = () => run('(lessonsByMonth["2026-11"] || []).filter(l => l.studentId === "S001").map(l => l.date + "#" + l.lessonNum + "/" + l.totalRegular).join()');
+    const S = 'studentDatabase[' + idx + ']';
+    const novOf = id => run('(lessonsByMonth["2026-11"] || []).filter(l => l.studentId === ' + J(id) + ').map(l => l.date + "#" + l.lessonNum + "/" + l.totalRegular).join()');
     const genNov = () => {
         getEl('batchMonth').value = '2026-11';
         sandbox.__qsaHook = sel => (sel === '.batch-student-chk:checked' ? [{ value: String(idx) }] : sel === '.batch-group-chk:checked' ? [{ value: 'G01' }] : []);
         run('generateMasterSchedule()');
         sandbox.__qsaHook = () => [];
     };
-    const saveLeaves = (list) => {
-        run('openStudentModal(' + idx + ')');
-        run('modalLongLeaves = ' + JSON.stringify(list));
+    // 開編輯窗 → 設狀態 → 儲存。confirmAnswer＝「已生成的月份要不要一併處理」怎麼答；回傳那次確認框的文字（沒問就是 ''）
+    // groups＝弹窗裡「所屬小組」勾了哪些（沙盒要自己給，否則儲存會當成全部取消）
+    const saveStatus = (studentIdx, status, from, resume, confirmAnswer, groups) => {
+        let asked = '';
+        const keep = sandbox.confirm;
+        sandbox.confirm = msg => { asked = String(msg); return confirmAnswer !== false; };
+        sandbox.__qsaHook = sel => (sel === '.modal-group-chk' ? (groups || []).map(g => ({ checked: true, value: g })) : []);
+        run('openStudentModal(' + studentIdx + ')');
+        getEl('modalStatus').value = status;
+        run('onModalStatusChange()');
+        if (status === 'INACTIVE') { getEl('modalInactiveFrom').value = from; getEl('modalInactiveResume').value = resume || ''; }
         run('saveStudentFromModal()');
+        sandbox.confirm = keep;
+        sandbox.__qsaHook = () => [];
+        return asked;
     };
+
     run('openStudentModal(' + idx + ')');
-    check('弹窗：沒有長假時顯示「沒有長假」', getEl('modalLongLeaves').innerHTML.includes('沒有長假'));
-    run('addModalLongLeave()');
-    check('＋新增長假：預設今天開始、復課未定', run('modalLongLeaves[0].from') === '2026-09-15' && run('modalLongLeaves[0].resume') === ''
-        && getEl('modalLongLeaves').innerHTML.includes('未定'));
-    run("closeStudentModal()");
+    check('編輯窗：預設「在學」', getEl('modalStatus').value === 'ACTIVE');
+    getEl('modalStatus').value = 'INACTIVE';
+    run('onModalStatusChange()');
+    check('選「停課」→ 開始日預設今天、復課日留空', getEl('modalInactiveFrom').value === '2026-09-15' && getEl('modalInactiveResume').value === '');
+    run('closeStudentModal()');
+    check('頁面上不再有「長假」', !fs.readFileSync(path.join(repo, 'index.html'), 'utf8').includes('長假') && !fs.readFileSync(path.join(repo, 'app.js'), 'utf8').includes('addModalLongLeave'));
 
     const alerts0 = sandbox.alerts.length;
-    saveLeaves([{ from: '2026-11-10', resume: '2026-11-01', note: '' }]);
-    check('復課日早於開始日 → 擋下、不存', sandbox.alerts.length === alerts0 + 1 && sandbox.alerts[alerts0].includes('之後') && !run('studentDatabase[' + idx + '].longLeaves'));
-    run("closeStudentModal()");
+    saveStatus(idx, 'INACTIVE', '2026-11-10', '2026-11-01');
+    check('復課日早於開始日 → 擋下、不存', sandbox.alerts.length === alerts0 + 1 && sandbox.alerts[alerts0].includes('之後') && !run(S + '.inactivePeriods'));
+    run('closeStudentModal()');
 
-    saveLeaves([{ from: '2026-11-10', resume: '', note: '出國' }]);
-    check('存檔：longLeaves 記在學生上、已落盤', run('JSON.stringify(studentDatabase[' + idx + '].longLeaves)') === JSON.stringify([{ from: '2026-11-10', resume: '', note: '出國' }])
-        && JSON.parse(fakeStorage.getItem('gac_students_v2')).find(s => s.id === 'S001').longLeaves.length === 1);
-    check('名單徽章：今天（9/15）未到 → 「將放長假：2026-11-10 起（復課日未定）」', run('longLeaveBadge(studentDatabase[' + idx + '])').includes('將放長假：2026-11-10 起（復課日未定）'));
-    check('生成勾選區：11 月略過 3 堂', run('batchLongLeaveTag(studentDatabase[' + idx + '], "2026-11")').includes('長假略過 3 堂'));
+    // —— 預定停課（今天 9/15，11/10 才開始）：今天仍在學 ——
+    const activeN0 = String(getEl('statTotalStudents').textContent);
+    const asked1 = saveStatus(idx, 'INACTIVE', '2026-11-10', '');
+    check('預定停課：紀錄存在學生上、已落盤；11 月還沒生成 → 不用問', run('JSON.stringify(' + S + '.inactivePeriods)') === J([{ from: '2026-11-10', resume: '' }]) && asked1 === ''
+        && JSON.parse(fakeStorage.getItem('gac_students_v2')).find(s => s.id === 'S001').inactivePeriods.length === 1);
+    check('名單標記「將停課：2026-11-10 起（復課日未定）」、仍在上面的名單、在學人數不變', run('studentStatusBadge(' + S + ')').includes('將停課：2026-11-10 起（復課日未定）')
+        && getEl('studentTableBody').innerHTML.includes('>S001<') && !getEl('inactiveStudentTableBody').innerHTML.includes('>S001<')
+        && String(getEl('statTotalStudents').textContent) === activeN0 && getEl('statInactiveHint').textContent === '');
+    run('openStudentModal(' + idx + ')');
+    check('再開編輯窗：帶出「停課」與日期', getEl('modalStatus').value === 'INACTIVE' && getEl('modalInactiveFrom').value === '2026-11-10');
+    run('closeStudentModal()');
+    check('生成勾選區：11 月略過 3 堂', run('batchInactiveTag(' + S + ', "2026-11")').includes('停課略過 3 堂'));
 
-    run('studentDatabase.find(s => s.id === "S021").longLeaves = [{ from: "2026-11-01", resume: "2026-11-20", note: "" }]');   // 小組成員（週六 15:00：7/14/21/28）
+    run('studentDatabase.find(s => s.id === "S021").inactivePeriods = [{ from: "2026-11-01", resume: "2026-11-20" }]');   // 小組成員（週六 15:00：7/14/21/28）
     genNov();
-    check('未定復課：S001 只生成 11/02、11/09，編號 1/2、2/2', s001Nov() === '2026-11-02#1/2,2026-11-09#2/2');
-    check('小組：S021 長假那兩個週六不生成，其他成員照常、仍是 5人小組', run('lessonsByMonth["2026-11"].filter(l => l.studentId === "S021").map(l => l.date).join()') === '2026-11-21,2026-11-28'
+    check('生成：S001 只有 11/02、11/09，編號 1/2、2/2', novOf('S001') === '2026-11-02#1/2,2026-11-09#2/2');
+    check('小組：S021 停課那兩個週六不生成，其他成員照常、仍是 5人小組', run('lessonsByMonth["2026-11"].filter(l => l.studentId === "S021").map(l => l.date).join()') === '2026-11-21,2026-11-28'
         && run('lessonsByMonth["2026-11"].filter(l => l.studentId === "S020" && l.groupId).length') === 4
         && run('lessonsByMonth["2026-11"].filter(l => l.groupId).every(l => l.classType === "5人小組")'));
-    check('生成訊息列出長假略過的學生（個別＋小組）', run('lastToast').includes('長假不生成') && run('lastToast').includes('S001 Student 001（3 堂）') && run('lastToast').includes('S021'));
+    check('生成訊息列出停課略過的學生（個別＋小組）', run('lastToast').includes('停課不生成') && run('lastToast').includes('S001 Student 001（3 堂）') && run('lastToast').includes('S021'));
     check('學費按實際堂數（S001 2 堂、S021 小組 2 堂）', run('sendLog["TUITION:S001:2026-11"].count') === 2 && run('sendLog["TUITION:S021:2026-11"].count') === 2);
 
-    saveLeaves([{ from: '2026-11-10', resume: '2026-11-23', note: '' }]);
-    genNov();
-    check('填上復課日 11/23 → 重新生成補上 11/23、11/30，編號重排 1..4', s001Nov() === '2026-11-02#1/4,2026-11-09#2/4,2026-11-23#3/4,2026-11-30#4/4'
-        && run('sendLog["TUITION:S001:2026-11"].count') === 4);
+    // —— 已生成的月份：改狀態時問一次，確定就直接處理（不用再去按生成）——
+    const asked2 = saveStatus(idx, 'INACTIVE', '2026-11-10', '2026-11-23');
+    check('填上復課日 11/23 → 問要不要補生成；確定後補上 11/23、11/30、編號重排、學費 4 堂', asked2.includes('2026-11') && asked2.includes('補生成 2 堂')
+        && novOf('S001') === '2026-11-02#1/4,2026-11-09#2/4,2026-11-23#3/4,2026-11-30#4/4' && run('sendLog["TUITION:S001:2026-11"].count') === 4
+        && run('lastToast').includes('補生成 2 堂'));
+    check('只動這位學生：小組與其他人的課不變', run('lessonsByMonth["2026-11"].filter(l => l.groupId).length') === 4 * 5 - 2);
 
-    saveLeaves([{ from: '2026-11-01', resume: '', note: '' }]);
+    const asked3 = saveStatus(idx, 'INACTIVE', '2026-11-01', '', false);
+    check('改成 11/01 起停課、按「取消」→ 只存狀態，課表不動，提示之後按生成', asked3.includes('移除 4 堂') && novOf('S001').split(',').length === 4
+        && run(S + '.inactivePeriods[0].from') === '2026-11-01' && run('lastToast').includes('未改動'));
     genNov();
-    check('整月長假 → 已排課移除、未發送的學費條目一併刪掉', s001Nov() === '' && !run('sendLog["TUITION:S001:2026-11"]')
-        && run('lastToast').includes('長假中的課'));
-    check('勾選區：「本月長假」', run('batchLongLeaveTag(studentDatabase[' + idx + '], "2026-11")').includes('本月長假'));
+    check('之後按「生成」也會套用：整月停課 → 已排課移除、未發送的學費條目一併刪掉', novOf('S001') === '' && !run('sendLog["TUITION:S001:2026-11"]'));
+    check('勾選區：「本月停課」', run('batchInactiveTag(' + S + ', "2026-11")').includes('本月停課'));
 
-    // 重新載入名單：長假按學號（容錯）帶過去
-    run('applyRoster({ students: studentDatabase.map(s => { const o = Object.assign({}, s); delete o.longLeaves; if (o.id === "S001") o.id = "s1"; return o; }), groups: groupClasses, tutors: tutorsList }, "測試：重新載入")');
-    check('重新載入名單：長假按學號保留（s1 ＝ S001）', run('JSON.stringify(studentDatabase.find(s => s.id === "s1").longLeaves)') === JSON.stringify([{ from: '2026-11-01', resume: '', note: '' }]));
+    const asked4 = saveStatus(idx, 'ACTIVE');
+    check('改回「在學」（預定的停課還沒開始）→ 取消停課、問要不要補生成；確定後整月補回、學費條目重建', asked4.includes('補生成 5 堂') && !run(S + '.inactivePeriods')
+        && novOf('S001') === '2026-11-02#1/5,2026-11-09#2/5,2026-11-16#3/5,2026-11-23#4/5,2026-11-30#5/5'
+        && run('sendLog["TUITION:S001:2026-11"].count') === 5);
+
+    // 已有狀態的課不動：11/09 標已上課，再設 11/01 起停課 → 只移除仍是已排課的 4 堂，那一堂列出來請人工處理
+    run('GACLessonState.markStatus(lessonsByMonth, "S001-20261109-2130", "ATTENDED")');
+    const asked5 = saveStatus(idx, 'INACTIVE', '2026-11-01', '');
+    check('已上課的課落在停課期間 → 不動、確認框列出', asked5.includes('移除 4 堂') && asked5.includes('2026-11-09') && asked5.includes('已上課')
+        && novOf('S001') === '2026-11-09#2/5' && run('GACLessonState.findLesson(lessonsByMonth, "S001-20261109-2130").lesson.status') === 'ATTENDED');
+    run('GACLessonState.markStatus(lessonsByMonth, "S001-20261109-2130", "SCHEDULED")');
+    saveStatus(idx, 'ACTIVE');
+
+    // —— 小組成員：只動他自己在小組的課 ——
+    const s21 = run('studentDatabase.findIndex(s => s.id === "S021")');
+    run('delete studentDatabase[' + s21 + '].inactivePeriods');
+    const asked6 = saveStatus(s21, 'ACTIVE', '', '', true, ['G01']);
+    check('（前置）S021 沒有變動 → 不問；仍是小組成員', asked6 === '' && run('groupClasses[' + g01 + '].memberIds.includes("S021")'));
+    run('studentDatabase[' + s21 + '].inactivePeriods = [{ from: "2026-11-01", resume: "2026-11-20" }]');
+    const asked7 = saveStatus(s21, 'ACTIVE', '', '', true, ['G01']);
+    check('S021 取消預定的停課 → 補回他在小組的兩堂；同組其他人不動', asked7.includes('補生成 2 堂')
+        && run('lessonsByMonth["2026-11"].filter(l => l.studentId === "S021").map(l => l.date).join()') === '2026-11-07,2026-11-14,2026-11-21,2026-11-28'
+        && run('lessonsByMonth["2026-11"].filter(l => l.groupId).length') === 20 && run('sendLog["TUITION:S021:2026-11"].count') === 4);
+    const asked8 = saveStatus(s21, 'INACTIVE', '2026-11-10', '', true, ['G01']);
+    check('S021 11/10 起停課 → 移除他在小組的 3 堂，同組其他人仍各 4 堂', asked8.includes('移除 3 堂')
+        && run('lessonsByMonth["2026-11"].filter(l => l.studentId === "S021").map(l => l.date).join()') === '2026-11-07'
+        && run('lessonsByMonth["2026-11"].filter(l => l.studentId === "S020" && l.groupId).length') === 4 && run('sendLog["TUITION:S021:2026-11"].count') === 1);
+    run('delete studentDatabase[' + s21 + '].inactivePeriods');
+
+    // —— 今天已在停課：移到下面「停課學生」（預設收起）、在學人數減一；「復課」一鍵回來 ——
+    const s2 = run('studentDatabase.findIndex(s => s.id === "S002")');   // 沒有生成過課的學生
+    const asked9 = saveStatus(s2, 'INACTIVE', '2026-09-10', '');
+    check('今天已在停課：不在上面的名單、在「停課學生」裡，標「停課中」；在學人數減一、卡上寫「另 1 位停課」', asked9 === ''
+        && !getEl('studentTableBody').innerHTML.includes('>S002<') && getEl('inactiveStudentTableBody').innerHTML.includes('>S002<')
+        && getEl('inactiveStudentTableBody').innerHTML.includes('停課中：2026-09-10 起（復課日未定）') && getEl('inactiveStudentsCount').textContent === '1'
+        && String(getEl('statTotalStudents').textContent) === String(Number(activeN0) - 1) && getEl('statInactiveHint').textContent === '另 1 位停課');
+    check('停課學生那一行有「復課」鈕；預設收起、可展開', getEl('inactiveStudentTableBody').innerHTML.includes('reactivateStudent(' + s2 + ')')
+        && run('inactiveStudentsOpen') === false && (run('toggleInactiveStudents()'), run('inactiveStudentsOpen')) === true && (run('toggleInactiveStudents()'), true));
+    run('openBroadcastModal()');
+    {
+        const seg = getEl('bcList').innerHTML.split('value="' + s2 + '"')[1] || '';
+        check('自定義群發：停課中的學生預設不勾、標「停課中」', seg !== '' && !seg.startsWith(' checked') && seg.slice(0, 500).includes('（停課中）')
+            && (getEl('bcList').innerHTML.split('value="' + idx + '"')[1] || '').startsWith(' checked'));
+    }
+    run('closeBroadcastModal()');
+    run('reactivateStudent(' + s2 + ')');
+    check('按「復課」→ 今天起在學：回到上面的名單、停課紀錄記下起訖', run('JSON.stringify(studentDatabase[' + s2 + '].inactivePeriods)') === J([{ from: '2026-09-10', resume: '2026-09-15' }])
+        && getEl('studentTableBody').innerHTML.includes('>S002<') && String(getEl('statTotalStudents').textContent) === activeN0 && run('lastToast').includes('今天起復課'));
+    run('delete studentDatabase[' + s2 + '].inactivePeriods; saveToLocalStorage(); renderStudentTable()');
+
+    // 重新載入名單：停課紀錄按學號（容錯）帶過去
+    run(S + '.inactivePeriods = [{ from: "2026-12-01", resume: "" }]');
+    run('applyRoster({ students: studentDatabase.map(s => { const o = Object.assign({}, s); delete o.inactivePeriods; if (o.id === "S001") o.id = "s1"; return o; }), groups: groupClasses, tutors: tutorsList }, "測試：重新載入")');
+    check('重新載入名單：停課紀錄按學號保留（s1 ＝ S001）', run('JSON.stringify(studentDatabase.find(s => s.id === "s1").inactivePeriods)') === J([{ from: '2026-12-01', resume: '' }]));
     run('undoLastAction()');
-    check('撤銷重新載入 → 回到 S001', run('studentDatabase[' + idx + '].id') === 'S001');
+    check('撤銷重新載入 → 回到 S001', run(S + '.id') === 'S001');
+    run('delete ' + S + '.inactivePeriods');
 
-    // 學號查重（容錯）：新增 s1 ＝ 已有的 S001
+    // 學號查重（容錯）：新增 s01 ＝ 已有的 S001
     const n0 = run('studentDatabase.length'), a1 = sandbox.alerts.length;
     run('openStudentModal(-1)');
     getEl('modalId').value = 's01';
@@ -2133,12 +2210,11 @@ sandbox.__qsaHook = () => [];
     run('closeStudentModal()');
     check('搜尋學號容錯：0032 ↔ 32、032', run('idMatchesQuery("0032", "32") && idMatchesQuery("32", "0032") && idMatchesQuery("0032", "032") && !idMatchesQuery("0032", "0033")'));
 
-    // 清掉：長假、11 月課表與學費條目，回到 9 月
-    run('delete studentDatabase[' + idx + '].longLeaves; delete studentDatabase.find(s => s.id === "S021").longLeaves; saveToLocalStorage();');
-    run('delete lessonsByMonth["2026-11"]; GACSendlog.purgeMonth(sendLog, "2026-11", []); persistLessons();');
+    // 清掉：11 月課表與學費條目，回到 9 月
+    run('saveToLocalStorage(); delete lessonsByMonth["2026-11"]; GACSendlog.purgeMonth(sendLog, "2026-11", []); persistLessons();');
     getEl('batchMonth').value = '2026-09';
     run('rebuildMonthContext(); renderAll();');
-    check('清理完成', !run('lessonsByMonth["2026-11"]') && g01 >= 0);
+    check('清理完成', !run('lessonsByMonth["2026-11"]') && g01 >= 0 && !run('studentDatabase.some(s => s.inactivePeriods)'));
 }
 
 // 38b) 寫入模式同步：.ics 匯入的事件靠 iCalUID 認回 → 不是手動新建、不重複推送

@@ -249,58 +249,101 @@ test('studentIdKey：前導零、大小寫、空白不影響；sameStudentId 空
     assert.ok(!S.sameStudentId('', ''));
 });
 
-// ===== 長假（停課）=====
-test('長假：未定復課 → 開始日起全部不生成（跨月也是）；編號只數實際生成的課', () => {
-    const s = student({ longLeaves: [{ from: '2026-09-15', resume: '', note: '' }] });   // 週二
+// ===== 學生狀態：在學／停課 =====
+test('停課：未定復課 → 開始日起全部不生成（跨月也是）；編號只數實際生成的課', () => {
+    const s = student({ inactivePeriods: [{ from: '2026-09-15', resume: '' }] });   // 週二
     const sep = S.generateMonthLessons(s, '2026-09');
     assert.deepStrictEqual(sep.map(l => l.date), ['2026-09-01', '2026-09-08'], '9/15 當天起不出課');
     assert.deepStrictEqual(sep.map(l => [l.lessonNum, l.totalRegular]), [[1, 2], [2, 2]]);
     assert.strictEqual(S.generateMonthLessons(s, '2026-12').length, 0, '未定 → 之後的月份一律略過');
-    assert.deepStrictEqual(S.longLeaveSkippedDates(s, '2026-09'), ['2026-09-15', '2026-09-22', '2026-09-29']);
+    assert.deepStrictEqual(S.inactiveSkippedDates(s, '2026-09'), ['2026-09-15', '2026-09-22', '2026-09-29']);
 });
 
-test('長假：有復課日 → 復課日當天恢復上課，精確到日', () => {
-    const s = student({ longLeaves: [{ from: '2026-09-08', resume: '2026-09-22', note: '出國' }] });
+test('停課：有復課日 → 復課日當天恢復上課，精確到日', () => {
+    const s = student({ inactivePeriods: [{ from: '2026-09-08', resume: '2026-09-22' }] });
     const sep = S.generateMonthLessons(s, '2026-09');
     assert.deepStrictEqual(sep.map(l => l.date), ['2026-09-01', '2026-09-22', '2026-09-29']);
     assert.deepStrictEqual(sep.map(l => l.lessonNum), [1, 2, 3]);
     assert.ok(sep.every(l => l.totalRegular === 3));
     assert.strictEqual(sep[1].lessonId, 'S001-20260922-2130', 'lessonId 仍按日期時間，不受編號影響');
     assert.strictEqual(S.generateMonthLessons(s, '2026-10').length, 4, '復課後的月份照常');
-    assert.ok(S.isOnLongLeave(s, '2026-09-21') && !S.isOnLongLeave(s, '2026-09-22') && !S.isOnLongLeave(s, '2026-09-07'));
+    assert.ok(S.isInactiveOn(s, '2026-09-21') && !S.isInactiveOn(s, '2026-09-22') && !S.isInactiveOn(s, '2026-09-07'));
 });
 
-test('長假：多段各自生效；沒有長假欄位的舊資料照常', () => {
-    const s = student({ longLeaves: [{ from: '2026-09-01', resume: '2026-09-08' }, { from: '2026-09-29', resume: '' }] });
+test('停課：多段各自生效；沒有停課紀錄的舊資料照常', () => {
+    const s = student({ inactivePeriods: [{ from: '2026-09-01', resume: '2026-09-08' }, { from: '2026-09-29', resume: '' }] });
     assert.deepStrictEqual(S.generateMonthLessons(s, '2026-09').map(l => l.date), ['2026-09-08', '2026-09-15', '2026-09-22']);
     assert.strictEqual(S.generateMonthLessons(student(), '2026-09').length, 5);
-    assert.strictEqual(S.longLeaveOn(student(), '2026-09-01'), null);
+    assert.strictEqual(S.inactivePeriodOn(student(), '2026-09-01'), null);
 });
 
-test('長假：小組成員長假那幾天不生成，其他成員照常；小組形式按全體成員計', () => {
+test('停課：小組成員停課那幾天不生成，其他成員照常；小組形式按全體成員計', () => {
     const group = { id: 'G1', name: 'Theory', program: 'Theory', level: 'G5', duration: 60, tutor: 'T', weekday: 6, time: '15:00' };
     const a = { id: 'S020', name: 'A' };
-    const b = { id: 'S021', name: 'B', longLeaves: [{ from: '2026-09-10', resume: '2026-09-20' }] };
+    const b = { id: 'S021', name: 'B', inactivePeriods: [{ from: '2026-09-10', resume: '2026-09-20' }] };
     const out = S.generateGroupMonthLessons(group, [a, b], '2026-09');   // 週六：5/12/19/26
     assert.strictEqual(out.filter(l => l.studentId === 'S020').length, 4);
     assert.deepStrictEqual(out.filter(l => l.studentId === 'S021').map(l => l.date), ['2026-09-05', '2026-09-26']);
-    assert.ok(out.every(l => l.classType === '2人小組'), '不因有人長假改成 1 人小組');
+    assert.ok(out.every(l => l.classType === '2人小組'), '不因有人停課改成 1 人小組');
     assert.deepStrictEqual(out.filter(l => l.studentId === 'S021').map(l => l.lessonNum), [1, 4], '小組編號按節次，成員同一日編號相同');
 });
 
-test('長假：validateLongLeaves／normalizeLongLeaves', () => {
-    assert.strictEqual(S.validateLongLeaves([{ from: '2026-09-01', resume: '' }]), '');
-    assert.strictEqual(S.validateLongLeaves([{ from: '', resume: '' }]), '', '空白列不算錯');
-    assert.ok(S.validateLongLeaves([{ from: '', resume: '2026-09-10' }]).includes('開始日期'));
-    assert.ok(S.validateLongLeaves([{ from: '2026-09-10', resume: '2026-09-10' }]).includes('之後'));
-    assert.deepStrictEqual(S.normalizeLongLeaves([{ from: '2026-10-01', resume: 'x', note: ' a ' }, { from: '' }, { from: '2026-09-01', resume: '2026-09-15' }]),
-        [{ from: '2026-09-01', resume: '2026-09-15', note: '' }, { from: '2026-10-01', resume: '', note: 'a' }]);
+test('停課：表單檢查與清理', () => {
+    assert.strictEqual(S.validateInactivePeriod({ from: '2026-09-01', resume: '' }), '');
+    assert.ok(S.validateInactivePeriod({ from: '', resume: '2026-09-10' }).includes('哪一天開始'));
+    assert.ok(S.validateInactivePeriod({ from: '2026-09-10', resume: '2026-09-10' }).includes('之後'));
+    assert.deepStrictEqual(S.normalizeInactivePeriods([{ from: '2026-10-01', resume: 'x', note: ' a ' }, { from: '' }, { from: '2026-09-01', resume: '2026-09-15' }]),
+        [{ from: '2026-09-01', resume: '2026-09-15' }, { from: '2026-10-01', resume: '' }]);
 });
 
-test('長假：撞堂預覽不計長假中的其他學生，本人長假的日子不列', () => {
-    const me = student({ id: 'S002', weekday: 3, time: '12:30', longLeaves: [{ from: '2026-10-21', resume: '' }] });
-    const other = student({ id: 'S003', weekday: 3, time: '12:30', longLeaves: [{ from: '2026-10-01', resume: '2026-10-14' }] });
+test('學生狀態：今天在學／停課中／預定停課；已結束的紀錄不算', () => {
+    const T = '2026-10-01';
+    assert.strictEqual(S.currentInactivePeriod(student(), T), null, '沒有紀錄＝在學');
+    assert.strictEqual(S.currentInactivePeriod(student({ inactivePeriods: [{ from: '2026-05-01', resume: '2026-09-01' }] }), T), null, '已復課');
+    assert.deepStrictEqual(S.currentInactivePeriod(student({ inactivePeriods: [{ from: '2026-09-20', resume: '' }] }), T), { period: { from: '2026-09-20', resume: '' }, on: true });
+    assert.deepStrictEqual(S.currentInactivePeriod(student({ inactivePeriods: [{ from: '2026-11-01', resume: '' }] }), T), { period: { from: '2026-11-01', resume: '' }, on: false }, '下個月才開始＝預定停課，今天還在學');
+    assert.deepStrictEqual(S.currentInactivePeriod(student({ inactivePeriods: [{ from: '2026-09-20', resume: '2026-12-01' }] }), T).on, true, '預定了復課日，今天仍在停課');
+    assert.strictEqual(S.currentInactivePeriod(student({ inactivePeriods: [{ from: '2026-09-20', resume: '2026-10-01' }] }), T), null, '復課日當天＝在學');
+});
+
+test('學生狀態：applyStatusEdit——改停課、預定、復課、取消預定，舊紀錄保留', () => {
+    const T = '2026-10-01';
+    const old = { from: '2026-03-01', resume: '2026-05-01' };
+    assert.deepStrictEqual(S.applyStatusEdit([], T, { inactive: true, from: '2026-10-01', resume: '' }), [{ from: '2026-10-01', resume: '' }], '在學 → 今天起停課');
+    assert.deepStrictEqual(S.applyStatusEdit([old], T, { inactive: true, from: '2026-11-01', resume: '' }), [old, { from: '2026-11-01', resume: '' }], '預定下個月停課；舊紀錄留著');
+    assert.deepStrictEqual(S.applyStatusEdit([old, { from: '2026-09-20', resume: '' }], T, { inactive: true, from: '2026-09-20', resume: '2026-12-01' }),
+        [old, { from: '2026-09-20', resume: '2026-12-01' }], '停課中填上復課日＝改目前那一段，不是多加一段');
+    assert.deepStrictEqual(S.applyStatusEdit([old, { from: '2026-09-20', resume: '' }], T, { inactive: false }), [old, { from: '2026-09-20', resume: '2026-10-01' }], '改回在學＝今天復課');
+    assert.deepStrictEqual(S.applyStatusEdit([old, { from: '2026-11-01', resume: '' }], T, { inactive: false }), [old], '還沒開始的預定停課 → 取消');
+    assert.deepStrictEqual(S.applyStatusEdit([{ from: '2026-10-01', resume: '' }], T, { inactive: false }), [], '今天才設的停課又改回在學＝沒停過');
+    assert.deepStrictEqual(S.applyStatusEdit([old], T, { inactive: false }), [old], '本來就在學：不變');
+});
+
+test('停課：撞堂預覽不計停課中的其他學生，本人停課的日子不列', () => {
+    const me = student({ id: 'S002', weekday: 3, time: '12:30', inactivePeriods: [{ from: '2026-10-21', resume: '' }] });
+    const other = student({ id: 'S003', weekday: 3, time: '12:30', inactivePeriods: [{ from: '2026-10-01', resume: '2026-10-14' }] });
     const rows = S.previewTimeChange(me, [other], [], '2026-10', { weekday: 3, time: '12:30' });
-    assert.deepStrictEqual(rows.map(r => r.date), ['2026-10-07', '2026-10-14'], '10/21 起本人長假，不列');
-    assert.deepStrictEqual(rows.map(r => r.clashes.length), [0, 1], '10/07 對方長假不佔；10/14 對方已復課');
+    assert.deepStrictEqual(rows.map(r => r.date), ['2026-10-07', '2026-10-14'], '10/21 起本人停課，不列');
+    assert.deepStrictEqual(rows.map(r => r.clashes.length), [0, 1], '10/07 對方停課不佔；10/14 對方已復課');
+});
+
+test('mergeMemberGroupLessons：只動這位成員在這個小組的課，其他人與其他課不動', () => {
+    const group = { id: 'G1', name: 'Theory', program: 'Theory', level: 'G5', duration: 60, tutor: 'T', weekday: 6, time: '15:00' };
+    const a = { id: 'S020', name: 'A' }, b = { id: 'S021', name: 'B' };
+    const existing = S.generateGroupMonthLessons(group, [a, b], '2026-09')   // 週六：5/12/19/26
+        .concat(S.generateMonthLessons(student({ id: 'S021', name: 'B', weekday: 2 }), '2026-09'));   // B 另有個別課
+    existing.find(l => l.lessonId === 'S021-20260912-1500').status = 'ATTENDED';
+    const bOff = Object.assign({}, b, { inactivePeriods: [{ from: '2026-09-10', resume: '' }] });
+    const gen = S.generateGroupMonthLessons(group, [a, bOff], '2026-09').filter(l => l.studentId === 'S021');
+    const r = S.mergeMemberGroupLessons(existing, gen, 'G1', 'S021');
+    assert.deepStrictEqual(r.removed.map(l => l.date), ['2026-09-19', '2026-09-26'], '停課後仍是已排課的小組課移除');
+    assert.deepStrictEqual(r.conflicts.map(c => c.lesson.date), ['2026-09-12'], '已上課的那堂保留並列出');
+    assert.strictEqual(r.added.length, 0);
+    assert.strictEqual(r.lessons.filter(l => l.studentId === 'S020').length, 4, '同組其他成員不動');
+    assert.strictEqual(r.lessons.filter(l => l.studentId === 'S021' && !l.groupId).length, 5, 'B 的個別課不動');
+    // 復課：補回缺的
+    const back = S.mergeMemberGroupLessons(r.lessons, S.generateGroupMonthLessons(group, [a, b], '2026-09').filter(l => l.studentId === 'S021'), 'G1', 'S021');
+    assert.deepStrictEqual(back.added.map(l => l.date), ['2026-09-19', '2026-09-26']);
+    assert.strictEqual(back.lessons.filter(l => l.groupId === 'G1').length, 8);
+    assert.strictEqual(back.lessons.find(l => l.lessonId === 'S021-20260912-1500').status, 'ATTENDED', '既有的課原樣保留');
 });

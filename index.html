@@ -99,8 +99,11 @@
                         <i class="fa-solid fa-users"></i>
                     </div>
                     <div>
-                        <div class="text-xs text-slate-500 font-medium">總登記學生</div>
-                        <div id="statTotalStudents" class="text-lg font-bold text-slate-800">0</div>
+                        <div class="text-xs text-slate-500 font-medium">在學學生</div>
+                        <div class="flex items-baseline gap-2">
+                            <div id="statTotalStudents" class="text-lg font-bold text-slate-800">0</div>
+                            <span id="statInactiveHint" class="text-[11px] text-slate-500 font-semibold whitespace-nowrap"></span>
+                        </div>
                     </div>
                 </div>
 
@@ -393,6 +396,21 @@
                             <!-- Table rows rendered via JS -->
                         </tbody>
                     </table>
+                </div>
+
+                <!-- 停課學生：預設收起。今天在停課中的學生列在這裡（預定停課但還沒到日子的仍在上面）；復課日到了自動回到上面 -->
+                <div id="inactiveStudentsBox" class="hidden rounded-xl border border-slate-200">
+                    <button type="button" onclick="toggleInactiveStudents()" class="w-full flex items-center gap-2 px-3 py-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl text-left transition">
+                        <i id="inactiveStudentsChevron" class="fa-solid fa-chevron-right text-slate-400 text-xs w-3 shrink-0 transition-transform"></i>
+                        <span class="text-xs font-bold text-slate-700"><i class="fa-solid fa-circle-pause text-slate-400"></i> 停課學生</span>
+                        <span id="inactiveStudentsCount" class="text-[11px] font-bold text-slate-600 bg-slate-200 rounded-full px-2 py-0.5">0</span>
+                        <span class="ml-auto text-[11px] text-slate-400">停課期間不生成課堂；點擊展開／收起</span>
+                    </button>
+                    <div id="inactiveStudentsBody" class="hidden overflow-x-auto border-t border-slate-200">
+                        <table class="w-full text-left text-xs text-slate-500">
+                            <tbody id="inactiveStudentTableBody" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <!-- 小組班清單：一個時段一堂課多位學生；成員在弹窗勾選 -->
@@ -1037,14 +1055,20 @@
                     <p id="modalGroupsHint" class="hidden text-[11px] text-sky-700 mb-1">只上小組的學生：在這裡勾選所屬小組即可，課表與學費都跟小組走。</p>
                     <div id="modalGroups" class="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg min-h-[2.2rem]"></div>
                 </div>
-                <!-- 長假（停課）：期間生成課表不出課（不收學費、不佔時段、不推 Calendar），精確到日；復課日期留空＝未定 -->
+                <!-- 學生狀態：在學／停課。停課期間生成課表不出課（不收學費、不佔時段、不推 Calendar），精確到日；可預定某天起停課、某天復課 -->
                 <div class="sm:col-span-2">
-                    <div class="flex items-center justify-between mb-1">
-                        <label class="font-bold text-slate-600"><i class="fa-solid fa-moon text-violet-500"></i> 長假／停課</label>
-                        <button type="button" onclick="addModalLongLeave()" class="px-2 py-1 bg-violet-100 hover:bg-violet-200 text-violet-800 rounded-lg font-semibold transition">+ 新增長假</button>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <label for="modalStatus" class="font-bold text-slate-600">學生狀態</label>
+                        <select id="modalStatus" onchange="onModalStatusChange()" class="px-2 py-1.5 border border-slate-300 rounded-lg bg-white font-semibold">
+                            <option value="ACTIVE">在學</option>
+                            <option value="INACTIVE">停課</option>
+                        </select>
+                        <span id="modalInactiveFields" class="hidden flex flex-wrap items-center gap-2">
+                            <label class="flex items-center gap-1 text-slate-600">由 <input type="date" id="modalInactiveFrom" class="p-1 border border-slate-300 rounded bg-white"> 起停課</label>
+                            <label class="flex items-center gap-1 text-slate-600">復課日 <input type="date" id="modalInactiveResume" class="p-1 border border-slate-300 rounded bg-white" title="復課日當天恢復上課；留空＝未定"> <span class="text-slate-400">（未定留空）</span></label>
+                        </span>
                     </div>
-                    <div id="modalLongLeaves" class="space-y-1.5"></div>
-                    <p class="text-[11px] text-slate-500 mt-1">長假期間生成課表時不出課（不收學費、不佔時段），精確到日。復課日期＝當天起恢復上課；留空＝未定，之後生成的月份一律略過，學生回來時再填上復課日期。</p>
+                    <p class="text-[11px] text-slate-500 mt-1">停課期間不生成課堂（不收學費、不佔時段），精確到日。可以預定：例如填下個月 1 號起停課，到那天才算停課。復課日＝當天起恢復上課；留空＝未定。改回「在學」＝今天起復課（還沒開始的預定停課則取消）。已生成的月份會問你要不要一併處理。</p>
                 </div>
             </div>
 
