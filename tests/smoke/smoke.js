@@ -569,6 +569,28 @@ check('同步面板渲染出各組差異', getEl('gcalSyncBody').innerHTML.inclu
 // 預設：時間/刪除/狀態碼 3 行 checked，2 行手動新建不勾
 check('同步面板預設全勾（手動新建除外）', (getEl('gcalSyncBody').innerHTML.match(/" checked/g) || []).length === 3
     && getEl('gcalSyncBody').innerHTML.includes('Calendar 為準'));
+// 每類差異＝一個可收起的分組（預設展開），標題列有本組的全選／全不選；只動該組的勾選框
+{
+    const html = getEl('gcalSyncBody').innerHTML;
+    check('同步面板：每類一個可收起分組（預設展開）＋本組全選／全不選', ['time', 'del', 'status', 'manual'].every(k =>
+        html.includes('<details open id="gsSec_' + k + '"') && html.includes("gcalSyncSetGroup('" + k + "', true)") && html.includes("gcalSyncSetGroup('" + k + "', false)"))
+        && (html.match(/<details /g) || []).length === 4 && !html.includes('gsSec_push'));
+    const hookWas = sandbox.__qsaHook;
+    const delBoxes = [{ checked: true }, { checked: true }], otherBoxes = [{ checked: true }];
+    sandbox.__qsaHook = sel => (sel === '#gsSec_del input[type="checkbox"]' ? delBoxes : sel === '#gcalSyncBody input[type="checkbox"]' ? delBoxes.concat(otherBoxes) : []);
+    run("gcalSyncSetGroup('del', false)");
+    check('本組全不選：只動該組', delBoxes.every(b => !b.checked) && otherBoxes[0].checked === true);
+    run("gcalSyncSetGroup('del', true)");
+    run('gcalSyncSetAll(false)');
+    check('頁腳全不選：所有組', delBoxes.concat(otherBoxes).every(b => !b.checked));
+    const secs = [{ open: true }, { open: false }];
+    sandbox.__qsaHook = sel => (sel === '#gcalSyncBody details' ? secs : []);
+    run('gcalSyncToggleSections()');
+    check('全部收起／展開：有開著的 → 全部收起', secs.every(d => d.open === false));
+    run('gcalSyncToggleSections()');
+    check('全部收起／展開：全收起 → 全部展開', secs.every(d => d.open === true));
+    sandbox.__qsaHook = hookWas;
+}
 getEl('gsT_0').checked = true;
 getEl('gsD_0').checked = true;
 getEl('gsS_0').checked = true;

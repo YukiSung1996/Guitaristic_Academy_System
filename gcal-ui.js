@@ -455,6 +455,26 @@ function gcalSyncRow(chkId, text, extraHtml, checked) {
     </label>`;
 }
 
+// 面板裡的一類差異＝一個可收起的分組：標題列右邊是「已勾 x／n」和本組的全選／全不選。
+// 收起只是不顯示，勾選狀態照樣保留、照樣執行。opts.info＝沒有勾選框的提示組（要自己到 Calendar 改的），只顯示項數。
+function gcalSyncSection(key, label, desc, rows, opts) {
+    opts = opts || {};
+    const btn = 'px-2 py-0.5 bg-white border border-slate-300 text-slate-600 text-[11px] font-semibold rounded-md hover:bg-slate-100';
+    const tools = opts.info
+        ? `<span class="text-[11px] text-slate-500 whitespace-nowrap">${rows.length} 項</span>`
+        : `<span class="gsec-count text-[11px] text-slate-500 whitespace-nowrap"></span>
+            <button type="button" onclick="event.preventDefault(); gcalSyncSetGroup('${key}', true)" class="${btn}">全選</button>
+            <button type="button" onclick="event.preventDefault(); gcalSyncSetGroup('${key}', false)" class="${btn}">全不選</button>`;
+    return `<details open id="gsSec_${key}" class="group border ${opts.warn ? 'border-amber-300' : 'border-slate-200'} rounded-lg">
+        <summary class="flex items-center gap-2 px-2 py-1.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden rounded-lg ${opts.warn ? 'bg-amber-50 text-amber-900' : 'bg-slate-50 text-slate-700'}">
+            <i class="fa-solid fa-chevron-right text-[10px] text-slate-400 transition-transform group-open:rotate-90"></i>
+            <span class="flex-1 text-xs font-bold">${label}</span>
+            ${tools}
+        </summary>
+        <div class="p-2 space-y-2">${desc ? `<div class="text-[11px] ${opts.warn ? 'text-amber-900' : 'text-slate-500'}">${desc}</div>` : ''}${opts.extra || ''}${rows.join('')}</div>
+    </details>`;
+}
+
 function renderGcalSyncModal() {
     const body = document.getElementById('gcalSyncBody');
     if (!body || !gcalSyncPlan) return;
@@ -491,44 +511,44 @@ function renderGcalSyncModal() {
     if (!total) {
         parts.push('<div class="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-xs font-semibold">✅ 本地與 Google Calendar 完全一致，沒有需要同步的項目。</div>');
     } else {
-        parts.push(`<div class="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-800 text-xs">範圍：${p.monthKey}（前後各 7 天）。共 ${total} 項差異——<b>預設勾選＝執行後兩邊一致</b>（只有一邊改了的跟那一邊；兩邊都改了時以 ${ruleName} 為準——設定 → Google Calendar 可改）。個別不想動的項目取消勾選即可。</div>`);
+        parts.push(`<div class="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-800 text-xs">範圍：${p.monthKey}（前後各 7 天）。共 ${total} 項差異——<b>預設勾選＝執行後兩邊一致</b>（只有一邊改了的跟那一邊；兩邊都改了時以 ${ruleName} 為準——設定 → Google Calendar 可改）。個別不想動的項目取消勾選即可；每組可按標題收起，標題右邊是該組的全選／全不選。</div>`);
     }
     if (p.toPush.length) {
         const multiCal = gcalCalendarTargets().length > 1;   // 不止一本日曆 → 每行寫明推到誰的
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">⬆️ 推送：本地有、GCal 沒有（一節一個事件；小組全組一個；推到該導師的日曆。絕不覆蓋既有）</div>');
-        p.toPush.forEach((c, i) => {
-            const rep = c.lessons[0];
-            parts.push(gcalSyncRow('gsP_' + i,
-                `${gcalCellLabel(c)} ${rep.date} ${rep.time}${rep.isMakeup ? '（補堂）' : ''}${!c.isGroup && rep.status === 'LEAVE' ? '（請假紀錄）' : ''}${multiCal ? ' → ' + escapeHtml(gcalCalendarLabel(gcalCalendarForCell(c))) : ''}`, '', true));
-        });
+        parts.push(gcalSyncSection('push', '⬆️ 推送到 GCal', '本地有、GCal 沒有（一節一個事件；小組全組一個；推到該導師的日曆。絕不覆蓋既有）',
+            p.toPush.map((c, i) => {
+                const rep = c.lessons[0];
+                return gcalSyncRow('gsP_' + i,
+                    `${gcalCellLabel(c)} ${rep.date} ${rep.time}${rep.isMakeup ? '（補堂）' : ''}${!c.isGroup && rep.status === 'LEAVE' ? '（請假紀錄）' : ''}${multiCal ? ' → ' + escapeHtml(gcalCalendarLabel(gcalCalendarForCell(c))) : ''}`, '', true);
+            })));
     }
     if ((p.moves || []).length) {
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🔁 本地改期 → 改 GCal 上原本那個事件（不另建新事件；補堂改期後會接回同一個事件）</div>');
-        p.moves.forEach((m, i) => {
-            const rep = m.lesson;
-            parts.push(gcalSyncRow('gsV_' + i, m.tagOnly
-                ? `${gcalCellLabel(m)} ${rep.date} ${rep.time}${rep.isMakeup ? '（補堂）' : ''}：Calendar 上已是這個時間，只更新事件內容與標籤`
-                : `${gcalCellLabel(m)}${rep.isMakeup ? '（補堂）' : ''} GCal ${m.from.date || ''} ${m.from.time || ''} → <b>${rep.date} ${rep.time}</b>`, '', true));
-        });
+        parts.push(gcalSyncSection('move', '🔁 本地改期', '本地改期 → 改 GCal 上原本那個事件（不另建新事件；補堂改期後會接回同一個事件）',
+            p.moves.map((m, i) => {
+                const rep = m.lesson;
+                return gcalSyncRow('gsV_' + i, m.tagOnly
+                    ? `${gcalCellLabel(m)} ${rep.date} ${rep.time}${rep.isMakeup ? '（補堂）' : ''}：Calendar 上已是這個時間，只更新事件內容與標籤`
+                    : `${gcalCellLabel(m)}${rep.isMakeup ? '（補堂）' : ''} GCal ${m.from.date || ''} ${m.from.time || ''} → <b>${rep.date} ${rep.time}</b>`, '', true);
+            })));
     }
     if ((p.relocations || []).length) {
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">📦 搬到導師的日曆：事件在別本日曆（例如以前推送只到預設日曆）→ 搬到該導師的日曆（事件 id 與內容不變）</div>');
-        p.relocations.forEach((m, i) => {
-            const rep = m.lesson;
-            parts.push(gcalSyncRow('gsR_' + i,
-                `${gcalCellLabel(m)} ${rep.date} ${rep.time}${rep.isMakeup ? '（補堂）' : ''}：${escapeHtml(gcalCalendarLabel(m.from))} → <b>${escapeHtml(gcalCalendarLabel(m.to))}</b>`, '', true));
-        });
+        parts.push(gcalSyncSection('reloc', '📦 搬到導師的日曆', '事件在別本日曆（例如以前推送只到預設日曆）→ 搬到該導師的日曆（事件 id 與內容不變）',
+            p.relocations.map((m, i) => {
+                const rep = m.lesson;
+                return gcalSyncRow('gsR_' + i,
+                    `${gcalCellLabel(m)} ${rep.date} ${rep.time}${rep.isMakeup ? '（補堂）' : ''}：${escapeHtml(gcalCalendarLabel(m.from))} → <b>${escapeHtml(gcalCalendarLabel(m.to))}</b>`, '', true);
+            })));
     }
     if ((p.staleMoves || []).length) {
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">📌 本地已改期、Calendar 上還是舊時間（唯讀模式不會替你改）→ 請在 Calendar 打開該事件，把時間改成新時間；改好後再同步就會消失</div>');
-        p.staleMoves.forEach(m => {
-            const rep = m.lesson;
-            const url = gcalEventEditUrl(m.event);
-            const link = url ? ` <a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="text-indigo-600 underline">在 Calendar 打開（編輯）</a>` : '';
-            parts.push(`<div class="p-2 border border-amber-200 bg-amber-50 rounded-lg text-xs text-amber-900">${gcalCellLabel(m)}${rep.isMakeup ? '（補堂）' : ''}：Calendar ${m.from.date || ''} ${m.from.time || ''} → 應為 <b>${rep.date} ${rep.time}</b>` +
-                (m.duplicate ? '（新時間已有事件 → 舊時間這個是重複的，請在 Calendar 刪除）' : '') +
-                (m.conflict ? '（Calendar 上也被改過；設定為本系統為準 → 請把 Calendar 改成本地的時間）' : '') + link + '</div>');
-        });
+        parts.push(gcalSyncSection('stale', '📌 請到 Calendar 改時間', '本地已改期、Calendar 上還是舊時間（唯讀模式不會替你改）→ 請在 Calendar 打開該事件，把時間改成新時間；改好後再同步就會消失',
+            p.staleMoves.map(m => {
+                const rep = m.lesson;
+                const url = gcalEventEditUrl(m.event);
+                const link = url ? ` <a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="text-indigo-600 underline">在 Calendar 打開（編輯）</a>` : '';
+                return `<div class="p-2 border border-amber-200 bg-amber-50 rounded-lg text-xs text-amber-900">${gcalCellLabel(m)}${rep.isMakeup ? '（補堂）' : ''}：Calendar ${m.from.date || ''} ${m.from.time || ''} → 應為 <b>${rep.date} ${rep.time}</b>` +
+                    (m.duplicate ? '（新時間已有事件 → 舊時間這個是重複的，請在 Calendar 刪除）' : '') +
+                    (m.conflict ? '（Calendar 上也被改過；設定為本系統為準 → 請把 Calendar 改成本地的時間）' : '') + link + '</div>';
+            }), { info: true }));
     }
     // 衝突（系統已確認出席、Calendar 卻填了請假／缺席）：不論方向都集中列在下面的 ⚠️ 一組、預設不勾；勾選項目 id 不變，套用邏輯照舊
     const conflictRows = [];
@@ -539,25 +559,23 @@ function renderGcalSyncModal() {
         };
         const normal = p.pushStatus.map((s, i) => ({ s, i })).filter(x => !x.s.conflict);
         if (normal.length) {
-            parts.push('<div class="text-xs font-bold text-slate-700 mt-2">📤 寫回狀態到 GCal（本地標了請假／缺席，Calendar 沒填或不同 → 改該事件的地點欄與說明欄「狀態：」一行，其他內容保留）</div>');
-            normal.forEach(x => parts.push(row(x.s, x.i, true)));
+            parts.push(gcalSyncSection('wstatus', '📤 寫回狀態到 GCal', '本地標了請假／缺席，Calendar 沒填或不同 → 改該事件的地點欄與說明欄「狀態：」一行，其他內容保留',
+                normal.map(x => row(x.s, x.i, true))));
         }
         p.pushStatus.forEach((s, i) => { if (s.conflict) conflictRows.push(row(s, i, false)); });
     }
     if ((p.fillStatus || []).length) {
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">📝 本地標了請假／缺席，Calendar 上還沒有（唯讀模式不會替你寫）→ 在 Calendar 打開該事件，說明欄「狀態：」填上；填好再同步就會消失</div>');
-        p.fillStatus.forEach(s => {
-            const url = gcalEventEditUrl(s.event);
-            const link = url ? ` <a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="text-indigo-600 underline">在 Calendar 打開（編輯）</a>` : '';
-            parts.push(`<div class="p-2 border border-amber-200 bg-amber-50 rounded-lg text-xs text-amber-900">${gcalCellLabel(s)} ${s.lesson.date} ${s.lesson.time}：請填 <b>狀態：${s.code || '（清空）'}</b>${s.conflict ? '（⚠️ 衝突：系統已確認出席，Calendar 卻填了「' + (GACGcal.calStatusCode(s.event) || '') + '」——先查清楚哪邊對）' : ''}${link}</div>`);
-        });
+        parts.push(gcalSyncSection('fill', '📝 請到 Calendar 填狀態', '本地標了請假／缺席，Calendar 上還沒有（唯讀模式不會替你寫）→ 在 Calendar 打開該事件，說明欄「狀態：」填上；填好再同步就會消失',
+            p.fillStatus.map(s => {
+                const url = gcalEventEditUrl(s.event);
+                const link = url ? ` <a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="text-indigo-600 underline">在 Calendar 打開（編輯）</a>` : '';
+                return `<div class="p-2 border border-amber-200 bg-amber-50 rounded-lg text-xs text-amber-900">${gcalCellLabel(s)} ${s.lesson.date} ${s.lesson.time}：請填 <b>狀態：${s.code || '（清空）'}</b>${s.conflict ? '（⚠️ 衝突：系統已確認出席，Calendar 卻填了「' + (GACGcal.calStatusCode(s.event) || '') + '」——先查清楚哪邊對）' : ''}${link}</div>`;
+            }), { info: true }));
     }
     if (p.timeChanges.length) {
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🕒 時間變更（GCal 上被挪動 → 更新本地；小組全體成員一併）</div>');
-        p.timeChanges.forEach((c, i) => {
-            parts.push(gcalSyncRow('gsT_' + i,
-                `${gcalCellLabel(c)} ${c.lesson.date} ${c.lesson.time} → <b>${c.date} ${c.time}</b>`, '', true));
-        });
+        parts.push(gcalSyncSection('time', '🕒 時間變更', 'GCal 上被挪動 → 更新本地；小組全體成員一併',
+            p.timeChanges.map((c, i) => gcalSyncRow('gsT_' + i,
+                `${gcalCellLabel(c)} ${c.lesson.date} ${c.lesson.time} → <b>${c.date} ${c.time}</b>`, '', true))));
     }
     if (p.statusChanges.length) {
         const row = (s, i, checked) => {
@@ -566,64 +584,94 @@ function renderGcalSyncModal() {
         };
         const normal = p.statusChanges.map((s, i) => ({ s, i })).filter(x => !x.s.conflict);
         if (normal.length) {
-            parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🏷️ 狀態碼變更（Calendar「狀態：」填了 A／L／SL／TL／NS → 更新本地；留空不算任何狀態；小組全體成員一併）</div>');
-            normal.forEach(x => parts.push(row(x.s, x.i, true)));
+            parts.push(gcalSyncSection('status', '🏷️ 狀態碼變更', 'Calendar「狀態：」填了 A／L／SL／TL／NS → 更新本地；留空不算任何狀態；小組全體成員一併',
+                normal.map(x => row(x.s, x.i, true))));
         }
         p.statusChanges.forEach((s, i) => { if (s.conflict) conflictRows.push(row(s, i, false)); });
     }
     if (conflictRows.length) {
-        parts.push(`<div class="text-xs font-bold text-amber-900 mt-2 p-2 bg-amber-50 border border-amber-300 rounded-lg">⚠️ 狀態衝突：系統已確認出席，Calendar 卻填了請假／缺席（${conflictRows.length} 節）。<b>預設不勾</b>——先查清楚哪邊對；勾選＝按「以 ${ruleName} 為準」處理（設定 → Google Calendar 可改）</div>`);
-        conflictRows.forEach(h => parts.push(h));
+        parts.push(gcalSyncSection('conflict', '⚠️ 狀態衝突',
+            `系統已確認出席，Calendar 卻填了請假／缺席（${conflictRows.length} 節）。<b>預設不勾</b>——先查清楚哪邊對；勾選＝按「以 ${ruleName} 為準」處理（設定 → Google Calendar 可改）`,
+            conflictRows, { warn: true }));
     }
     if (p.deletions.length) {
         // 防呆：大量刪除多半是「清場」而非逐堂取消——照套用會整批標請假、灌爆待補堂池。
         const massDelete = p.deletions.length >= 5;
-        parts.push(p.contentMode
-            ? '<div class="text-xs font-bold text-slate-700 mt-2">🗑️ Calendar 上沒有這堂（該學生／小組當天沒有事件；只列仍為「已排課」的節、只看本月）→ 勾選＝本地標記請假（一對一事假 L、小組導師假 TL）</div>'
-            : '<div class="text-xs font-bold text-slate-700 mt-2">🗑️ 事件已在 GCal 刪除（勾選＝跟隨 Calendar：本地標記請假・事假；取消勾選＝保留本地，下次同步可重推）</div>');
-        if (massDelete) {
-            parts.push(`<div class="p-2 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 text-xs">⚠️ 一次偵測到 ${p.deletions.length} 件刪除——看起來像批量清場而非逐堂取消，<b>已預設不勾</b>（套用會把這些課全部標成請假、湧入待補堂池）。想清場重來請改用「設定 → 清空本月／全部清場」；真的是逐堂取消才自行勾選。</div>`);
-        }
-        p.deletions.forEach((del, i) => {
-            const isGroup = del.cell && del.cell.isGroup;
-            parts.push(gcalSyncRow('gsD_' + i,
-                `${gcalCellLabel(del)} ${del.lesson.date} ${del.lesson.time}（目前狀態：${del.lesson.status}${isGroup ? '；勾選＝全組標導師假 TL' : ''}）`, '', !massDelete));
-        });
+        parts.push(gcalSyncSection('del',
+            p.contentMode ? '🗑️ Calendar 上沒有這堂' : '🗑️ 事件已在 GCal 刪除',
+            p.contentMode
+                ? '該學生／小組當天沒有事件；只列仍為「已排課」的節、只看本月 → 勾選＝本地標記請假（一對一事假 L、小組導師假 TL）'
+                : '勾選＝跟隨 Calendar：本地標記請假・事假；取消勾選＝保留本地，下次同步可重推',
+            p.deletions.map((del, i) => {
+                const isGroup = del.cell && del.cell.isGroup;
+                return gcalSyncRow('gsD_' + i,
+                    `${gcalCellLabel(del)} ${del.lesson.date} ${del.lesson.time}（目前狀態：${del.lesson.status}${isGroup ? '；勾選＝全組標導師假 TL' : ''}）`, '', !massDelete);
+            }),
+            {
+                extra: massDelete
+                    ? `<div class="p-2 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 text-xs">⚠️ 一次偵測到 ${p.deletions.length} 件刪除——看起來像批量清場而非逐堂取消，<b>已預設不勾</b>（套用會把這些課全部標成請假、湧入待補堂池）。想清場重來請改用「設定 → 清空本月／全部清場」；真的是逐堂取消才自行勾選。</div>`
+                    : ''
+            }));
     }
     if (p.orphans.length) {
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">🧹 GCal 殘留：標籤對不上任何本地課（本地改動／重新生成後的舊事件）→ 勾選＝從 GCal 刪除（垃圾桶可還原）</div>');
-        p.orphans.forEach((ev, i) => {
-            const local = GACGcal.eventStartToLocal(ev) || {};
-            parts.push(gcalSyncRow('gsO_' + i,
-                `${local.date || ''} ${local.time || ''}　「${ev.summary || '(無標題)'}」`, '', true));
-        });
+        parts.push(gcalSyncSection('orphan', '🧹 GCal 殘留', '標籤對不上任何本地課（本地改動／重新生成後的舊事件）→ 勾選＝從 GCal 刪除（垃圾桶可還原）',
+            p.orphans.map((ev, i) => {
+                const local = GACGcal.eventStartToLocal(ev) || {};
+                return gcalSyncRow('gsO_' + i,
+                    `${local.date || ''} ${local.time || ''}　「${ev.summary || '(無標題)'}」`, '', true);
+            })));
     }
     if (p.manualNew.length) {
-        parts.push('<div class="text-xs font-bold text-slate-700 mt-2">➕ GCal 手動新建、可歸屬學生的事件（勾選＝收編進本地課表）</div>');
-        p.manualNew.forEach((m, i) => {
-            if (!m.time) {
-                parts.push(`<div class="p-2 border border-slate-200 rounded-lg text-xs text-slate-400">「${m.event.summary}」${m.date || ''}（全日事件無時間，無法收編，請在 GCal 補上時間）</div>`);
-                return;
-            }
-            const pendings = GACLessonState.allLessons(lessonsByMonth)
-                .filter(l => l.studentId === m.studentId && l.status === 'LEAVE' && !l.makeupLessonId);
-            const opts = pendings.map(pd =>
-                `<option value="MU:${pd.lessonId}">作為補堂 ←（${pd.date} ${getLeaveText(pd.leaveType)}）</option>`).join('') +
-                '<option value="EXTRA">獨立加課（不掛任何請假）</option>';
-            parts.push(gcalSyncRow('gsM_' + i,
-                `<b>${m.studentId}</b>「${m.event.summary}」${m.date} ${m.time}`,
-                `<select id="gsMsel_${i}" onclick="event.preventDefault()" class="block mt-1 px-2 py-1 border border-slate-300 rounded-lg text-xs bg-white">${opts}</select>`));
-        });
+        parts.push(gcalSyncSection('manual', '➕ GCal 手動新建', '可歸屬學生的事件（勾選＝收編進本地課表）',
+            p.manualNew.map((m, i) => {
+                if (!m.time) {
+                    return `<div class="p-2 border border-slate-200 rounded-lg text-xs text-slate-400">「${m.event.summary}」${m.date || ''}（全日事件無時間，無法收編，請在 GCal 補上時間）</div>`;
+                }
+                const pendings = GACLessonState.allLessons(lessonsByMonth)
+                    .filter(l => l.studentId === m.studentId && l.status === 'LEAVE' && !l.makeupLessonId);
+                const opts = pendings.map(pd =>
+                    `<option value="MU:${pd.lessonId}">作為補堂 ←（${pd.date} ${getLeaveText(pd.leaveType)}）</option>`).join('') +
+                    '<option value="EXTRA">獨立加課（不掛任何請假）</option>';
+                return gcalSyncRow('gsM_' + i,
+                    `<b>${m.studentId}</b>「${m.event.summary}」${m.date} ${m.time}`,
+                    `<select id="gsMsel_${i}" onclick="event.preventDefault()" class="block mt-1 px-2 py-1 border border-slate-300 rounded-lg text-xs bg-white">${opts}</select>`);
+            })));
     }
     body.innerHTML = parts.join('');
+    body.onchange = gcalSyncRefreshCounts;   // 手動勾／取消勾一項 → 該組的「已勾 x／n」跟著變
+    gcalSyncRefreshCounts();
     document.getElementById('gcalSyncModal').classList.remove('hidden');
 }
 
 function gcalSyncSetAll(checked) {
     document.querySelectorAll('#gcalSyncBody input[type="checkbox"]').forEach(cb => { cb.checked = checked; });
+    gcalSyncRefreshCounts();
 }
 
-// 頁腳模式：'act'＝全選/全不選/取消/執行（有差異待處理）；'ack'＝只有「確認」（零差異或已執行完）
+// 只動一個分組（key＝gcalSyncSection 的 key）
+function gcalSyncSetGroup(key, checked) {
+    document.querySelectorAll('#gsSec_' + key + ' input[type="checkbox"]').forEach(cb => { cb.checked = checked; });
+    gcalSyncRefreshCounts();
+}
+
+// 每組標題列的「已勾 x／n」：收起後也看得到這組勾了幾項
+function gcalSyncRefreshCounts() {
+    document.querySelectorAll('#gcalSyncBody details').forEach(sec => {
+        const badge = sec.querySelector('.gsec-count');
+        if (!badge) return;
+        const boxes = Array.from(sec.querySelectorAll('input[type="checkbox"]'));
+        badge.textContent = '已勾 ' + boxes.filter(cb => cb.checked).length + '／' + boxes.length;
+    });
+}
+
+// 頁腳「全部收起／展開」：有任何一組開著就全部收起，否則全部展開
+function gcalSyncToggleSections() {
+    const secs = Array.from(document.querySelectorAll('#gcalSyncBody details'));
+    const anyOpen = secs.some(d => d.open);
+    secs.forEach(d => { d.open = !anyOpen; });
+}
+
+// 頁腳模式：'act'＝全選/全不選/全部收起／展開/取消/執行（有差異待處理）；'ack'＝只有「確認」（零差異或已執行完）
 function gcalSyncFooterMode(mode) {
     const act = document.getElementById('gcalSyncActions');
     const ack = document.getElementById('gcalSyncAck');
