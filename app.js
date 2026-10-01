@@ -2673,18 +2673,26 @@
             if (!tbody) return;
             const cnt = document.getElementById('groupCount');
             if (cnt) cnt.textContent = groupClasses.length;
+            const todayStr = localDateStr(new Date());
             tbody.innerHTML = groupClasses.map(g => {
+                let activeN = 0;
                 const members = (g.memberIds || []).map(id => {
                     const s = studentDatabase.find(x => x.id === id);
-                    return s ? `${s.name}` : `<span class="text-rose-500" title="學生資料已不存在">${id}</span>`;
+                    if (!s) return `<span class="text-rose-500" title="學生資料已不存在">${id}</span>`;
+                    if (GACSchedule.isInactiveOn(s, todayStr)) return `<span class="text-slate-400" title="停課中">${s.name}（停課）</span>`;
+                    activeN++;
+                    return `${s.name}`;
                 });
+                // 成員大多停課、只剩一個人在上：長期掛著提醒（要不要保留小組、剩下那位怎麼安排）
+                const lonely = members.length >= 2 && activeN === 1
+                    ? ' <span class="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap" title="其他成員都在停課：這個小組目前只有一位學生上課。要保留、改成個別課，還是一併停課，請按「編輯」處理">⚠️ 只剩 1 位在學</span>' : '';
                 return `<tr class="hover:bg-slate-50 transition">
                     <td class="p-3 font-bold text-slate-800">${g.id}</td>
                     <td class="p-3 font-semibold text-indigo-800"><i class="fa-solid fa-user-group text-indigo-400 mr-1"></i>${escapeHtml(g.name)}</td>
                     <td class="p-3">${escapeHtml(g.program || '')} ${g.level ? '- ' + escapeHtml(g.level) : ''}</td>
                     <td class="p-3 font-medium text-sky-700">${g.tutor}</td>
                     <td class="p-3 font-medium">逢 ${getWeekdayName(g.weekday)} ${g.time}（${g.duration || 60} 分鐘）</td>
-                    <td class="p-3"><span class="font-bold">${members.length}</span> 人：${members.join('、') || '<span class="text-amber-600">尚無成員</span>'}</td>
+                    <td class="p-3"><span class="font-bold">${members.length}</span> 人：${members.join('、') || '<span class="text-amber-600">尚無成員</span>'}${lonely}</td>
                     <td class="p-3 text-right whitespace-nowrap">
                         <button onclick="openGroupModal('${g.id}')" class="text-amber-600 hover:text-amber-800 px-2 py-1 font-semibold hover:bg-amber-50 rounded-lg transition" title="編輯成員／時段／導師"><i class="fa-solid fa-pen-to-square"></i> 編輯</button>
                     </td>
@@ -2867,6 +2875,82 @@
             return [rm ? `移除 ${rm} 堂` : '', ad ? `補生成 ${ad} 堂` : ''].filter(Boolean).join('、') + '，學費條目已更新';
         }
 
+        // ===== 停課後小組只剩一人 =====
+        // 這位學生由 period.from 起停課後，哪些小組只剩 1 位在學成員。兩種小組都看：
+        //   小組班（groupClasses，成員名單）；舊式小組（沒有建小組班，靠同導師、同星期時間、同課程、同「N人小組」形式湊成一節）
+        // 回傳 [{ group: 小組班或 null, label, remaining: 剩下那位學生 }]
+        function groupsLeftWithOne(student, period) {
+            const todayStr = localDateStr(new Date());
+            const day = period.from > todayStr ? period.from : todayStr;   // 停課生效那天
+            const activeThen = s => !GACSchedule.isInactiveOn(s, day);
+            const out = [];
+            groupsOfStudent(student.id).forEach(g => {
+                const others = (g.memberIds || []).filter(id => id !== student.id).map(id => studentDatabase.find(s => s.id === id)).filter(Boolean);
+                const act = others.filter(activeThen);
+                if (act.length === 1) out.push({ group: g, label: `${g.name}（逢${getWeekdayName(g.weekday)} ${g.time}）`, remaining: act[0] });
+            });
+            if (hasIndividualSlot(student) && /小組/.test(student.type || '')) {
+                const mates = studentDatabase.filter(s => s.id !== student.id && hasIndividualSlot(s) && s.tutor === student.tutor
+                    && s.weekday === student.weekday && s.time === student.time && s.type === student.type && s.program === student.program);
+                const act = mates.filter(activeThen);
+                if (act.length === 1) out.push({ group: null, label: `${student.program} ${student.type}（逢${getWeekdayName(student.weekday)} ${student.time}）`, remaining: act[0] });
+            }
+            return out;
+        }
+
+        // 提示窗：列出只剩一人的小組，逐個決定怎麼辦。系統不替你決定——保留（照常上課、照小組收費）、剩下那位也停課、或自己去編輯
+        let groupShrinkState = null;   // { student, period, items: [{ group, label, remaining, done }] }
+        function openGroupShrinkNotice(student, period, items) {
+            groupShrinkState = { student: student, period: period, items: items.map(x => Object.assign({ done: '' }, x)) };
+            renderGroupShrinkNotice();
+            document.getElementById('msgModal').classList.remove('hidden');
+        }
+        function renderGroupShrinkNotice() {
+            const st = groupShrinkState;
+            if (!st) return;
+            document.getElementById('msgModalTitle').textContent = '⚠️ 小組只剩一位學生';
+            const when = `${st.period.from} 起${st.period.resume ? '（' + st.period.resume + ' 復課）' : '（復課日未定）'}`;
+            const btn = 'px-2.5 py-1.5 rounded-lg font-semibold';
+            document.getElementById('msgModalBody').innerHTML =
+                `<div class="p-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">「${escapeHtml(st.student.name)}」${when}停課後，下面的小組只剩一位在學的學生。小組和他的課都還在（照常生成、照原本的小組收費），要怎麼安排由你決定：</div>` +
+                st.items.map((it, i) => {
+                    const r = it.remaining;
+                    const idx = studentDatabase.indexOf(r);
+                    return `<div class="border border-slate-200 rounded-xl p-3 space-y-2">
+                        <div><span class="font-bold text-indigo-800"><i class="fa-solid fa-user-group"></i> ${escapeHtml(it.label)}</span>：只剩 <b>${escapeHtml(r.name)}</b>（${escapeHtml(r.id)}）</div>
+                        ${it.done ? `<div class="text-emerald-700 font-semibold">✓ ${it.done}</div>` : `<div class="flex items-center gap-1.5 flex-wrap">
+                            <button onclick="groupShrinkKeep(${i})" class="${btn} bg-slate-100 hover:bg-slate-200 text-slate-700" title="什麼都不改：他照常上課，收費照原本的小組價">保留，照常上課</button>
+                            <button onclick="groupShrinkPauseToo(${i})" class="${btn} bg-amber-100 hover:bg-amber-200 text-amber-800" title="用同樣的日期讓他也停課；已生成的月份會再問你要不要處理">${escapeHtml(r.name)} 也停課（${when}）</button>
+                            <button onclick="closeMsgModal(); openStudentModal(${idx})" class="${btn} bg-sky-100 hover:bg-sky-200 text-sky-800" title="例如改成一對一個別課（形式、收費、時間在學生資料裡改）">編輯 ${escapeHtml(r.name)}</button>
+                            ${it.group ? `<button onclick="closeMsgModal(); openGroupModal('${it.group.id}')" class="${btn} bg-indigo-100 hover:bg-indigo-200 text-indigo-800" title="改成員／時段，或刪除這個小組">編輯小組</button>` : ''}
+                        </div>`}
+                    </div>`;
+                }).join('') +
+                `<div class="text-[11px] text-slate-500">之後想再處理：${st.items.some(it => it.group) ? '學生名單下方的小組班列表會標「⚠️ 只剩 1 位在學」；' : ''}直接編輯剩下的那位學生也可以。</div>`;
+        }
+        function groupShrinkKeep(i) {
+            const it = groupShrinkState && groupShrinkState.items[i];
+            if (!it) return;
+            it.done = '保留小組，照常上課';
+            renderGroupShrinkNotice();
+        }
+        // 剩下那位也停課：套用同一段日期，已生成的月份照樣問一次
+        function groupShrinkPauseToo(i) {
+            const st = groupShrinkState, it = st && st.items[i];
+            if (!it) return;
+            const r = it.remaining;
+            const oldPeriods = GACSchedule.normalizeInactivePeriods(r.inactivePeriods);
+            pushHistory(`停課：${r.name}（${r.id}）——小組只剩一人，一併停課`);
+            r.inactivePeriods = GACSchedule.applyStatusEdit(oldPeriods, localDateStr(new Date()), { inactive: true, from: st.period.from, resume: st.period.resume });
+            saveToLocalStorage();
+            const note = offerScheduleSyncAfterStatusChange(r, oldPeriods);
+            renderBatchCheckboxes();
+            renderStudentTable();
+            renderAll();
+            it.done = `${r.name} 也停課${note ? '（' + note + '）' : ''}`;
+            renderGroupShrinkNotice();
+        }
+
         // 停課學生列表的「復課」：今天起改回在學
         function reactivateStudent(index) {
             const student = studentDatabase[index];
@@ -3013,6 +3097,12 @@
             closeStudentModal();
             renderAll();
             showToast(`✅ 已${editIdx >= 0 ? '更新' : '新增'}學生 ${name}（${id}）${statusNote ? '\n' + statusNote : ''}`);
+            // 這次是把他設成停課（或改了停課日期）：所屬小組若因此只剩一位在學 → 提示怎麼安排
+            if (statusEdit.inactive && JSON.stringify(oldPeriods) !== JSON.stringify(inactivePeriods)) {
+                const saved = studentDatabase.find(s => s.id === id);
+                const lonely = saved ? groupsLeftWithOne(saved, statusEdit) : [];
+                if (lonely.length) openGroupShrinkNotice(saved, { from: statusEdit.from, resume: statusEdit.resume || '' }, lonely);
+            }
         }
 
         // lesson → 匯出用事件（Date 在此重建；UID 用 lessonId 保證導入查重）

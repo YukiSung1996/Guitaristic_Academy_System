@@ -2192,6 +2192,45 @@ console.log('[40] 學生狀態（在學／停課）與學號容錯');
         && getEl('studentTableBody').innerHTML.includes('>S002<') && String(getEl('statTotalStudents').textContent) === activeN0 && run('lastToast').includes('今天起復課'));
     run('delete studentDatabase[' + s2 + '].inactivePeriods; saveToLocalStorage(); renderStudentTable()');
 
+    // —— 停課後小組只剩一人 → 提示怎麼安排（系統不自動改）——
+    {
+        const i3 = run('studentDatabase.findIndex(s => s.id === "S003")'), i4 = run('studentDatabase.findIndex(s => s.id === "S004")');
+        run('closeMsgModal(); document.getElementById("msgModalTitle").textContent = ""');
+        // 舊式兩人小組（S003＋S004 同導師同時段的「2人小組」，沒有建小組班）
+        saveStatus(i3, 'INACTIVE', '2026-12-01', '');
+        check('兩人小組其中一位停課 → 提示「小組只剩一位學生」，寫明剩下的是誰、給出幾種處理', getEl('msgModalTitle').textContent.includes('小組只剩一位學生')
+            && getEl('msgModalBody').innerHTML.includes('Student 004') && getEl('msgModalBody').innerHTML.includes('2人小組')
+            && getEl('msgModalBody').innerHTML.includes('groupShrinkKeep(0)') && getEl('msgModalBody').innerHTML.includes('groupShrinkPauseToo(0)')
+            && getEl('msgModalBody').innerHTML.includes('openStudentModal(' + i4 + ')') && !getEl('msgModalBody').innerHTML.includes('編輯小組'));
+        check('提示只是提示：剩下那位的資料沒被動', !run('studentDatabase[' + i4 + '].inactivePeriods'));
+        run('groupShrinkPauseToo(0)');
+        check('選「也停課」→ 剩下那位套用同一段日期，提示窗標記已處理', run('JSON.stringify(studentDatabase[' + i4 + '].inactivePeriods)') === J([{ from: '2026-12-01', resume: '' }])
+            && getEl('msgModalBody').innerHTML.includes('✓ Student 004 也停課') && !getEl('msgModalBody').innerHTML.includes('groupShrinkPauseToo(0)'));
+        run('closeMsgModal(); delete studentDatabase[' + i3 + '].inactivePeriods; delete studentDatabase[' + i4 + '].inactivePeriods');
+
+        // 小組班：臨時建一個兩人小組（S030＋S031）；S030 也在五人的 G01（那一組還有四位在學，不提示）
+        const i30 = run('studentDatabase.findIndex(s => s.id === "S030")');
+        run('groupClasses.push({ id: "GZ", name: "測試雙人組", program: "Music Theory", level: "Grade 1", duration: 60, tutor: "Instructor B", weekday: 0, time: "10:00", memberIds: ["S030", "S031"] })');
+        run('document.getElementById("msgModalTitle").textContent = ""');
+        saveStatus(i30, 'INACTIVE', '2026-09-10', '', false, ['G01', 'GZ']);
+        const body = getEl('msgModalBody').innerHTML;
+        check('小組班只剩一人 → 只提示那個兩人小組（五人的 G01 不提示），有「編輯小組」', getEl('msgModalTitle').textContent.includes('小組只剩一位學生')
+            && body.includes('測試雙人組') && body.includes('Student 031') && body.includes("openGroupModal('GZ')") && body.split('groupShrinkKeep(').length - 1 === 1);
+        run('groupShrinkKeep(0)');
+        check('選「保留」→ 標記已處理，資料不動', getEl('msgModalBody').innerHTML.includes('✓ 保留小組，照常上課') && !run('studentDatabase.find(s => s.id === "S031").inactivePeriods'));
+        run('closeMsgModal(); renderGroupTable()');
+        const gt = getEl('groupTableBody').innerHTML;
+        check('小組班列表：停課的成員標「（停課）」，兩人小組標「只剩 1 位在學」，五人小組不標', gt.includes('Student 030（停課）') && (gt.match(/只剩 1 位在學/g) || []).length === 1
+            && gt.indexOf('只剩 1 位在學') > gt.indexOf('測試雙人組'));
+        // 下一位停課時，小組還有兩位以上在學 → 不提示
+        run('delete studentDatabase[' + i30 + '].inactivePeriods; document.getElementById("msgModalTitle").textContent = ""');
+        const i20 = run('studentDatabase.findIndex(s => s.id === "S020")');
+        saveStatus(i20, 'INACTIVE', '2026-12-01', '', false, ['G01']);
+        check('五人小組一位停課 → 不提示', !getEl('msgModalTitle').textContent.includes('小組只剩一位學生'));
+        run('delete studentDatabase[' + i20 + '].inactivePeriods; groupClasses.splice(groupClasses.findIndex(g => g.id === "GZ"), 1); persistGroups(); saveToLocalStorage(); renderStudentTable()');
+        check('清理：臨時小組移除、S030 仍在 G01', !run('groupClasses.some(g => g.id === "GZ")') && run('groupClasses[' + g01 + '].memberIds.includes("S030")'));
+    }
+
     // 重新載入名單：停課紀錄按學號（容錯）帶過去
     run(S + '.inactivePeriods = [{ from: "2026-12-01", resume: "" }]');
     run('applyRoster({ students: studentDatabase.map(s => { const o = Object.assign({}, s); delete o.inactivePeriods; if (o.id === "S001") o.id = "s1"; return o; }), groups: groupClasses, tutors: tutorsList }, "測試：重新載入")');
