@@ -563,10 +563,10 @@ check('全量還原：9 月 14 堂 + 10 月 1 節補堂', run('lessonsByMonth["2
 check('全量還原：補堂鏈完好', run('GACLessonState.findLesson(lessonsByMonth,"S004-20260909-2130").lesson.makeupLessonId') === 'S004-20261008-1800-MU-20260909-2130');
 check('全量還原：sendlog 含手改金額 9999', run('sendLog["TUITION:S003:2026-09"].amount') === 9999);
 check('全量還原：設定還原', run('appSettings.feeNotice') === '冒煙：備註');
-// 舊版備份（學費單還是開頭／總額／結尾三段）→ 還原時合成一整段，排出來的樣子不變
+// 舊版備份（學費單還是開頭／總額／結尾三段）→ 還原時合成一整段：改過的字照舊，系統以前加的空行不再加
 run('__oldBackup = JSON.parse(__backupText); __oldBackup.settings = Object.assign({}, __oldBackup.settings, { tplTuitionHeader: "【學費】\\n舊版開頭 {name}", tplTuitionTotal: "總額：{amount}", tplTuitionFooter: "舊版結尾" }); delete __oldBackup.settings.tplTuition; __oldBackup = JSON.stringify(__oldBackup)');
 run('applyImportedPayload(GACStorage.parseImportPayload(__oldBackup))');
-check('還原舊版備份：學費單三段模板合成一整段（開頭 ⏎⏎ 明細 ⏎⏎ 總額 ⏎⏎ 結尾 ⏎⏎ 尾段），舊欄位不留', run('appSettings.tplTuition') === '【學費】\n舊版開頭 {name}\n\n{details}\n\n總額：{total}\n\n舊版結尾\n\n{fps}\n{notice}\n{rules}'
+check('還原舊版備份：學費單三段模板合成一整段（開頭 ⏎ 明細 ⏎ 總額 ⏎ 結尾 ⏎ 尾段，不再空行），舊欄位不留', run('appSettings.tplTuition') === '【學費】\n舊版開頭 {name}\n{details}\n總額：{total}\n舊版結尾\n{fps}\n{notice}\n{rules}'
     && !('tplTuitionHeader' in run('appSettings')) && !('tplTuitionHeader' in JSON.parse(fakeStorage.getItem('gac_settings_v2'))));
 run('applyImportedPayload(GACStorage.parseImportPayload(__backupText))');   // 還原回原本的備份，後面的測試照舊
 check('全量還原：四把 key 重新落盤', ['gac_students_v2', 'gac_lessons_v2', 'gac_sendlog_v2', 'gac_settings_v2'].every(k => fakeStorage.getItem(k) !== null));
@@ -1328,8 +1328,8 @@ check('儲存後訊息回預設', run('leaveMsgFor(GACLessonState.findLesson(les
 console.log('[43] 學費單一整段模板');
 (() => {
     const SL = sandbox.GACSendlog;
-    // 舊版的拼法（參照實作）：開頭 ⏎⏎ 明細 ⏎⏎ 總額（多於一項才有）⏎⏎ 結尾 ⏎⏎ 尾段（FPS／附註／守則連結各一行）
-    const oldMsg = (entry, cfg, T) => {
+    // 舊版的拼法（參照實作）：開頭 ⏎⏎ 明細 ⏎⏎ 總額（多於一項才有）⏎⏎ 結尾 ⏎⏎ 尾段（FPS／附註／守則連結各一行）；sep＝段與段之間（舊版空一行）
+    const oldMsg = (entry, cfg, T, sep) => {
         const parts = String(entry.month || '').split('-').map(Number);
         const vars = { month: parts[0] + '年' + parts[1] + '月', m: String(parts[1]), name: entry.studentName || entry.studentId, id: entry.studentId || '', amount: sandbox.tuitionMoney(entry.amount) };
         const items = (entry.items && entry.items.length) ? entry.items : [{ dates: entry.dates || [], count: entry.count, subtotal: entry.amount, weekday: null, rate: null }];
@@ -1342,7 +1342,7 @@ console.log('[43] 學費單一整段模板');
         if (cfg.feeNotice) tail.push(cfg.feeNotice);
         if (cfg.infoUrl) tail.push('學員守則及請假須知，請瀏覽：' + cfg.infoUrl);
         if (tail.length) out.push(tail.join('\n'));
-        return out.join('\n\n');
+        return out.join(sep || '\n\n');
     };
     const OLD = { header: '【學費】\n你好，以下是 {month} 的學費單：\n\n【{m}月份上堂詳情及學費】\n學生：{name}', total: '總額：{amount}', footer: '＊以上收費均以每位學生計算' };
     const CLIENT_HEADER = '【學費】\n你好，以下是 {month} 的學費單：\n【{m}月份上堂詳情及學費】\n學生：{name}';
@@ -1356,19 +1356,25 @@ console.log('[43] 學費單一整段模板');
     const NOTICE = '＊如需更改上課時間，請盡早通知，如 24 小時內通知不設補堂，謝謝！';
     const cfgs = [{ fpsId: '', feeNotice: '', infoUrl: '' }, { fpsId: '123456', feeNotice: NOTICE, infoUrl: 'https://example.test/rules' }, { fpsId: '', feeNotice: NOTICE, infoUrl: '' }];
     const newMsg = (entry, cfg, tpl) => sandbox.tuitionMsgFor(entry, { tpl: tpl, cfg: cfg });
-    const migrated = sandbox.GACStorage.migrateSettings({ tplTuitionHeader: CLIENT_HEADER, tplTuitionTotal: OLD.total, tplTuitionFooter: OLD.footer }).tplTuition;
+    // 預設＝舊版的字，只是系統以前在段與段之間加的空行都不加（開頭也不空行）；客戶改過開頭的舊設定轉換後就是預設；改過的舊設定照打的字、不加空行
+    const NEWDEF = { header: CLIENT_HEADER, total: OLD.total, footer: OLD.footer };
+    const CUSTOM = { header: '【學費】\n舊版開頭 {name}', total: '合計 {amount}', footer: '舊版結尾\n\n（自己打的空行）' };
+    const clientMigrated = sandbox.GACStorage.migrateSettings({ tplTuitionHeader: CLIENT_HEADER, tplTuitionTotal: OLD.total, tplTuitionFooter: OLD.footer });
+    const customMigrated = sandbox.GACStorage.migrateSettings({ tplTuitionHeader: CUSTOM.header, tplTuitionTotal: CUSTOM.total, tplTuitionFooter: CUSTOM.footer }).tplTuition;
     const diffs = [];
     [one, two, legacy].forEach(e => cfgs.forEach((c, ci) => {
-        if (newMsg(e, c, sandbox.GACStorage.DEFAULT_SETTINGS.tplTuition) !== oldMsg(e, c, OLD)) diffs.push('預設 ' + e.studentId + ' cfg' + ci);
-        if (newMsg(e, c, migrated) !== oldMsg(e, c, Object.assign({}, OLD, { header: CLIENT_HEADER }))) diffs.push('轉換 ' + e.studentId + ' cfg' + ci);
+        if (newMsg(e, c, sandbox.GACStorage.DEFAULT_SETTINGS.tplTuition) !== oldMsg(e, c, NEWDEF, '\n')) diffs.push('預設 ' + e.studentId + ' cfg' + ci);
+        if (newMsg(e, c, customMigrated) !== oldMsg(e, c, CUSTOM, '\n')) diffs.push('轉換 ' + e.studentId + ' cfg' + ci);
     }));
-    check('更新後樣子不變：預設模板、客戶改過開頭的舊設定轉換後，排出來與舊版逐字相同（一項／多項／舊條目 × 有無 FPS／附註／連結）' + (diffs.length ? '：' + diffs.join('、') : ''), diffs.length === 0);
-    // 客戶要的樣子：模板裡不空行 → 一個空行都沒有，逐字等於客戶給的範例
-    const CLIENT_TPL = CLIENT_HEADER + '\n{details}\n總額：{total}\n＊以上收費均以每位學生計算\n{notice}';
+    check('預設與改過的舊設定：字和舊版一樣，系統以前加的空行都不加（一項／多項／舊條目 × 有無 FPS／附註／連結）' + (diffs.length ? '：' + diffs.join('、') : ''), diffs.length === 0);
+    check('客戶那種舊設定（開頭改成不空行，其他沒改）→ 轉換後不存模板、直接用預設', !('tplTuition' in clientMigrated));
+    // 客戶要的樣子：預設模板（只有一個報讀項目、有附註、沒填 FPS 與連結）逐字等於客戶給的範例
     const want = ['【學費】', '你好，以下是 2026年10月 的學費單：', '【10月份上堂詳情及學費】', '學生：Student 002', '日期：7, 14, 21, 28 逢星期三', '時間：12:30-13:15（45 mins）',
         '級別：Hymns Guitar Intermediate 中級', '上課形式：一對一個別授課 Individual', '導師：Instructor A', '每堂學費：$360', '堂數：4 堂', '合共：$1,440',
         '＊以上收費均以每位學生計算', NOTICE].join('\n');
-    check('客戶的緊湊模板：輸出逐字等於範例（沒有空行；只有一個報讀項目，「總額」那行自動不出現）', newMsg(one, cfgs[2], CLIENT_TPL) === want);
+    check('預設模板：輸出逐字等於客戶的範例（沒有空行；只有一個報讀項目，「總額」那行自動不出現）', newMsg(one, cfgs[2], sandbox.GACStorage.DEFAULT_SETTINGS.tplTuition) === want);
+    const CLIENT_TPL = CLIENT_HEADER + '\n{details}\n總額：{total}\n＊以上收費均以每位學生計算\n{notice}';
+    check('客戶自己的緊湊模板（沒放 FPS／連結）：同樣逐字等於範例', newMsg(one, cfgs[2], CLIENT_TPL) === want);
     const twoMsg = newMsg(two, cfgs[2], CLIENT_TPL);
     check('多個報讀項目：「總額：$2,640」緊接明細；兩段明細之間空一行；其他地方不空行', twoMsg.includes('合共：$1,200\n總額：$2,640\n＊以上收費均以每位學生計算')
         && twoMsg.split('\n\n').length === 2 && twoMsg.includes('合共：$1,440\n\n日期：'));
@@ -1382,8 +1388,13 @@ console.log('[43] 學費單一整段模板');
         && getEl('tuitionTplPreviewCaption').textContent.length > 0);
     run("renderTuitionTplPreview('two')");
     check('預覽（多個報讀項目）：出現總額那行', getEl('tuitionTplPreview').textContent.includes('\n總額：$'));
-    run("renderTuitionTplPreview('one'); resetMsgTemplate('tuition')");
-    check('還原預設 → 欄位與預覽回到預設樣子', getEl('setTplTuition').value === run('GACStorage.DEFAULT_SETTINGS.tplTuition') && getEl('tuitionTplPreview').textContent.includes('\n\n'));
+    getEl('setTplTuition').value = 'XYZ {details}';
+    run("renderTuitionTplPreview('one')");
+    const pvX = getEl('tuitionTplPreview').textContent;
+    run("resetMsgTemplate('tuition')");
+    const pvD = getEl('tuitionTplPreview').textContent;
+    check('還原預設 → 欄位與預覽回到預設樣子（不空行）', pvX.startsWith('XYZ') && getEl('setTplTuition').value === run('GACStorage.DEFAULT_SETTINGS.tplTuition')
+        && pvD.startsWith('【學費】\n你好，以下是 ') && pvD.includes('學費單：\n【') && !pvD.includes('\n\n'));
 })();
 // 改期通知：Calendar 改時套用 → MOVE_CONFIRM 條目，訊息含改期前後
 const moveTarget = run('lessonsByMonth["2026-09"].find(l => l.studentId === "S001" && !l.isMakeup && l.status === "SCHEDULED")');

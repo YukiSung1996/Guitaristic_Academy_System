@@ -129,17 +129,29 @@ test('F6: 小組班持久化與備份——loadGroups 預設落盤、saveGroups�
     assert.deepStrictEqual(old.groups, []);
 });
 
-test('學費單模板：舊的三段（開頭／總額／結尾）轉成一整段，按舊拼法接起來；預設三段 → 等於新預設', () => {
+test('學費單模板：預設不空行；舊的三段（開頭／總額／結尾）轉成一整段——改過的字照舊、系統以前加的空行不再加、沒改過的段用新預設', () => {
     const OLD_H = '【學費】\n你好，以下是 {month} 的學費單：\n\n【{m}月份上堂詳情及學費】\n學生：{name}';
-    assert.strictEqual(ST.tuitionTemplateFromParts(OLD_H, '總額：{amount}', '＊以上收費均以每位學生計算'), ST.DEFAULT_SETTINGS.tplTuition);
-    // 改過開頭（例如去掉了空行）
-    const m = ST.migrateSettings({ tplTuitionHeader: '【學費】\n開頭 {name}', tplTuitionTotal: '總額：{amount}', tplTuitionFooter: '結尾', feeNotice: 'x' });
-    assert.strictEqual(m.tplTuition, '【學費】\n開頭 {name}\n\n{details}\n\n總額：{total}\n\n結尾\n\n{fps}\n{notice}\n{rules}');
+    const CLIENT_H = '【學費】\n你好，以下是 {month} 的學費單：\n【{m}月份上堂詳情及學費】\n學生：{name}';
+    const D = ST.DEFAULT_SETTINGS.tplTuition;
+    assert.strictEqual(D, CLIENT_H + '\n{details}\n總額：{total}\n＊以上收費均以每位學生計算\n{fps}\n{notice}\n{rules}', '預設一個空行都沒有');
+    // 三段都沒改（等於舊預設或留空）→ 合出來就是新預設 → 不存，跟著預設走
+    assert.deepStrictEqual(ST.migrateSettings({ tplTuitionHeader: OLD_H, tplTuitionTotal: '總額：{amount}', tplTuitionFooter: '＊以上收費均以每位學生計算' }), {});
+    assert.deepStrictEqual(ST.migrateSettings({ tplTuitionHeader: '', tplTuitionTotal: '', tplTuitionFooter: '' }), {});
+    // 客戶的情況：開頭改成不空行、總額與結尾沒改 → 也是新預設，拿到手不用改
+    assert.deepStrictEqual(ST.migrateSettings({ tplTuitionHeader: CLIENT_H, tplTuitionTotal: '總額：{amount}', tplTuitionFooter: '＊以上收費均以每位學生計算' }), {});
+    // 改過開頭與結尾 → 照打的字（自己打的空行保留），段與段之間不再加空行
+    const m = ST.migrateSettings({ tplTuitionHeader: '【學費】\n\n開頭 {name}', tplTuitionTotal: '總額：{amount}', tplTuitionFooter: '結尾', feeNotice: 'x' });
+    assert.strictEqual(m.tplTuition, '【學費】\n\n開頭 {name}\n{details}\n總額：{total}\n結尾\n{fps}\n{notice}\n{rules}');
     assert.ok(!('tplTuitionHeader' in m) && !('tplTuitionTotal' in m) && !('tplTuitionFooter' in m), '舊欄位不留');
     assert.strictEqual(m.feeNotice, 'x', '其他設定不動');
-    // 舊模板留空＝用預設
-    assert.strictEqual(ST.migrateSettings({ tplTuitionHeader: '', tplTuitionTotal: '', tplTuitionFooter: '' }).tplTuition, ST.DEFAULT_SETTINGS.tplTuition);
-    // 已經有一整段的 → 保留，只清掉舊欄位
+    // 開頭沒改、只改了結尾 → 開頭用新預設的寫法（不空行）
+    assert.strictEqual(ST.migrateSettings({ tplTuitionHeader: OLD_H, tplTuitionFooter: '結尾' }).tplTuition, CLIENT_H + '\n{details}\n總額：{total}\n結尾\n{fps}\n{notice}\n{rules}');
+    // 改過的總額：{amount} 換成選填的 {total}
+    assert.strictEqual(ST.tuitionTemplateFromParts('H', '合計 {amount} 元', 'F'), 'H\n{details}\n合計 {total} 元\nF\n{fps}\n{notice}\n{rules}');
+    // 存著上一版的預設（有空行那版，存檔時被原樣存下）→ 當作沒改過，跟著新預設
+    const PREV = '【學費】\n你好，以下是 {month} 的學費單：\n\n【{m}月份上堂詳情及學費】\n學生：{name}\n\n{details}\n\n總額：{total}\n\n＊以上收費均以每位學生計算\n\n{fps}\n{notice}\n{rules}';
+    assert.deepStrictEqual(ST.migrateSettings({ tplTuition: PREV, feeNotice: 'x' }), { feeNotice: 'x' });
+    // 已經有一整段（自己改過的）→ 保留，只清掉舊欄位
     assert.deepStrictEqual(ST.migrateSettings({ tplTuition: 'X {details}', tplTuitionHeader: 'old' }), { tplTuition: 'X {details}' });
     // 沒有舊欄位 → 原樣；壞資料 → 空物件；不改傳進來的物件
     assert.deepStrictEqual(ST.migrateSettings({ a: 1 }), { a: 1 });
@@ -150,10 +162,13 @@ test('學費單模板：舊的三段（開頭／總額／結尾）轉成一整�
     assert.deepStrictEqual(src, { tplTuitionHeader: 'h' });
 });
 
-test('loadSettings：存檔裡是舊的三段模板 → 讀出來已是一整段；沒存過 → 新預設', () => {
+test('loadSettings：存檔裡是舊的三段模板 → 讀出來已是一整段；客戶那種舊設定與沒存過 → 新預設', () => {
     const store = ST.createStore(fakeStorage({ gac_settings_v2: JSON.stringify({ tplTuitionHeader: '【學費】\n開頭', tplTuitionTotal: '總額：{amount}', tplTuitionFooter: '結尾' }) }));
     const s = store.loadSettings();
-    assert.strictEqual(s.tplTuition, '【學費】\n開頭\n\n{details}\n\n總額：{total}\n\n結尾\n\n{fps}\n{notice}\n{rules}');
+    assert.strictEqual(s.tplTuition, '【學費】\n開頭\n{details}\n總額：{total}\n結尾\n{fps}\n{notice}\n{rules}');
     assert.ok(!('tplTuitionHeader' in s));
+    const CLIENT_H = '【學費】\n你好，以下是 {month} 的學費單：\n【{m}月份上堂詳情及學費】\n學生：{name}';
+    const client = ST.createStore(fakeStorage({ gac_settings_v2: JSON.stringify({ tplTuitionHeader: CLIENT_H, tplTuitionTotal: '總額：{amount}', tplTuitionFooter: '＊以上收費均以每位學生計算' }) })).loadSettings();
+    assert.strictEqual(client.tplTuition, ST.DEFAULT_SETTINGS.tplTuition);
     assert.strictEqual(ST.createStore(fakeStorage({})).loadSettings().tplTuition, ST.DEFAULT_SETTINGS.tplTuition);
 });
