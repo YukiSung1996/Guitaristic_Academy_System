@@ -128,3 +128,32 @@ test('F6: 小組班持久化與備份——loadGroups 預設落盤、saveGroups�
     const old = ST.parseImportPayload(JSON.stringify({ schemaVersion: 2, students: demoStudents, lessons: {}, sendlog: {}, settings: {} }));
     assert.deepStrictEqual(old.groups, []);
 });
+
+test('學費單模板：舊的三段（開頭／總額／結尾）轉成一整段，按舊拼法接起來；預設三段 → 等於新預設', () => {
+    const OLD_H = '【學費】\n你好，以下是 {month} 的學費單：\n\n【{m}月份上堂詳情及學費】\n學生：{name}';
+    assert.strictEqual(ST.tuitionTemplateFromParts(OLD_H, '總額：{amount}', '＊以上收費均以每位學生計算'), ST.DEFAULT_SETTINGS.tplTuition);
+    // 改過開頭（例如去掉了空行）
+    const m = ST.migrateSettings({ tplTuitionHeader: '【學費】\n開頭 {name}', tplTuitionTotal: '總額：{amount}', tplTuitionFooter: '結尾', feeNotice: 'x' });
+    assert.strictEqual(m.tplTuition, '【學費】\n開頭 {name}\n\n{details}\n\n總額：{total}\n\n結尾\n\n{fps}\n{notice}\n{rules}');
+    assert.ok(!('tplTuitionHeader' in m) && !('tplTuitionTotal' in m) && !('tplTuitionFooter' in m), '舊欄位不留');
+    assert.strictEqual(m.feeNotice, 'x', '其他設定不動');
+    // 舊模板留空＝用預設
+    assert.strictEqual(ST.migrateSettings({ tplTuitionHeader: '', tplTuitionTotal: '', tplTuitionFooter: '' }).tplTuition, ST.DEFAULT_SETTINGS.tplTuition);
+    // 已經有一整段的 → 保留，只清掉舊欄位
+    assert.deepStrictEqual(ST.migrateSettings({ tplTuition: 'X {details}', tplTuitionHeader: 'old' }), { tplTuition: 'X {details}' });
+    // 沒有舊欄位 → 原樣；壞資料 → 空物件；不改傳進來的物件
+    assert.deepStrictEqual(ST.migrateSettings({ a: 1 }), { a: 1 });
+    assert.deepStrictEqual(ST.migrateSettings(null), {});
+    assert.deepStrictEqual(ST.migrateSettings([1]), {});
+    const src = { tplTuitionHeader: 'h' };
+    ST.migrateSettings(src);
+    assert.deepStrictEqual(src, { tplTuitionHeader: 'h' });
+});
+
+test('loadSettings：存檔裡是舊的三段模板 → 讀出來已是一整段；沒存過 → 新預設', () => {
+    const store = ST.createStore(fakeStorage({ gac_settings_v2: JSON.stringify({ tplTuitionHeader: '【學費】\n開頭', tplTuitionTotal: '總額：{amount}', tplTuitionFooter: '結尾' }) }));
+    const s = store.loadSettings();
+    assert.strictEqual(s.tplTuition, '【學費】\n開頭\n\n{details}\n\n總額：{total}\n\n結尾\n\n{fps}\n{notice}\n{rules}');
+    assert.ok(!('tplTuitionHeader' in s));
+    assert.strictEqual(ST.createStore(fakeStorage({})).loadSettings().tplTuition, ST.DEFAULT_SETTINGS.tplTuition);
+});

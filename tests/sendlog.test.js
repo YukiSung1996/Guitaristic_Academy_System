@@ -356,3 +356,22 @@ test('C14: 改期通知 ensureMoveEntry——快照改期前時間；TODO 再改
     assert.strictEqual(log[e.key].sentAt, null);
     assert.deepStrictEqual(SL.pruneOrphans(log, () => false), [e.key], '課堂不存在 → TODO 改期通知清掉');
 });
+
+test('fillTemplate 選填佔位符：一行裡的選填佔位符全都沒有內容 → 整行不出現；有內容照放；其他佔位符照常；頭尾空行清掉', () => {
+    const opt = { optional: ['total', 'fps'] };
+    assert.strictEqual(SL.fillTemplate('A\n總額：{total}\nB', { total: '' }, opt), 'A\nB');
+    assert.strictEqual(SL.fillTemplate('A\n總額：{total}\nB', { total: '$10' }, opt), 'A\n總額：$10\nB');
+    assert.strictEqual(SL.fillTemplate('A\n\n總額：{total}\n\nB', { total: '' }, opt), 'A\n\nB', '拿掉一行後連著的空行併成一個');
+    assert.strictEqual(SL.fillTemplate('A\nB', {}, opt), 'A\nB', '沒有空行就不會多出空行');
+    assert.strictEqual(SL.fillTemplate('{fps} {total}\nB', { fps: 'F', total: '' }, opt), 'F\nB', '同一行還有一個有內容 → 照放（空的換成空字串）');
+    assert.strictEqual(SL.fillTemplate('{fps}\n\nB', { fps: '' }, opt), 'B', '開頭的空行清掉');
+    assert.strictEqual(SL.fillTemplate('{name}：{total}', { name: '', total: 'x' }, opt), '：x', '不是選填的佔位符空了照常代入、不拿掉那行');
+    assert.strictEqual(SL.fillTemplate('A\n{unknown}\n{total}', {}, opt), 'A\n{unknown}', '沒給的選填佔位符當沒內容；未知佔位符照舊保留');
+    assert.strictEqual(SL.fillTemplate('A\n總額：{total}', { total: '' }), 'A\n總額：', '沒有 opts → 原本的行為');
+});
+
+test('fillTuitionTemplate：學費單的選填佔位符是 total／fps／notice／rules；明細裡的空行保留', () => {
+    assert.deepStrictEqual(SL.TUITION_OPTIONAL, ['total', 'fps', 'notice', 'rules']);
+    assert.strictEqual(SL.fillTuitionTemplate('a\n{details}\n總額：{total}\n{fps}\n{notice}\n{rules}',
+        { details: 'd1\n\nd2', total: '', fps: '', notice: 'N', rules: '' }), 'a\nd1\n\nd2\nN');
+});

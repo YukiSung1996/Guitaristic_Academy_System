@@ -764,17 +764,17 @@
                 <div id="smod_fee" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 mb-1">FPS 轉數快 ID（填了才會加到學費單）</label>
-                            <input type="text" id="setFpsId" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                            <label class="block text-xs font-bold text-slate-600 mb-1">FPS 轉數快 ID（學費單、催繳訊息裡的 {fps}）</label>
+                            <input type="text" id="setFpsId" oninput="renderTuitionTplPreview()" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 mb-1">學員守則連結（填了才會加到學費單）</label>
-                            <input type="url" id="setInfoUrl" placeholder="https://..." class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                            <label class="block text-xs font-bold text-slate-600 mb-1">學員守則連結（學費單裡的 {rules}）</label>
+                            <input type="url" id="setInfoUrl" placeholder="https://..." oninput="renderTuitionTplPreview()" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
                         </div>
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-slate-600 mb-1">學費單附註（留空則不加）</label>
-                        <input type="text" id="setFeeNotice" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
+                        <label class="block text-xs font-bold text-slate-600 mb-1">學費單附註（學費單裡的 {notice}；留空則那一行不出現）</label>
+                        <input type="text" id="setFeeNotice" oninput="renderTuitionTplPreview()" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none">
                     </div>
                     <div>
                         <div class="flex items-center justify-between mb-1">
@@ -811,24 +811,25 @@
                 </button>
                 <div id="smod_templates" class="hidden px-5 pb-5 pt-4 space-y-4 border-t border-slate-100">
                     <p class="text-[11px] text-slate-500">留空＝用預設。訊息在顯示時才按模板組成，改了模板連已建立、未發送的條目都會跟著變（已發送的紀錄不受影響）。</p>
-                    <div class="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                        <div class="text-xs font-bold text-slate-700">學費單</div>
-                    <div class="space-y-1">
-                        <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">開頭</label><button type="button" onclick="resetMsgTemplate('tuitionHeader')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
-                        <textarea id="setTplTuitionHeader" rows="5" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
-                        <p class="text-[11px] text-slate-400">佔位符：{month}＝2026年9月 {m}＝9 {name} {id}</p>
-                    </div>
-                        <p class="text-[11px] text-slate-500">（中段：每個報讀項目一段——日期 逢星期／時間／級別／上課形式／導師／每堂學費／堂數／合共，格式固定，由課表資料生成）</p>
-                    <div class="space-y-1">
-                        <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">總額（多於一個報讀項目時才加）</label><button type="button" onclick="resetMsgTemplate('tuitionTotal')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
-                        <textarea id="setTplTuitionTotal" rows="1" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
-                        <p class="text-[11px] text-slate-400">佔位符：{amount}</p>
-                    </div>
-                    <div class="space-y-1">
-                        <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">結尾</label><button type="button" onclick="resetMsgTemplate('tuitionFooter')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
-                        <textarea id="setTplTuitionFooter" rows="2" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
-                        <p class="text-[11px] text-slate-400">之後接尾段：FPS ID／附註／學員守則連結（在「學費單與繳費」填了才出現）</p>
-                    </div>
+                    <!-- 學費單：一整段模板，照打的樣子發出（系統不在段落之間自己加空行）；下面即時預覽 -->
+                    <div class="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                        <div class="flex items-center justify-between"><label for="setTplTuition" class="text-xs font-bold text-slate-700">學費單</label><button type="button" onclick="resetMsgTemplate('tuition')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
+                        <textarea id="setTplTuition" rows="14" oninput="renderTuitionTplPreview()" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
+                        <div class="text-[11px] text-slate-500 space-y-1">
+                            <p>照打的樣子發出：<b>空一行就有空行，不空就沒有</b>，系統不會自己加。</p>
+                            <p>佔位符：{month}＝2026年9月　{m}＝9　{name}　{id}　{details}＝上堂明細（每個報讀項目一段：日期／時間／級別／上課形式／導師／每堂學費／堂數／合共；多於一項時各段之間空一行）　{amount}＝總額</p>
+                            <p>選填——<b>沒有內容時，所在的那一整行不出現</b>：{total}＝總額（多於一個報讀項目時才有）　{fps}＝FPS 轉數快 ID　{notice}＝學費單附註　{rules}＝學員守則連結（後三項在「學費單與繳費」填）</p>
+                        </div>
+                        <div class="space-y-1">
+                            <div class="flex items-center justify-between gap-2 flex-wrap">
+                                <span class="text-xs font-bold text-slate-600">預覽 <span id="tuitionTplPreviewCaption" class="font-normal text-slate-400"></span></span>
+                                <span class="inline-flex rounded-lg border border-slate-300 overflow-hidden text-[11px]">
+                                    <button type="button" id="tuitionPreviewBtn_one" onclick="renderTuitionTplPreview('one')" class="px-2.5 py-1 font-semibold bg-sky-600 text-white">一個報讀項目</button>
+                                    <button type="button" id="tuitionPreviewBtn_two" onclick="renderTuitionTplPreview('two')" class="px-2.5 py-1 font-semibold bg-white text-slate-600 hover:bg-slate-100">多個報讀項目</button>
+                                </span>
+                            </div>
+                            <pre id="tuitionTplPreview" class="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-slate-800 bg-white border border-slate-200 rounded-xl p-3 max-h-96 overflow-auto"></pre>
+                        </div>
                     </div>
                     <div class="space-y-1">
                         <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">請假確認</label><button type="button" onclick="resetMsgTemplate('leave')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>

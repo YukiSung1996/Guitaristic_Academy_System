@@ -3297,7 +3297,7 @@
                 groupClasses = res.groups || [];
                 lessonsByMonth = res.lessons;
                 sendLog = res.sendlog;
-                appSettings = Object.assign({}, GACStorage.DEFAULT_SETTINGS, res.settings);
+                appSettings = Object.assign({}, GACStorage.DEFAULT_SETTINGS, GACStorage.migrateSettings(res.settings));
                 if (Array.isArray(res.tutors) && res.tutors.length) { tutorsList = res.tutors; persistTutors(); } // v2 備份無名單 → 保留現有
                 rateOverrides = (res.rateOverrides && typeof res.rateOverrides === 'object') ? res.rateOverrides : {};
                 applyRateOverridesToTable();
@@ -3434,13 +3434,10 @@
             if (found) copyToClipboard(lessonMsgByType(type, found.lesson));
         }
 
-        // 學費訊息模板（文案常量，方便修改；{month}=yyyy年m月、{m}=月份數字、{name}=學生）
-        // 每個報讀項目（個別課／各小組）一段明細：日期 逢星期／時間起訖／級別／上課形式／導師／每堂學費／堂數／合共；
-        // 多於一項時最後加「總額」。金額以條目的 amount 為準（手改過的金額照樣反映在訊息裡）。
-        // 開頭／總額／結尾三段可在設定頁「訊息模板」改；預設值在 lib/storage.js DEFAULT_SETTINGS
-        function tuitionTpl() {
-            return { header: msgTpl('tplTuitionHeader'), total: msgTpl('tplTuitionTotal'), footer: msgTpl('tplTuitionFooter') };
-        }
+        // 學費單＝一整段模板（設定頁「訊息模板」；預設在 lib/storage.js DEFAULT_SETTINGS.tplTuition）。
+        // 系統不在段落之間自己加空行——模板裡空一行就有空行，沒有就沒有。
+        // 每個報讀項目（個別課／各小組）一段明細：日期 逢星期／時間起訖／級別／上課形式／導師／每堂學費／堂數／合共，放在 {details}；
+        // 多於一項時各段之間空一行。金額以條目的 amount 為準（手改過的金額照樣反映在訊息裡）。
 
         function tuitionMoney(n) { return '$' + Number(n || 0).toLocaleString('en-US'); }
 
@@ -3474,7 +3471,12 @@
             return lines.join('\n');
         }
 
-        function tuitionMsgFor(entry) {
+        // 佔位符：{month}＝yyyy年m月 {m}＝月份數字 {name} {id} {amount}＝總額 {details}＝上堂明細；
+        // 選填（沒有內容時所在那一整行不出現，lib/sendlog.js fillTuitionTemplate）：{total}＝總額（多於一個報讀項目時才有）
+        // {fps}＝「FPS 轉數快 ID：…」{notice}＝學費單附註 {rules}＝「學員守則及請假須知，請瀏覽：…」（後三項在「學費單與繳費」填）。
+        // override＝{ tpl, cfg }：設定頁預覽用還沒儲存的模板與欄位
+        function tuitionMsgFor(entry, override) {
+            const o = override || {};
             const parts = String(entry.month || '').split('-').map(Number);
             const monthLabel = parts.length === 2 ? `${parts[0]}年${parts[1]}月` : entry.month;
             const m = parts.length === 2 ? String(parts[1]) : String(entry.month || '');
@@ -3483,20 +3485,56 @@
                 : [{ dates: entry.dates || [], count: entry.count, subtotal: entry.amount, weekday: null, rate: null }];
             const single = items.length === 1;
             const blocks = items.map(it => tuitionItemLines(it, single ? entry.amount : it.subtotal));
-            const T = tuitionTpl();
-            const vars = { month: monthLabel, m: m, name: entry.studentName || entry.studentId, id: entry.studentId || '', amount: tuitionMoney(entry.amount) };
-            const out = [GACSendlog.fillTemplate(T.header, vars)];
-            out.push(blocks.join('\n\n'));
-            if (!single) out.push(GACSendlog.fillTemplate(T.total, vars));
-            if (T.footer && T.footer.trim()) out.push(GACSendlog.fillTemplate(T.footer, vars));
-            // 尾段（設定頁）：FPS ID／附註／學員守則連結，填了才出現
-            const cfg = (typeof appSettings !== 'undefined' && appSettings) || {};
-            const tail = [];
-            if (cfg.fpsId) tail.push(`FPS 轉數快 ID：${cfg.fpsId}`);
-            if (cfg.feeNotice) tail.push(cfg.feeNotice);
-            if (cfg.infoUrl) tail.push(`學員守則及請假須知，請瀏覽：${cfg.infoUrl}`);
-            if (tail.length) out.push(tail.join('\n'));
-            return out.join('\n\n');
+            const cfg = o.cfg || (typeof appSettings !== 'undefined' && appSettings) || {};
+            const vars = {
+                month: monthLabel, m: m, name: entry.studentName || entry.studentId, id: entry.studentId || '',
+                amount: tuitionMoney(entry.amount),
+                details: blocks.join('\n\n'),
+                total: single ? '' : tuitionMoney(entry.amount),
+                fps: cfg.fpsId ? `FPS 轉數快 ID：${cfg.fpsId}` : '',
+                notice: cfg.feeNotice || '',
+                rules: cfg.infoUrl ? `學員守則及請假須知，請瀏覽：${cfg.infoUrl}` : ''
+            };
+            return GACSendlog.fillTuitionTemplate(o.tpl || msgTpl('tplTuition'), vars);
+        }
+
+        // ===== 設定頁：學費單模板預覽（邊打邊看；用還沒儲存的模板與「學費單與繳費」欄位）=====
+        // 「一個報讀項目」／「多個報讀項目」各找一張真的學費單（本月的優先）；沒有就用示例資料
+        let tuitionPreviewMode = 'one';
+        function tuitionPreviewEntry(two) {
+            const cur = currentMonthKey();
+            const fits = e => e && e.type === 'TUITION' && !!(e.items && e.items.length > 1) === two;
+            return Object.values(sendLog).filter(fits).sort((a, b) => ((b.month === cur) - (a.month === cur))
+                || String(b.month).localeCompare(String(a.month)) || String(a.studentId).localeCompare(String(b.studentId)))[0] || null;
+        }
+        function tuitionPreviewSample(monthKey, two) {
+            const dates = wd => GACSchedule.monthDatesForWeekday(monthKey, wd).slice(0, 4);
+            const items = [{ dates: dates(3), count: 4, subtotal: 1440, weekday: 3, time: '12:30', endTime: '13:15', duration: 45,
+                program: 'Hymns Guitar', level: 'Intermediate 中級', classType: '一對一', tutor: 'Instructor A', rate: 360 }];
+            if (two) items.push({ dates: dates(6), count: 4, subtotal: 1200, weekday: 6, time: '15:00', endTime: '16:00', duration: 60,
+                program: 'Music Theory', level: 'Grade 5', classType: '5人小組', groupName: '樂理 Grade 5 小組', tutor: 'Instructor B', rate: 300 });
+            const amount = items.reduce((n, it) => n + it.subtotal, 0);
+            return { type: 'TUITION', month: monthKey, studentId: 'S000', studentName: '示例學生', items: items,
+                count: items.reduce((n, it) => n + it.count, 0), amount: amount };
+        }
+        function renderTuitionTplPreview(mode) {
+            if (mode === 'one' || mode === 'two') tuitionPreviewMode = mode;
+            const box = document.getElementById('tuitionTplPreview');
+            const ta = document.getElementById('setTplTuition');
+            if (!box || !ta) return;
+            const two = tuitionPreviewMode === 'two';
+            const real = tuitionPreviewEntry(two);
+            const entry = real || tuitionPreviewSample(currentMonthKey() || localDateStr(new Date()).slice(0, 7), two);
+            const val = id => { const el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; };
+            const cfg = { fpsId: val('setFpsId'), feeNotice: val('setFeeNotice'), infoUrl: val('setInfoUrl') };
+            box.textContent = tuitionMsgFor(entry, { tpl: String(ta.value || '').trim() || GACStorage.DEFAULT_SETTINGS.tplTuition, cfg: cfg });
+            const cap = document.getElementById('tuitionTplPreviewCaption');
+            if (cap) cap.textContent = real ? `（${real.studentName || real.studentId} 的 ${GACSendlog.monthLabel(real.month)}學費單）`
+                : `（示例資料：${two ? '兩個報讀項目' : '一個報讀項目'}）`;
+            ['one', 'two'].forEach(k => {
+                const b = document.getElementById('tuitionPreviewBtn_' + k);
+                if (b) b.className = 'px-2.5 py-1 font-semibold ' + (k === tuitionPreviewMode ? 'bg-sky-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-100');
+            });
         }
 
         // 發送中心卡片的堂數標籤：多個報讀項目時逐項列（個別課 4 堂＋樂理 Grade 5 小組 4 堂）
@@ -4574,8 +4612,7 @@
 
         // 訊息模板欄位：設定頁 textarea id → 設定鍵（還原預設／載入／儲存共用）
         const TPL_FIELDS = {
-            tuitionHeader: ['setTplTuitionHeader', 'tplTuitionHeader'], tuitionTotal: ['setTplTuitionTotal', 'tplTuitionTotal'],
-            tuitionFooter: ['setTplTuitionFooter', 'tplTuitionFooter'], leave: ['setTplLeave', 'tplLeave'],
+            tuition: ['setTplTuition', 'tplTuition'], leave: ['setTplLeave', 'tplLeave'],
             makeup: ['setTplMakeup', 'tplMakeup'], move: ['setTplMove', 'tplMove'],
             remind: ['setRemindMsg', 'remindMsg'], receipt: ['setReceiptMsg', 'receiptMsg']
         };
@@ -4600,6 +4637,7 @@
                 const el = document.getElementById(TPL_FIELDS[k][0]);
                 if (el) el.value = msgTpl(TPL_FIELDS[k][1]);
             });
+            renderTuitionTplPreview();
         }
 
         // 付款方式清單：編號＝陣列位置＋1，對應繳費紀錄的 payMethod；改名不影響既有紀錄，只能刪最後一個（避免編號前移對不上）
@@ -4636,12 +4674,14 @@
             if (!f) return;
             const el = document.getElementById(f[0]);
             if (el) el.value = GACStorage.DEFAULT_SETTINGS[f[1]];
+            if (which === 'tuition') renderTuitionTplPreview();
         }
 
         function saveSettingsForm() {
             // 已取消的舊設定，存檔時順手清掉：缺席是否計薪（一律照計）、點開 WhatsApp 後的三種處理（一律點開即已發送）
             delete appSettings.payNoShow;
             delete appSettings.waSentMode;
+            ['tplTuitionHeader', 'tplTuitionTotal', 'tplTuitionFooter'].forEach(k => { delete appSettings[k]; });   // 已合成一整段 tplTuition
             appSettings.gcalClientId = document.getElementById('setGcalClientId').value.trim();
             appSettings.gcalCalendarId = GACGcal.normalizeCalendarId(document.getElementById('setGcalCalendarId').value) || 'primary';
             appSettings.gcalWrite = !!document.getElementById('setGcalWrite').checked;
