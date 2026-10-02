@@ -370,6 +370,9 @@
                     </div>
                 </div>
 
+                <!-- 舊寫法的小組（「2人小組」寫在學生自己的常規課上）還沒轉成小組班：提示＋按鈕 -->
+                <div id="legacyGroupBanner" class="hidden p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-900 flex flex-wrap items-center gap-2"></div>
+
                 <!-- Database Search Input -->
                 <div class="relative">
                     <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400 text-xs"></i>
@@ -1012,6 +1015,8 @@
                     <label for="modalHasSlot" class="font-bold text-slate-700 cursor-pointer">有常規私教課（固定導師、星期、時間）</label>
                     <span class="text-slate-500">不勾＝只上小組課：學費按所屬小組計，下面不用填</span>
                 </div>
+                <!-- 舊寫法（常規課寫「2人小組」等）：照舊顯示並鎖住，只能改成一對一或轉成小組班（app.js renderLegacyNote） -->
+                <div id="modalLegacyNote" class="hidden sm:col-span-2 p-2.5 bg-amber-50 border border-amber-300 rounded-lg text-amber-900"></div>
                 <div class="modal-slot-field">
                     <label class="block font-bold text-slate-600 mb-1">負責導師</label>
                     <select id="modalTutor" onchange="onModalTutorChange()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
@@ -1032,6 +1037,7 @@
                 <div class="modal-slot-field">
                     <label class="block font-bold text-slate-600 mb-1">授課形式</label>
                     <select id="modalType" onchange="renderStudentFeeSelects()" class="w-full p-2 border border-slate-300 rounded-lg bg-white"></select>
+                    <p class="text-[10px] text-slate-400 mt-0.5">小組（2 人、5 人都一樣）請用小組班：在下面「所屬小組」勾選，或「+ 新增小組」</p>
                 </div>
                 <div class="modal-slot-field">
                     <label class="block font-bold text-slate-600 mb-1">課堂時長</label>

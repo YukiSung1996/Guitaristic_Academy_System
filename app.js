@@ -38,6 +38,7 @@
             installModalClose();
             restoreViewPosition(view);
             window.addEventListener('pagehide', saveViewState);
+            maybeOfferLegacyGroupConvert();   // 舊寫法的小組（常規課寫「2人小組」等）：有可以直接轉的就問一次
         };
 
         // ===== 資料存放（檔案模式，見 lib/storage.js pickStorage）=====
@@ -702,14 +703,16 @@
                     .filter(s => s && groupDates.some(d => GACSchedule.isInactiveOn(s, d)));
                 const hay = (g.name + ' ' + g.id + ' ' + memberNames.join(' ')).toLowerCase();
                 if (searchKeyword && !hay.includes(searchKeyword)) return;
+                const notYet = !!g.startMonth && !!batchMonthVal && batchMonthVal < g.startMonth;   // 舊寫法轉過來的小組班：開始月份之前不排
                 const div = document.createElement('div');
                 div.className = 'flex items-center space-x-2 text-xs bg-indigo-50 p-2 rounded-lg border border-indigo-200 hover:border-indigo-400 transition';
                 div.innerHTML = `
-                    <input type="checkbox" class="batch-group-chk accent-indigo-600 rounded" value="${g.id}" id="batch_grp_${g.id}" checked>
+                    <input type="checkbox" class="batch-group-chk accent-indigo-600 rounded" value="${g.id}" id="batch_grp_${g.id}" ${notYet ? 'disabled' : 'checked'}>
                     <label for="batch_grp_${g.id}" class="cursor-pointer font-medium truncate flex-1" title="${memberNames.join('、')}">
                         <span class="font-bold text-indigo-800"><i class="fa-solid fa-user-group"></i> ${g.name}</span>
                         <span class="text-indigo-600 font-semibold">(${(g.memberIds || []).length} 人)（${getWeekdayName(g.weekday)} ${g.time}）</span>
                         ${onLeave.length ? `<span class="text-slate-500 font-semibold" title="停課的成員那幾天不生成：${escapeHtml(onLeave.map(s => s.name).join('、'))}">⏸ ${onLeave.length} 位停課</span>` : ''}
+                        ${notYet ? `<span class="text-slate-500 font-semibold" title="這個小組班由 ${g.startMonth} 起排課；之前的月份照舊（成員原本的課）">${g.startMonth} 起</span>` : ''}
                     </label>
                     <button onclick="openGroupModal('${g.id}')" class="shrink-0 px-1.5 py-1 text-slate-400 hover:text-indigo-700 hover:bg-indigo-100 rounded transition" title="編輯小組：成員／時段／導師">
                         <i class="fa-solid fa-pen"></i>
@@ -896,6 +899,164 @@
             renderBatchCheckboxes();
             renderStudentTable();
             closeGroupModal();
+        }
+
+        // ===== 舊寫法的小組 → 小組班 =====
+        // 以前「2人小組」這類小組形式可以寫在學生自己的常規課上（同一位導師、同一時間的幾位學生湊成一節）；現在小組一律用小組班，
+        // 學生自己的常規課只有一對一。打開程式時列出系統找到的小組給人確認（GACSchedule.planLegacyGroups）；
+        // 轉換＝建小組班（下個月起排課，startMonth）＋這幾位改成只上小組。本月已生成的課不動；
+        // 下個月以後已經生成的月份，這幾位的課一併改成小組課（lessonId 相同，出席／請假記錄保留）。整個動作可撤銷。
+        let legacyGroupState = null;   // { plan, thisMonth, startMonth, result }
+        const LEGACY_GROUP_LATER_KEY = 'gac_legacy_group_later';   // 這個分頁已自動彈過（sessionStorage）：載入時不再彈
+
+        function legacyGroupPlan() {
+            return GACSchedule.planLegacyGroups(studentDatabase, groupClasses, rateForLesson);
+        }
+
+        // 小組班名：「課程 級別 小組」，撞名再加上星期時間
+        function legacyGroupName(g, taken) {
+            const base = [g.program, g.level, '小組'].filter(Boolean).join(' ');
+            return taken.has(base) ? `${base}（${getWeekdayName(g.weekday)} ${g.time}）` : base;
+        }
+
+        // 這幾位學生在 startMonth 以後、已經生成而且還是舊寫法的月份（有他們不屬於小組班的常規課）
+        function legacyGeneratedMonths(memberIds, startMonth) {
+            const ids = new Set(memberIds);
+            return Object.keys(lessonsByMonth).filter(m => m >= startMonth
+                && (lessonsByMonth[m] || []).some(l => ids.has(l.studentId) && !l.isMakeup && !l.groupId)).sort();
+        }
+
+        // 載入時：有可以直接轉的小組就彈出來問，同一個分頁只自動彈一次（重新整理不再彈；學生名單上方一直有提示）
+        function maybeOfferLegacyGroupConvert() {
+            try { if (window.sessionStorage.getItem(LEGACY_GROUP_LATER_KEY)) return false; } catch (e) { /* 讀不到就照常問 */ }
+            if (!legacyGroupPlan().ready.length) return false;
+            try { window.sessionStorage.setItem(LEGACY_GROUP_LATER_KEY, '1'); } catch (e) { /* 記不了：下次載入再問 */ }
+            return openLegacyGroupConvert(true);
+        }
+
+        function openLegacyGroupConvert(auto) {
+            const plan = legacyGroupPlan();
+            if (!plan.ready.length && !plan.manual.length) {
+                if (!auto) showToast('沒有寫成小組形式的學生，不用轉換');
+                return false;
+            }
+            const taken = new Set(groupClasses.map(g => g.name));
+            plan.ready.forEach(it => { it.group.name = legacyGroupName(it.group, taken); taken.add(it.group.name); });
+            const thisMonth = localDateStr(new Date()).slice(0, 7);
+            legacyGroupState = { plan: plan, thisMonth: thisMonth, startMonth: GACSchedule.nextMonthKey(thisMonth), result: null };
+            renderLegacyGroupDialog();
+            document.getElementById('msgModal').classList.remove('hidden');
+            return true;
+        }
+
+        function renderLegacyGroupDialog() {
+            const st = legacyGroupState;
+            if (!st) return;
+            const btn = 'px-3 py-1.5 rounded-lg font-semibold';
+            const names = list => list.map(s => `${escapeHtml(s.name)}（${escapeHtml(s.id)}）`).join('、');
+            const slot = g => `${escapeHtml(g.tutor)} 逢${getWeekdayName(g.weekday)} ${g.time}`;
+            const what = g => `${escapeHtml(g.program)} ${escapeHtml(g.level)}（${g.duration} 分鐘）`;
+            const money = v => '$' + Number(v).toLocaleString('en-US');
+            const manualHtml = st.plan.manual.length ? `<div class="space-y-1.5">
+                    <div class="font-bold text-slate-700">要你處理（${st.plan.manual.length}）</div>
+                    <p class="text-slate-500">這些照舊排課、收費，直到你處理：改成一對一（編輯學生 →「改成一對一」），或新增小組班把他們加進去，再取消他們的「有常規私教課」。</p>
+                    ${st.plan.manual.map(it => `<div class="border border-amber-200 bg-amber-50 rounded-xl p-2.5 space-y-1">
+                        <div><b>${slot(it.group)}</b>・${names(it.students)}（${escapeHtml(it.students[0].type)}）</div>
+                        <div class="text-amber-800">沒有轉換：${it.reasons.map(escapeHtml).join('；')}</div>
+                        <div class="flex flex-wrap gap-1.5">${it.students.map(s => `<button onclick="closeMsgModal(); openStudentModal(${studentDatabase.indexOf(s)})" class="${btn} bg-white border border-amber-300 text-amber-800 hover:bg-amber-100">編輯 ${escapeHtml(s.name)}</button>`).join('')}</div>
+                    </div>`).join('')}
+                </div>` : '';
+            document.getElementById('msgModalTitle').textContent = st.result ? '✅ 已轉成小組班' : '👥 小組形式改用小組班';
+            if (st.result) {
+                const r = st.result;
+                const months = Object.keys(r.months).sort();
+                document.getElementById('msgModalBody').innerHTML = `<div class="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 space-y-1">
+                        <p>建立了 ${r.groups.length} 個小組班：${r.groups.map(g => `<b>${escapeHtml(g.name)}</b>（${g.id}，${g.memberIds.length} 人，逢${getWeekdayName(g.weekday)} ${g.time}）`).join('、')}。成員改成只上小組。</p>
+                        <p><b>${st.startMonth} 起</b>按小組班排課；本月（${st.thisMonth}）的課不動。${months.length ? `${months.join('、')} 已生成的課已改成小組課（出席／請假記錄保留）。` : ''}</p>
+                        ${r.conflicts.length ? `<p class="text-amber-800">⚠️ 有 ${r.conflicts.length} 堂已有狀態、對不上小組班的日子，保留不動，請人工處理：${r.conflicts.map(l => `${escapeHtml(l.studentName)} ${l.date} ${l.time}`).join('、')}</p>` : ''}
+                        <p>改錯了可以按頂部「撤銷」。</p>
+                    </div>` + manualHtml;
+                return;
+            }
+            const readyHtml = st.plan.ready.map((it, i) => {
+                const months = legacyGeneratedMonths(it.group.memberIds, st.startMonth);
+                return `<label class="flex items-start gap-2 border border-indigo-200 bg-indigo-50/60 rounded-xl p-2.5 cursor-pointer">
+                    <input type="checkbox" class="legacy-group-chk accent-indigo-600 mt-0.5" value="${i}" checked>
+                    <span class="space-y-0.5">
+                        <span class="block"><b>${slot(it.group)}</b>・${what(it.group)}</span>
+                        <span class="block">${names(it.students)}</span>
+                        <span class="block text-slate-500">→ 小組班「${escapeHtml(it.group.name)}」，每堂 ${money(it.rate)}（不變）${months.length ? `；${months.join('、')} 已生成的課一併改成小組課` : ''}</span>
+                    </span>
+                </label>`;
+            }).join('');
+            document.getElementById('msgModalBody').innerHTML =
+                `<div class="p-2.5 bg-sky-50 border border-sky-200 rounded-lg text-sky-900 space-y-1">
+                    <p>以前「2人小組」這類小組形式可以寫在學生自己的常規課上；現在小組一律用<b>小組班</b>（2 人、5 人都一樣）：一節課一個 Calendar 事件，可以全組請假、全組改期，撞堂和導師節數都按一節算。學生自己的常規課以後只有一對一。</p>
+                    ${st.plan.ready.length ? `<p>勾選的會建成小組班，<b>${st.startMonth} 起</b>按小組班排課；<b>本月（${st.thisMonth}）已生成的課不動</b>。每堂收費不變；之後可按「撤銷」退回。</p>` : ''}
+                </div>` +
+                (readyHtml ? `<div class="space-y-1.5"><div class="font-bold text-slate-700">可以直接轉（${st.plan.ready.length} 組）</div>${readyHtml}</div>` : '') +
+                manualHtml +
+                (st.plan.ready.length ? `<div class="flex flex-wrap justify-end gap-1.5 pt-1">
+                    <button onclick="legacyGroupLater()" class="${btn} bg-slate-100 hover:bg-slate-200 text-slate-700">稍後再說</button>
+                    <button onclick="applyLegacyGroupConvert()" class="${btn} bg-indigo-600 hover:bg-indigo-700 text-white">轉成小組班（${st.startMonth} 起）</button>
+                </div>` : '');
+        }
+
+        function legacyGroupLater() {
+            closeMsgModal();
+            showToast('之後要轉：學生名單上方「轉成小組班…」');
+        }
+
+        function applyLegacyGroupConvert() {
+            const st = legacyGroupState;
+            if (!st || st.result) return;
+            const picked = [...document.querySelectorAll('.legacy-group-chk')].filter(c => c.checked)
+                .map(c => st.plan.ready[Number(c.value)]).filter(Boolean);
+            if (!picked.length) { alert('請至少勾選一組。'); return; }
+            pushHistory(`小組形式轉成小組班（${picked.length} 組，${st.startMonth} 起）`);
+            const nowIso = new Date().toISOString();
+            const result = { groups: [], months: {}, conflicts: [] };
+            picked.forEach(it => {
+                const g = Object.assign({ id: nextGroupId() }, it.group, { startMonth: st.startMonth });
+                groupClasses.push(g);
+                const members = g.memberIds.map(id => studentDatabase.find(s => s.id === id)).filter(Boolean);
+                // 下個月以後已生成的月份：他們的課改成小組課（生成的小組課 lessonId 與原本的相同 → 命中、保留狀態，只刷新顯示欄位）
+                const months = legacyGeneratedMonths(g.memberIds, st.startMonth);
+                // 這幾位改成只上小組（同學生表單不勾「有常規私教課」）
+                members.forEach(s => Object.assign(s, { type: '', program: '', level: '', tutor: '', tutorLevel: '', weekday: null, time: '', duration: null,
+                    effectiveMonth: '', futureWeekday: null, futureTime: '' }));
+                months.forEach(monthKey => {
+                    const res = GACSchedule.mergeMonthLessons(lessonsByMonth[monthKey] || [], GACSchedule.generateGroupMonthLessons(g, members, monthKey), {
+                        selectedStudentIds: g.memberIds, allStudentIds: studentDatabase.map(s => s.id),
+                        selectedGroupIds: [g.id], allGroupIds: groupClasses.map(x => x.id)
+                    });
+                    if (res.lessons.length) lessonsByMonth[monthKey] = res.lessons; else delete lessonsByMonth[monthKey];
+                    members.forEach(s => refreshTuition(s, monthKey, nowIso));
+                    result.months[monthKey] = true;
+                    result.conflicts.push(...res.conflicts.map(c => c.lesson));
+                });
+                result.groups.push(g);
+            });
+            persistGroups();
+            saveToLocalStorage();
+            persistLessons();
+            renderBatchCheckboxes();
+            renderStudentTable();
+            rebuildMonthContext();
+            renderAll();
+            st.plan = legacyGroupPlan();   // 剩下要人處理的
+            st.result = result;
+            renderLegacyGroupDialog();
+        }
+
+        // 學生名單上方：還有舊寫法的學生就一直提示
+        function renderLegacyGroupBanner() {
+            const el = document.getElementById('legacyGroupBanner');
+            if (!el) return;
+            const n = studentDatabase.filter(s => GACSchedule.isLegacyGroupStudent(s)).length;
+            el.classList.toggle('hidden', !n);
+            el.innerHTML = n ? `<span><i class="fa-solid fa-user-group"></i> 有 <b>${n}</b> 位學生的常規課寫的是「2人小組」這類小組形式（舊寫法）。小組現在一律用小組班（2 人、5 人都一樣）。</span>
+                <button onclick="openLegacyGroupConvert(false)" class="ml-auto px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold">轉成小組班…</button>` : '';
         }
 
         // ===== 快速編輯（原「單一學生」頁籤已合併到此）：改常規時間（保留歷史）／升班，即時撞堂預覽 =====
@@ -2700,7 +2861,7 @@
                         ${student.email ? `<a href="mailto:${student.email}" class="hover:text-sky-600 flex items-center gap-1"><i class="fa-solid fa-envelope text-slate-400 text-[10px]"></i> ${student.email}</a>` : '<span class="text-slate-300">-</span>'}
                     </td>
                     <td class="p-3">${hasSlot ? `${student.program} - ${student.level}` : '<span class="text-slate-400">—</span>'}</td>
-                    <td class="p-3"><span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full text-[11px] font-medium">${hasSlot ? student.type : '只上小組'}</span></td>
+                    <td class="p-3"><span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full text-[11px] font-medium">${hasSlot ? student.type : '只上小組'}</span>${GACSchedule.isLegacyGroupStudent(student) ? ' <span class="text-amber-600" title="舊寫法：小組現在要用小組班（名單上方「轉成小組班…」）"><i class="fa-solid fa-triangle-exclamation"></i></span>' : ''}</td>
                     <td class="p-3 font-medium text-sky-700">${hasSlot ? student.tutor : `<span class="text-slate-400">${[...new Set(myGroups.map(g => g.tutor))].join('、') || '—'}</span>`}</td>
                     <td class="p-3 font-medium space-y-1">${enrollments.join('')}</td>
                     <td class="p-3 text-right whitespace-nowrap">
@@ -2734,6 +2895,7 @@
                 if (chev) chev.classList.toggle('rotate-90', open);
             }
             renderGroupTable();
+            renderLegacyGroupBanner();
         }
 
         // 學生名單庫下方的小組班清單（建立／編輯在 groupModal）
@@ -2760,7 +2922,7 @@
                     <td class="p-3 font-semibold text-indigo-800"><i class="fa-solid fa-user-group text-indigo-400 mr-1"></i>${escapeHtml(g.name)}</td>
                     <td class="p-3">${escapeHtml(g.program || '')} ${g.level ? '- ' + escapeHtml(g.level) : ''}</td>
                     <td class="p-3 font-medium text-sky-700">${g.tutor}</td>
-                    <td class="p-3 font-medium">逢 ${getWeekdayName(g.weekday)} ${g.time}（${g.duration || 60} 分鐘）</td>
+                    <td class="p-3 font-medium">逢 ${getWeekdayName(g.weekday)} ${g.time}（${g.duration || 60} 分鐘）${g.startMonth && g.startMonth > todayStr.slice(0, 7) ? ` <span class="bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap" title="由這個月起按小組班排課；之前的月份照舊">${g.startMonth} 起</span>` : ''}</td>
                     <td class="p-3"><span class="font-bold">${members.length}</span> 人：${members.join('、') || '<span class="text-amber-600">尚無成員</span>'}${lonely}</td>
                     <td class="p-3 text-right whitespace-nowrap">
                         <button onclick="openGroupModal('${g.id}')" class="text-amber-600 hover:text-amber-800 px-2 py-1 font-semibold hover:bg-amber-50 rounded-lg transition" title="編輯成員／時段／導師"><i class="fa-solid fa-pen-to-square"></i> 編輯</button>
@@ -2807,6 +2969,10 @@
                 document.getElementById('modalHasSlot').checked = hasIndividualSlot(s);
                 document.getElementById('modalWeekday').value = hasIndividualSlot(s) ? s.weekday : 1;
                 document.getElementById('modalTime').value = s.time || '16:00';
+                // 舊寫法（常規課寫「2人小組」等）：照存著的樣子顯示並鎖住，見 legacySlotLocked
+                modalLegacyType = GACSchedule.isLegacyGroupStudent(s) ? s.type : '';
+                modalSlotUnlocked = !modalLegacyType;
+                renderLegacyNote(s);
                 // 費率欄位：舊資料的組合不在費率表時會被修正成第一個可選（儲存後即為修正值）
                 renderStudentFeeSelects({ tutorLevel: s.tutorLevel || advancedTutor(s), program: s.program, level: s.level, type: s.type, duration: s.duration });
                 renderModalGroups(s.id);
@@ -2821,6 +2987,8 @@
                 document.getElementById('modalHasSlot').checked = true;
                 document.getElementById('modalWeekday').value = 1;
                 document.getElementById('modalTime').value = '16:00';
+                modalLegacyType = '';
+                modalSlotUnlocked = true;
                 renderStudentFeeSelects({ tutorLevel: tutorTier(allTutorNames()[0]) || '普通導師', program: 'Pop Guitar', level: 'Elementary 初級', type: '一對一', duration: 45 });
                 renderModalGroups(null);
             }
@@ -3060,18 +3228,72 @@
             return sel;
         }
 
+        // 學生自己的常規課只有一對一：小組（2 人、5 人都一樣）一律用小組班，所以學生表單只列費率表上一對一的組合
+        function individualRateRows() {
+            return rateTable.filter(r => GACRates.classTypeToStudentType(r.classType) === '一對一');
+        }
+
+        // 舊寫法的學生（常規課寫的是「2人小組」等小組形式，GACSchedule.isLegacyGroupStudent）：表單照存著的樣子顯示並鎖住——
+        // 只改電話、所屬小組等資料，存檔不動他的課和收費；要改只能「改成一對一」（解鎖），或轉成小組班
+        let modalLegacyType = '';       // 打開的這位學生的舊小組形式；不是舊寫法＝''
+        let modalSlotUnlocked = true;   // 舊寫法的學生按了「改成一對一」
+
+        function legacySlotLocked() {
+            return !!modalLegacyType && !modalSlotUnlocked;
+        }
+
+        function updateLegacyNote() {
+            const note = document.getElementById('modalLegacyNote');
+            const has = document.getElementById('modalHasSlot');
+            if (note) note.classList.toggle('hidden', !(legacySlotLocked() && has && has.checked));
+        }
+
+        function renderLegacyNote(s) {
+            const note = document.getElementById('modalLegacyNote');
+            if (!note) return;
+            note.innerHTML = modalLegacyType ? `<div><i class="fa-solid fa-triangle-exclamation"></i> 他的常規課寫的是「<b>${escapeHtml(s.type)}</b>」——這是舊寫法：小組（2 人、5 人都一樣）現在要用小組班，學生自己的常規課只有一對一。</div>
+                <div class="mt-1">下面照舊顯示並鎖住：只改電話、所屬小組等資料，存檔不會動到他的課和收費。</div>
+                <div class="mt-1.5 flex flex-wrap gap-1.5">
+                    <button type="button" onclick="if (requestCloseModal('studentModal')) openLegacyGroupConvert(false)" class="px-2.5 py-1 rounded-lg font-semibold bg-indigo-600 hover:bg-indigo-700 text-white">轉成小組班…</button>
+                    <button type="button" onclick="unlockLegacySlot()" class="px-2.5 py-1 rounded-lg font-semibold bg-white border border-amber-300 text-amber-800 hover:bg-amber-100">改成一對一</button>
+                </div>` : '';
+        }
+
         // initial 省略時讀取目前下拉值（onchange 路徑）；上游改變後下游自動修正為合法值
         function renderStudentFeeSelects(initial) {
-            const res = GACRates.resolve(rateTable, initial || readFeeSelection());
+            const locked = legacySlotLocked();
+            ['modalTutor', 'modalWeekday', 'modalTime'].concat(Object.values(FEE_SELECT_IDS)).forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = locked;
+            });
+            updateLegacyNote();
+            const rateEl = document.getElementById('modalRate');
+            if (locked) {
+                const sel = initial || readFeeSelection();
+                Object.keys(FEE_SELECT_IDS).forEach(k => {
+                    const el = document.getElementById(FEE_SELECT_IDS[k]);
+                    if (el) fillSelect(el, [sel[k]], sel[k], k === 'type' ? (v => `${v}（舊寫法）`) : (k === 'duration' ? (v => `${v} 分鐘`) : null));
+                });
+                const rate = rateForLesson({ program: sel.program, level: sel.level, classType: sel.type, duration: sel.duration,
+                    tutor: document.getElementById('modalTutor').value, tutorLevel: sel.tutorLevel });
+                if (rateEl) rateEl.textContent = `$${Number(rate).toLocaleString('en-US')} / 堂（${sel.type}，照舊）`;
+                return { sel: sel, rate: rate };
+            }
+            const res = GACRates.resolve(individualRateRows(), initial || readFeeSelection());
             Object.keys(FEE_SELECT_IDS).forEach(k => {
                 const el = document.getElementById(FEE_SELECT_IDS[k]);
                 if (!el) return;
                 const labelFn = k === 'type' ? GACRates.studentTypeToClassType : (k === 'duration' ? (v => `${v} 分鐘`) : null);
                 fillSelect(el, res.options[k], res.sel[k], labelFn);
             });
-            const rateEl = document.getElementById('modalRate');
             if (rateEl) rateEl.textContent = res.rate !== null ? `$${Number(res.rate).toLocaleString('en-US')} / 堂` : '—（費率表無此組合）';
             return res;
+        }
+
+        // 舊寫法的學生按「改成一對一」：解鎖，下拉改列一對一的組合（存檔時再確認收費的變化）
+        function unlockLegacySlot() {
+            modalSlotUnlocked = true;
+            renderStudentFeeSelects(Object.assign(readFeeSelection(), { type: '一對一' }));
         }
 
         function closeStudentModal() {
@@ -3095,6 +3317,8 @@
             const time = hasSlot ? document.getElementById('modalTime').value : '';
             const duration = hasSlot ? parseInt(document.getElementById('modalDuration').value) : null;
             const chosenGroups = [...document.querySelectorAll('.modal-group-chk')].filter(c => c.checked).map(c => c.value);
+            // 舊寫法（常規課寫「2人小組」等）沒有按「改成一對一」：課照舊，存回原本的組合（舊組合未必在費率表上，不查表）
+            const legacyKept = editIdx >= 0 && hasSlot && legacySlotLocked();
 
             if (!id || !name) {
                 alert('請完整填寫學生 ID 與姓名！');
@@ -3118,9 +3342,16 @@
                 alert('請選擇常規星期與上課時間；只上小組的學生請取消勾選「有常規私教課」。');
                 return;
             }
-            if (hasSlot && GACRates.findRate(rateTable, { tutorLevel, program, level, type, duration }) === null) {
+            if (hasSlot && !legacyKept && GACRates.findRate(rateTable, { tutorLevel, program, level, type, duration }) === null) {
                 alert('費率表沒有這個組合（導師級別／課程／級別／授課形式／時長）的定價，請重新選擇。');
                 return;
+            }
+            // 舊寫法的學生改成一對一：收費會變，先問一次
+            if (editIdx >= 0 && hasSlot && modalLegacyType && modalSlotUnlocked) {
+                const old = studentDatabase[editIdx];
+                const before = rateForLesson({ program: old.program, level: old.level, classType: old.type, duration: old.duration, tutor: old.tutor, tutorLevel: old.tutorLevel });
+                const after = rateForLesson({ program, level, classType: type, duration, tutor, tutorLevel });
+                if (!confirm(`「${name}」的常規課原本是「${old.type}」（每堂 $${before}），存檔後改成一對一（每堂 $${after}）。\n已生成的月份要到該月按「生成」才會套用。\n確定嗎？`)) return;
             }
 
             pushHistory(`${editIdx >= 0 ? '編輯' : '新增'}學生：${name}（${id}）`);
@@ -4493,6 +4724,7 @@
             document.querySelectorAll('.modal-slot-field').forEach(el => el.classList.toggle('hidden', !has));
             const hint = document.getElementById('modalGroupsHint');
             if (hint) hint.classList.toggle('hidden', has);
+            updateLegacyNote();
         }
 
         // 學生／小組表單：選導師 → 自動帶出其等級（仍可手動改）

@@ -347,3 +347,52 @@ test('mergeMemberGroupLessons：只動這位成員在這個小組的課，其他
     assert.strictEqual(back.lessons.filter(l => l.groupId === 'G1').length, 8);
     assert.strictEqual(back.lessons.find(l => l.lessonId === 'S021-20260912-1500').status, 'ATTENDED', '既有的課原樣保留');
 });
+
+// ===== 舊寫法的小組（「2人小組」寫在學生自己的常規課上）→ 小組班 =====
+// 查價：形式 3 人以上 $300、2 人 $400、一對一 $500（只看形式，夠測「收費變不變」）
+const legacyRate = l => /[3-9]人/.test(l.classType) ? 300 : (/小組/.test(l.classType) ? 400 : 500);
+const legacy = (id, o) => student(Object.assign({ id: id, name: 'Student ' + id.slice(1), type: '2人小組', level: 'Elementary 初級', duration: 60, tutorLevel: '普通導師', weekday: 3, time: '21:30' }, o || {}));
+
+test('舊寫法的小組：同一位導師、同一時間、同課程級別時長的兩位 → 可以直接轉，收費不變；建的小組班沿用他們的課', () => {
+    assert.strictEqual(S.isLegacyGroupStudent(legacy('S003')), true);
+    assert.strictEqual(S.isLegacyGroupStudent(student()), false, '一對一不是');
+    assert.strictEqual(S.isLegacyGroupStudent(legacy('S030', { weekday: null, time: '' })), false, '只上小組（沒有自己的常規課）不是');
+    const p = S.planLegacyGroups([legacy('S003'), student({ id: 'S001' }), legacy('S004')], [], legacyRate);
+    assert.strictEqual(p.manual.length, 0);
+    assert.strictEqual(p.ready.length, 1);
+    const it = p.ready[0];
+    assert.deepStrictEqual(it.group, { program: 'Pop Guitar', level: 'Elementary 初級', duration: 60, tutor: 'Instructor A', tutorLevel: '普通導師', weekday: 3, time: '21:30', memberIds: ['S003', 'S004'] });
+    assert.strictEqual(it.rate, 400);
+    assert.strictEqual(it.newRate, 400);
+});
+
+test('舊寫法的小組：找不到搭檔／課程不一樣／同時段已有小組班／有預定改時間／人數與形式的收費對不上 → 不轉，寫明原因', () => {
+    const p = S.planLegacyGroups([
+        legacy('S010', { type: '3人小組', weekday: 5 }),                                   // 一個人
+        legacy('S011', { weekday: 1 }), legacy('S012', { weekday: 1, level: 'Grade 5' }),   // 級別不一樣
+        legacy('S013', { weekday: 2 }), legacy('S014', { weekday: 2 }),                     // 同時段已有小組班
+        legacy('S015', { weekday: 4 }), legacy('S016', { weekday: 4, effectiveMonth: '2026-11', futureWeekday: 5, futureTime: '19:00' }),
+        legacy('S017', { weekday: 6 }), legacy('S018', { weekday: 6 }), legacy('S019', { weekday: 6 })   // 3 位都寫 2人小組 → 3 人小組收費不同
+    ], [{ id: 'G01', name: '舊的小組', tutor: 'Instructor A', weekday: 2, time: '21:30' }], legacyRate);
+    assert.strictEqual(p.ready.length, 0);
+    const why = id => p.manual.find(it => it.group.memberIds.indexOf(id) !== -1).reasons.join('；');
+    assert.match(why('S010'), /找不到其他學生/);
+    assert.match(why('S011'), /課程、級別或時長不一樣/);
+    assert.match(why('S013'), /已有小組班「舊的小組」/);
+    assert.match(why('S015'), /預定的改時間/);
+    assert.match(why('S017'), /3 位學生、形式寫「2人小組」.*\$400 變成 \$300/);
+    // 按星期一 → 日排：一（S011）、二（S013）、四（S015）、五（S010）、六（S017）
+    assert.deepStrictEqual(p.manual.map(it => it.group.memberIds[0]), ['S011', 'S013', 'S015', 'S010', 'S017']);
+});
+
+test('小組班的開始月份：之前的月份不出課，當月起照常；下個月的 key 跨年', () => {
+    const g = { id: 'G02', name: 'Pop 小組', program: 'Pop Guitar', level: 'Elementary 初級', duration: 60, tutor: 'Instructor A', weekday: 3, time: '21:30', startMonth: '2026-11' };
+    const members = [legacy('S003', { weekday: null, time: '' }), legacy('S004', { weekday: null, time: '' })];
+    assert.deepStrictEqual(S.generateGroupMonthLessons(g, members, '2026-10'), []);
+    const nov = S.generateGroupMonthLessons(g, members, '2026-11');
+    assert.strictEqual(nov.length, 8, '11 月 4 個週三 × 2 人');
+    assert.ok(nov.every(l => l.groupId === 'G02' && l.classType === '2人小組'));
+    assert.strictEqual(nov[0].lessonId, 'S003-20261104-2130', 'lessonId 與舊寫法生成的相同（學號＋日期＋時間）');
+    assert.strictEqual(S.nextMonthKey('2026-10'), '2026-11');
+    assert.strictEqual(S.nextMonthKey('2026-12'), '2027-01');
+});
