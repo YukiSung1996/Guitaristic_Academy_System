@@ -9,6 +9,7 @@
         let appSettings = {};           // gac_settings_v2：設定
         let gacStore = null;            // lib/storage.js 的 store 實例（window.onload 時建立）
         let currentViewMode = 'calendar'; // 總課表預設月曆總覽；「📋 清單」一鍵切回（操作都在清單）
+        let currentTabId = 'masterTab';   // 目前的頁籤（switchTab 更新；重新整理時記下，見 app.js saveViewState）
         let monthWeeksData = [];
         let manualMode = false;         // 手動模式：跳過狀態機限制、不觸發小組聯動（每次載入預設關閉，防誤觸）
         let tutorsList = [];           // gac_tutors_v3：導師名單 [{name, tier}]

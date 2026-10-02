@@ -54,6 +54,7 @@ const sandbox = {
         addEventListener() {}
     },
     localStorage: fakeStorage,
+    sessionStorage: (() => { const m = new Map(); return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k), clear: () => m.clear() }; })(),
     alert: msg => sandbox.alerts.push(String(msg)),
     confirm: () => true,
     prompt: () => '',
@@ -2989,6 +2990,51 @@ console.log('[42] 改動時間與同步面板排序');
         ' orphans: [{ id: "o1", summary: "x", start: { dateTime: "2026-09-05T10:00:00+08:00" }, updated: "2026-09-01T00:00:00.000Z" }, { id: "o2", summary: "y", start: { dateTime: "2026-09-09T10:00:00+08:00" }, updated: "2026-09-14T00:00:00.000Z" }] };' +
         ' gcalSortPlan(p); return p.toPush.map(x => x.lessons[0].studentId).join("") + "|" + p.orphans.map(e => e.id).join(","); })()');
     check('面板排序：最近改動的在前（D 比 B 晚改），沒有改動時間的按上課日期；殘留按事件的 updated', order === 'DBCA|o2,o1');
+})();
+
+// 44) 重新整理回到原處：頁籤、各頁月份、總課表清單／月曆、捲動位置記在這個分頁的 sessionStorage；新開的分頁照舊從總課表、本月開始
+console.log('[44] 重新整理回到原處');
+(() => {
+    const IDS = ['batchMonth', 'sendMonth', 'payMonth', 'anaMonth', 'advancedPayrollMonth'];
+    const was = { months: IDS.map(id => getEl(id).value), view: run('currentViewMode'), tab: run('currentTabId') };
+    sandbox.sessionStorage.clear();
+    check('新開的分頁：沒有記下的位置', run('loadViewState()') === null);
+    run('applyStartMonths(null)');
+    check('沒有位置 → 各頁月份＝本月（高級薪酬頁也是）', IDS.every(id => getEl(id).value === '2026-09'));
+    run("switchTab('settingsTab'); switchView('list')");
+    getEl('payMonth').value = '2026-08';
+    getEl('advancedPayrollMonth').value = '2026-07';
+    sandbox.scrollY = 640;
+    getEl('masterScheduleList').scrollTop = 300;
+    run('saveViewState()');
+    const v = run('loadViewState()');
+    check('離開頁面時記下：頁籤、各頁月份、清單視圖、捲動位置（連清單裡面）', !!v && v.tab === 'settingsTab' && v.view === 'list' && v.y === 640 && v.boxes.masterScheduleList === 300 && !('historyList' in v.boxes)
+        && v.months.payMonth === '2026-08' && v.months.advancedPayrollMonth === '2026-07' && v.months.batchMonth === '2026-09');
+    // 模擬重新整理：頁面回到初始（總課表、月曆、本月），再按記下的套回
+    run("switchView('calendar'); switchTab('masterTab'); applyStartMonths(null)");
+    getEl('masterScheduleList').scrollTop = 0;
+    let scrolled = null;
+    const realTimeout = sandbox.setTimeout;
+    sandbox.scrollTo = (x, y) => { scrolled = y; };
+    sandbox.setTimeout = (fn, ms) => (String(fn).includes('scrollTo') ? fn() : realTimeout(fn, ms));   // 捲動那一下直接做，其他照舊
+    run('(() => { const view = loadViewState(); applyStartMonths(view); restoreViewPosition(view); })()');
+    sandbox.setTimeout = realTimeout;
+    check('重新整理後：回到設定頁、清單視圖、原本的月份、捲回原處（連清單裡面）', run('currentTabId') === 'settingsTab' && run('currentViewMode') === 'list'
+        && getEl('payMonth').value === '2026-08' && getEl('advancedPayrollMonth').value === '2026-07' && getEl('sendMonth').value === '2026-09' && scrolled === 640
+        && getEl('masterScheduleList').scrollTop === 300);
+    run('applyStartMonths({ months: { batchMonth: "2026/10", sendMonth: "x", payMonth: "2026-11" } })');
+    check('記下的月份格式不對 → 該頁用本月', getEl('batchMonth').value === '2026-09' && getEl('sendMonth').value === '2026-09' && getEl('payMonth').value === '2026-11');
+    sandbox.sessionStorage.setItem('gac_view_state', '{壞掉');
+    check('記下的位置損壞 → 當作沒有（不出錯）', run('loadViewState()') === null);
+    scrolled = null;
+    run('restoreViewPosition(null)');
+    check('沒有位置 → 不切頁、不捲動', run('currentTabId') === 'settingsTab' && scrolled === null);
+    // 收尾：放回原本的月份、視圖、頁籤
+    delete sandbox.scrollTo; delete sandbox.scrollY; delete getEl('masterScheduleList').scrollTop;
+    sandbox.sessionStorage.clear();
+    IDS.forEach((id, i) => { getEl(id).value = was.months[i]; });
+    run('switchView(' + JSON.stringify(was.view) + '); switchTab(' + JSON.stringify(was.tab) + '); rebuildMonthContext(); renderAll()');
+    check('清理完成', run('currentTabId') === was.tab && getEl('batchMonth').value === was.months[0]);
 })();
 
 // 41) 糧單下載（Excel）：隔離在 2027-02，測完清掉。PDF 要真的 canvas，這裡的 stub DOM 畫不了，改在真實瀏覽器驗

@@ -21,11 +21,9 @@
                 alert('⚠️ 部分本機資料載入失敗（已回退預設值）：\n' + gacStore.errors.join('\n'));
             }
 
-            const monthStr = localDateStr(new Date()).slice(0, 7);
-            document.getElementById('batchMonth').value = monthStr;
-            document.getElementById('sendMonth').value = monthStr;
-            document.getElementById('payMonth').value = monthStr;
-            document.getElementById('anaMonth').value = monthStr;
+            // 重新整理前的位置（同一個分頁才有；新開的分頁＝沒有 → 總課表、本月）
+            const view = loadViewState();
+            applyStartMonths(view);
 
             loadSettingsForm();
             renderStorageLocationNote();
@@ -38,6 +36,8 @@
             renderAll();
             renderHistoryUI();
             installModalClose();
+            restoreViewPosition(view);
+            window.addEventListener('pagehide', saveViewState);
         };
 
         // ===== 資料存放（檔案模式，見 lib/storage.js pickStorage）=====
@@ -502,8 +502,58 @@
                 : '<div class="mt-1 text-sky-700"><i class="fa-brands fa-google"></i> Calendar 上已有這堂的話：改期後的通知彈窗會問「同步到 Google Calendar 嗎？」，按下即把原本那個事件改到新時間（不另建新事件）。</div>';
         }
 
+        // ===== 重新整理後回到原處：頁籤、各頁的月份、總課表的清單／月曆、捲動位置（連清單裡面捲到哪）=====
+        // 離開頁面（pagehide：重新整理、關分頁）時記進這個分頁的 sessionStorage，載入時套回。
+        // 只在同一個分頁有效：新開的分頁（serve.cmd 開的）照舊從總課表、本月開始。介面便利，不入資料檔、不入備份。
+        const VIEW_STATE_KEY = 'gac_view_state';
+        const VIEW_MONTH_INPUTS = ['batchMonth', 'sendMonth', 'payMonth', 'anaMonth', 'advancedPayrollMonth'];
+        const VIEW_SCROLL_BOXES = ['masterScheduleList', 'historyList'];   // 自己有捲軸的清單
+        // 捲動位置由 restoreViewPosition 還原（頁籤切好之後才捲），不讓瀏覽器在載入途中自己捲
+        try { if (window.history && 'scrollRestoration' in window.history) window.history.scrollRestoration = 'manual'; } catch (e) { /* 不支援就算了 */ }
+
+        function saveViewState() {
+            try {
+                const months = {}, boxes = {};
+                VIEW_MONTH_INPUTS.forEach(id => { const el = document.getElementById(id); if (el && el.value) months[id] = el.value; });
+                VIEW_SCROLL_BOXES.forEach(id => { const el = document.getElementById(id); if (el && el.scrollTop > 0) boxes[id] = Math.round(el.scrollTop); });
+                window.sessionStorage.setItem(VIEW_STATE_KEY, JSON.stringify({ tab: currentTabId, months, view: currentViewMode, y: Math.round(window.scrollY || 0), boxes }));
+            } catch (e) { /* 記不了：重新整理後回到總課表，不影響資料 */ }
+        }
+
+        function loadViewState() {
+            try {
+                const v = JSON.parse(window.sessionStorage.getItem(VIEW_STATE_KEY) || 'null');
+                return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+            } catch (e) { return null; }
+        }
+
+        // 各頁的月份：重新整理前選的；沒有（新開的分頁）＝本月
+        function applyStartMonths(view) {
+            const thisMonth = localDateStr(new Date()).slice(0, 7);
+            const saved = (view && view.months) || {};
+            VIEW_MONTH_INPUTS.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = /^\d{4}-\d{2}$/.test(saved[id] || '') ? saved[id] : thisMonth;
+            });
+        }
+
+        // 畫面都畫好之後：切回原本的視圖與頁籤，再捲回原處（等這一輪的樣式排好再捲）
+        function restoreViewPosition(view) {
+            if (!view) return;
+            if (view.view === 'list' && currentViewMode !== 'list') switchView('list');
+            if (view.tab && view.tab !== currentTabId && document.getElementById(view.tab) && document.getElementById('tab_' + view.tab)) switchTab(view.tab);
+            const y = Math.max(0, Math.round(Number(view.y) || 0));
+            const boxes = view.boxes && typeof view.boxes === 'object' ? view.boxes : {};
+            if (!y && !Object.keys(boxes).length) return;
+            setTimeout(() => {
+                VIEW_SCROLL_BOXES.forEach(id => { const el = document.getElementById(id); if (el && boxes[id] > 0) el.scrollTop = boxes[id]; });
+                if (y && typeof window.scrollTo === 'function') window.scrollTo(0, y);
+            }, 0);
+        }
+
         // Navigation Tab Switching
         function switchTab(tabId) {
+            currentTabId = tabId;
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
 
