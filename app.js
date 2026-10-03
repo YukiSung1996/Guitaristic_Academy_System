@@ -904,8 +904,8 @@
         // ===== 舊寫法的小組 → 小組班 =====
         // 以前「2人小組」這類小組形式可以寫在學生自己的常規課上（同一位導師、同一時間的幾位學生湊成一節）；現在小組一律用小組班，
         // 學生自己的常規課只有一對一。打開程式時列出系統找到的小組給人確認（GACSchedule.planLegacyGroups）；
-        // 轉換＝建小組班（下個月起排課，startMonth）＋這幾位改成只上小組。本月已生成的課不動；
-        // 下個月以後已經生成的月份，這幾位的課一併改成小組課（lessonId 相同，出席／請假記錄保留）。整個動作可撤銷。
+        // 轉換＝建小組班（本月起排課，startMonth＝本月；之前的月份照舊）＋這幾位改成只上小組。
+        // 本月及之後已經生成的月份，這幾位的課一併改成小組課（lessonId 相同，出席／請假記錄保留）。整個動作可撤銷。
         let legacyGroupState = null;   // { plan, thisMonth, startMonth, result }
         const LEGACY_GROUP_LATER_KEY = 'gac_legacy_group_later';   // 這個分頁已自動彈過（sessionStorage）：載入時不再彈
 
@@ -943,7 +943,7 @@
             const taken = new Set(groupClasses.map(g => g.name));
             plan.ready.forEach(it => { it.group.name = legacyGroupName(it.group, taken); taken.add(it.group.name); });
             const thisMonth = localDateStr(new Date()).slice(0, 7);
-            legacyGroupState = { plan: plan, thisMonth: thisMonth, startMonth: GACSchedule.nextMonthKey(thisMonth), result: null };
+            legacyGroupState = { plan: plan, thisMonth: thisMonth, startMonth: thisMonth, result: null };
             renderLegacyGroupDialog();
             document.getElementById('msgModal').classList.remove('hidden');
             return true;
@@ -972,7 +972,7 @@
                 const months = Object.keys(r.months).sort();
                 document.getElementById('msgModalBody').innerHTML = `<div class="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 space-y-1">
                         <p>建立了 ${r.groups.length} 個小組班：${r.groups.map(g => `<b>${escapeHtml(g.name)}</b>（${g.id}，${g.memberIds.length} 人，逢${getWeekdayName(g.weekday)} ${g.time}）`).join('、')}。成員改成只上小組。</p>
-                        <p><b>${st.startMonth} 起</b>按小組班排課；本月（${st.thisMonth}）的課不動。${months.length ? `${months.join('、')} 已生成的課已改成小組課（出席／請假記錄保留）。` : ''}</p>
+                        <p><b>本月（${st.startMonth}）起</b>按小組班排課，之前的月份照舊。${months.length ? `${months.join('、')} 已生成的課已改成小組課（出席／請假記錄保留）。` : ''}</p>
                         ${r.conflicts.length ? `<p class="text-amber-800">⚠️ 有 ${r.conflicts.length} 堂已有狀態、對不上小組班的日子，保留不動，請人工處理：${r.conflicts.map(l => `${escapeHtml(l.studentName)} ${l.date} ${l.time}`).join('、')}</p>` : ''}
                         <p>改錯了可以按頂部「撤銷」。</p>
                     </div>` + manualHtml;
@@ -992,13 +992,13 @@
             document.getElementById('msgModalBody').innerHTML =
                 `<div class="p-2.5 bg-sky-50 border border-sky-200 rounded-lg text-sky-900 space-y-1">
                     <p>以前「2人小組」這類小組形式可以寫在學生自己的常規課上；現在小組一律用<b>小組班</b>（2 人、5 人都一樣）：一節課一個 Calendar 事件，可以全組請假、全組改期，撞堂和導師節數都按一節算。學生自己的常規課以後只有一對一。</p>
-                    ${st.plan.ready.length ? `<p>勾選的會建成小組班，<b>${st.startMonth} 起</b>按小組班排課；<b>本月（${st.thisMonth}）已生成的課不動</b>。每堂收費不變；之後可按「撤銷」退回。</p>` : ''}
+                    ${st.plan.ready.length ? `<p>勾選的會建成小組班，<b>本月（${st.startMonth}）起</b>按小組班排課；本月及之後已生成的課一併改成小組課（出席、請假記錄保留），之前的月份照舊。每堂收費不變；之後可按「撤銷」退回。</p>` : ''}
                 </div>` +
                 (readyHtml ? `<div class="space-y-1.5"><div class="font-bold text-slate-700">可以直接轉（${st.plan.ready.length} 組）</div>${readyHtml}</div>` : '') +
                 manualHtml +
                 (st.plan.ready.length ? `<div class="flex flex-wrap justify-end gap-1.5 pt-1">
                     <button onclick="legacyGroupLater()" class="${btn} bg-slate-100 hover:bg-slate-200 text-slate-700">稍後再說</button>
-                    <button onclick="applyLegacyGroupConvert()" class="${btn} bg-indigo-600 hover:bg-indigo-700 text-white">轉成小組班（${st.startMonth} 起）</button>
+                    <button onclick="applyLegacyGroupConvert()" class="${btn} bg-indigo-600 hover:bg-indigo-700 text-white">轉成小組班（本月起）</button>
                 </div>` : '');
         }
 
@@ -1020,7 +1020,7 @@
                 const g = Object.assign({ id: nextGroupId() }, it.group, { startMonth: st.startMonth });
                 groupClasses.push(g);
                 const members = g.memberIds.map(id => studentDatabase.find(s => s.id === id)).filter(Boolean);
-                // 下個月以後已生成的月份：他們的課改成小組課（生成的小組課 lessonId 與原本的相同 → 命中、保留狀態，只刷新顯示欄位）
+                // 本月及之後已生成的月份：他們的課改成小組課（生成的小組課 lessonId 與原本的相同 → 命中、保留狀態，只刷新顯示欄位）
                 const months = legacyGeneratedMonths(g.memberIds, st.startMonth);
                 // 這幾位改成只上小組（同學生表單不勾「有常規私教課」）
                 members.forEach(s => Object.assign(s, { type: '', program: '', level: '', tutor: '', tutorLevel: '', weekday: null, time: '', duration: null,

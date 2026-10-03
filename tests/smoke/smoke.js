@@ -119,9 +119,9 @@ run('window.onload()');
 check('學生載入 14 人（含 3 位只上小組者）＋ 1 個預設小組班', run('studentDatabase.length') === 14 && run('groupClasses.length') === 1);
 check('新 key 已寫入', fakeStorage.getItem('gac_students_v2') !== null);
 // 舊寫法的小組（data.js 的 S003/S004：「2人小組」寫在兩人自己的常規課上）→ 載入時問一次要不要轉成小組班；同一個分頁不再自動問
-check('舊寫法的 2 人小組 → 載入時彈出「小組形式改用小組班」：列出 S003/S004、下個月（10 月）起、本月不動', getEl('msgModalTitle').textContent === '👥 小組形式改用小組班'
-    && getEl('msgModalBody').innerHTML.includes('Student 003（S003）、Student 004（S004）') && getEl('msgModalBody').innerHTML.includes('2026-10 起')
-    && getEl('msgModalBody').innerHTML.includes('本月（2026-09）已生成的課不動'));
+check('舊寫法的 2 人小組 → 載入時彈出「小組形式改用小組班」：列出 S003/S004、本月（9 月）起生效', getEl('msgModalTitle').textContent === '👥 小組形式改用小組班'
+    && getEl('msgModalBody').innerHTML.includes('Student 003（S003）、Student 004（S004）') && getEl('msgModalBody').innerHTML.includes('本月（2026-09）起')
+    && getEl('msgModalBody').innerHTML.includes('之前的月份照舊'));
 getEl('msgModalTitle').textContent = '';
 check('同一個分頁不再自動問（學生名單上方一直有提示）', run('maybeOfferLegacyGroupConvert()') === false && getEl('msgModalTitle').textContent === ''
     && getEl('legacyGroupBanner').innerHTML.includes('轉成小組班'));
@@ -3056,8 +3056,8 @@ console.log('[44] 重新整理回到原處');
     check('清理完成', run('currentTabId') === was.tab && getEl('batchMonth').value === was.months[0]);
 })();
 
-// 45) 舊寫法的小組 → 小組班：學生表單只有一對一；舊寫法鎖住（只改電話不動課）；轉換從下個月起、本月不動、
-//     下個月已生成的一併改成小組課（狀態保留）、收費不變、可撤銷。測完整個放回原狀（後面的非同步尾段照舊用舊寫法的 S003/S004）
+// 45) 舊寫法的小組 → 小組班：學生表單只有一對一；舊寫法鎖住（只改電話不動課）；轉換本月起生效——本月與之後
+//     已生成的一併改成小組課（狀態保留）、之前的月份照舊、收費不變、可撤銷。測完整個放回原狀（後面的非同步尾段照舊用舊寫法的 S003/S004）
 console.log('[45] 舊寫法的小組轉成小組班');
 (() => {
     const snap = run('JSON.stringify({ s: studentDatabase, g: groupClasses, l: lessonsByMonth, t: sendLog, h: actionHistory })');
@@ -3066,7 +3066,7 @@ console.log('[45] 舊寫法的小組轉成小組班');
     const confirmWas = sandbox.confirm;
     const i3 = run('studentDatabase.findIndex(s => s.id === "S003")');
     const S3 = 'studentDatabase[' + i3 + ']';
-    const sepState = () => run('JSON.stringify(lessonsByMonth["2026-09"].slice().sort((a, b) => (a.lessonId < b.lessonId ? -1 : 1)))');
+    const sepState = () => run('JSON.stringify(lessonsByMonth["2026-09"].slice().sort((a, b) => (a.lessonId < b.lessonId ? -1 : 1)).map(l => Object.assign({}, l, { changedAt: undefined })))');
     sandbox.__qsaHook = () => [];
     // 學生表單：一般學生只有一對一；舊寫法照存著的樣子顯示並鎖住
     run('openStudentModal(0)');
@@ -3106,21 +3106,24 @@ console.log('[45] 舊寫法的小組轉成小組班');
     const octAmt = run('sendLog["TUITION:S003:2026-10"].amount');
     const sepBefore = sepState();
     run('openLegacyGroupConvert(false)');
-    check('對話框：列出 S003/S004、要建的小組班、10 月已生成的課一併改成小組課', getEl('msgModalBody').innerHTML.includes('Student 003（S003）、Student 004（S004）')
-        && getEl('msgModalBody').innerHTML.includes('小組班「Pop Guitar Elementary 初級 小組」') && getEl('msgModalBody').innerHTML.includes('2026-10 已生成的課一併改成小組課'));
+    check('對話框：列出 S003/S004、要建的小組班、本月與 10 月已生成的課一併改成小組課', getEl('msgModalBody').innerHTML.includes('Student 003（S003）、Student 004（S004）')
+        && getEl('msgModalBody').innerHTML.includes('小組班「Pop Guitar Elementary 初級 小組」') && getEl('msgModalBody').innerHTML.includes('2026-09、2026-10 已生成的課一併改成小組課'));
     sandbox.__qsaHook = sel => (sel === '.legacy-group-chk' ? [{ checked: true, value: '0' }] : []);
     run('applyLegacyGroupConvert()');
     const G = JSON.parse(run('JSON.stringify(groupClasses.find(g => g.memberIds.join() === "S003,S004") || null)'));
-    check('建了小組班：S003+S004、Instructor A 週三 21:30、Pop Guitar Elementary 初級 60 分鐘、2026-10 起', !!G && G.tutor === 'Instructor A' && G.weekday === 3 && G.time === '21:30'
-        && G.program === 'Pop Guitar' && G.level === 'Elementary 初級' && G.duration === 60 && G.startMonth === '2026-10' && G.name === 'Pop Guitar Elementary 初級 小組');
+    check('建了小組班：S003+S004、Instructor A 週三 21:30、Pop Guitar Elementary 初級 60 分鐘、本月（2026-09）起', !!G && G.tutor === 'Instructor A' && G.weekday === 3 && G.time === '21:30'
+        && G.program === 'Pop Guitar' && G.level === 'Elementary 初級' && G.duration === 60 && G.startMonth === '2026-09' && G.name === 'Pop Guitar Elementary 初級 小組');
     check('兩人改成只上小組（沒有自己的常規課）', !run('hasIndividualSlot(' + S3 + ')') && !run('hasIndividualSlot(studentDatabase[' + (i3 + 1) + '])'));
-    check('本月（9 月）的課一堂都沒動', sepState() === sepBefore);
+    const sepAfter = JSON.parse(sepState()), sepWas = JSON.parse(sepBefore);
+    check('本月（9 月）的課一併改成小組課：同樣的課、狀態不變、都掛上小組班', sepAfter.length === sepWas.length
+        && sepAfter.every((l, i) => l.lessonId === sepWas[i].lessonId && l.status === sepWas[i].status && l.leaveType === sepWas[i].leaveType)
+        && sepAfter.filter(l => l.studentId === 'S003' || l.studentId === 'S004').every(l => l.isMakeup || l.groupId === G.id));
     const oct = JSON.parse(run('JSON.stringify(lessonsByMonth["2026-10"].filter(l => (l.studentId === "S003" || l.studentId === "S004") && !l.isMakeup))'));
     check('10 月已生成的課改成小組課：同樣 8 堂、lessonId 不變、請假那堂還是請假', oct.length === 8 && oct.every(l => l.groupId === G.id && l.classType === '2人小組')
         && oct.find(l => l.lessonId === octId).status === 'LEAVE' && oct.find(l => l.lessonId === octId).leaveType === 'SL');
     check('收費不變（10 月學費條目金額相同）', run('sendLog["TUITION:S003:2026-10"].amount') === octAmt);
-    check('結果：寫明建了哪個小組班、10 月已改、本月不動、可撤銷', getEl('msgModalTitle').textContent === '✅ 已轉成小組班' && getEl('msgModalBody').innerHTML.includes(G.id)
-        && getEl('msgModalBody').innerHTML.includes('2026-10 已生成的課已改成小組課') && getEl('msgModalBody').innerHTML.includes('本月（2026-09）的課不動')
+    check('結果：寫明建了哪個小組班、本月與 10 月已改、可撤銷', getEl('msgModalTitle').textContent === '✅ 已轉成小組班' && getEl('msgModalBody').innerHTML.includes(G.id)
+        && getEl('msgModalBody').innerHTML.includes('2026-09、2026-10 已生成的課已改成小組課') && getEl('msgModalBody').innerHTML.includes('本月（2026-09）起')
         && getEl('msgModalBody').innerHTML.includes('撤銷'));
     check('沒有舊寫法的學生了 → 名單上方不再提示', run('studentDatabase.filter(s => GACSchedule.isLegacyGroupStudent(s)).length') === 0 && getEl('legacyGroupBanner').innerHTML === '');
     // 本月再按「生成」（勾了新的小組班）：小組班 10 月才開始，本月照舊
@@ -3128,7 +3131,7 @@ console.log('[45] 舊寫法的小組轉成小組班');
     run('onBatchMonthChange()');
     sandbox.__qsaHook = sel => (sel === '.batch-group-chk:checked' ? [{ value: G.id }] : []);
     run('generateMasterSchedule()');
-    check('本月重新生成（勾了新的小組班）：9 月的課還是原樣', sepState() === sepBefore);
+    check('本月重新生成（勾了新的小組班）：9 月的課還是原樣（已經是小組課，再生成不變）', sepState() === JSON.stringify(sepAfter));
     // 11 月：按小組班生成，收費與以前一樣
     getEl('batchMonth').value = '2026-11';
     run('onBatchMonthChange()');
@@ -3139,8 +3142,8 @@ console.log('[45] 舊寫法的小組轉成小組班');
         && run('sendLog["TUITION:S003:2026-11"].amount') === 4 * oldRate);
     // 撤銷三步（生成 11 月、生成 9 月、轉換）→ 回到舊寫法
     run('undoLastAction(); undoLastAction(); undoLastAction()');
-    check('撤銷 → 回到舊寫法（兩人又是 2人小組、小組班不見、10 月的課沒有小組）', run(S3 + '.type') === '2人小組' && !run('groupClasses.some(g => g.id === "' + G.id + '")')
-        && run('lessonsByMonth["2026-10"].filter(l => l.studentId === "S003" && !l.isMakeup).every(l => !l.groupId)'));
+    check('撤銷 → 回到舊寫法（兩人又是 2人小組、小組班不見、9 月與 10 月的課沒有小組）', run(S3 + '.type') === '2人小組' && !run('groupClasses.some(g => g.id === "' + G.id + '")')
+        && run('lessonsByMonth["2026-10"].filter(l => l.studentId === "S003" && !l.isMakeup).every(l => !l.groupId)') && sepState() === sepBefore);
     // 放回原狀
     run('(() => { const o = JSON.parse(' + JSON.stringify(snap) + '); studentDatabase = o.s; groupClasses = o.g; lessonsByMonth = o.l; sendLog = o.t; actionHistory = o.h;' +
         ' redoStack = []; redoStackBackup = null; saveToLocalStorage(); persistGroups(); persistLessons(); gacStore.saveSendlog(sendLog); gacStore.saveHistory(actionHistory); })()');
