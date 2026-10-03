@@ -19,13 +19,13 @@ function makeBuckets() {
 }
 const L2 = 'S001-20260908-2130'; // 第 2 節（9/8）
 
-test('B1: SCHEDULED→LEAVE（不填補堂）→ 成功，makeupLessonId=null，出現在待補池', () => {
+test('B1: SCHEDULED→LEAVE（不填補堂）→ 成功，沒有補堂，出現在待補池', () => {
     const buckets = makeBuckets();
     const res = LS.markStatus(buckets, L2, 'LEAVE', { leaveType: 'L' });
     assert.strictEqual(res.ok, true);
     assert.strictEqual(res.lesson.status, 'LEAVE');
     assert.strictEqual(res.lesson.leaveType, 'L');
-    assert.strictEqual(res.lesson.makeupLessonId, null);
+    assert.deepStrictEqual(res.lesson.makeupLessonIds, []);
     const pool = LS.pendingMakeups(buckets, '2026-09-15');
     assert.strictEqual(pool.length, 1);
     assert.strictEqual(pool[0].lesson.lessonId, L2);
@@ -53,7 +53,9 @@ test('B3: 排補堂 → 新課 isMakeup、originLessonId 正確；原課指向�
     assert.strictEqual(res.makeup.originLessonId, L2);
     assert.strictEqual(res.makeup.monthRef, '09/2026', '補堂標題沿用原課月份');
     const origin = LS.findLesson(buckets, L2).lesson;
-    assert.strictEqual(origin.makeupLessonId, res.makeup.lessonId);
+    assert.deepStrictEqual(origin.makeupLessonIds, [res.makeup.lessonId]);
+    assert.strictEqual(res.makeup.duration, 45, '不填分鐘＝一整堂');
+    assert.strictEqual(res.makeup.baseDuration, 45);
     assert.strictEqual(LS.pendingMakeups(buckets, '2026-10-15').length, 0);
     assert.ok(buckets['2026-10'].some(l => l.lessonId === res.makeup.lessonId), '補堂應存入 10 月分桶');
 });
@@ -71,7 +73,7 @@ test('B4: 重複排補堂被攔截並附已有補堂資訊；「取消並重排�
     const replaced = LS.scheduleMakeup(buckets, L2, { date: '2026-10-09', time: '16:00' }, { replaceExisting: true });
     assert.strictEqual(replaced.ok, true);
     assert.strictEqual(LS.findLesson(buckets, first.makeup.lessonId), null, '舊補堂應被刪除');
-    assert.strictEqual(LS.findLesson(buckets, L2).lesson.makeupLessonId, replaced.makeup.lessonId);
+    assert.deepStrictEqual(LS.findLesson(buckets, L2).lesson.makeupLessonIds, [replaced.makeup.lessonId]);
     // 已出席的舊補堂不可被重排取代
     LS.markStatus(buckets, replaced.makeup.lessonId, 'ATTENDED');
     const blocked = LS.scheduleMakeup(buckets, L2, { date: '2026-10-16', time: '16:00' }, { replaceExisting: true });
@@ -89,7 +91,7 @@ test('B5: 補堂課再 LEAVE → 回池；再排補堂 → originLessonId 仍指
     assert.strictEqual(pool[0].lesson.lessonId, mu1.lessonId, '請假的補堂課本身回池');
     const mu2 = LS.scheduleMakeup(buckets, mu1.lessonId, { date: '2026-10-20', time: '15:00' }).makeup;
     assert.strictEqual(mu2.originLessonId, L2, '鏈式補堂 originLessonId 一直指向最初原課');
-    assert.strictEqual(LS.findLesson(buckets, mu1.lessonId).lesson.makeupLessonId, mu2.lessonId);
+    assert.deepStrictEqual(LS.findLesson(buckets, mu1.lessonId).lesson.makeupLessonIds, [mu2.lessonId]);
 });
 
 test('B6: 撤銷 ATTENDED → 回 SCHEDULED；撤銷已有補堂的 LEAVE → 被要求先處理補堂', () => {
@@ -105,10 +107,11 @@ test('B6: 撤銷 ATTENDED → 回 SCHEDULED；撤銷已有補堂的 LEAVE → �
     assert.strictEqual(blocked.ok, false);
     assert.strictEqual(blocked.code, 'HAS_MAKEUP');
     assert.strictEqual(blocked.makeupLessonId, mu.lessonId);
+    assert.deepStrictEqual(blocked.makeupLessonIds, [mu.lessonId]);
     // 取消補堂後可撤銷
     const cancelled = LS.cancelMakeup(buckets, mu.lessonId);
     assert.strictEqual(cancelled.ok, true);
-    assert.strictEqual(LS.findLesson(buckets, L2).lesson.makeupLessonId, null, '取消後回池');
+    assert.deepStrictEqual(LS.findLesson(buckets, L2).lesson.makeupLessonIds, [], '取消後回池');
     assert.strictEqual(LS.markStatus(buckets, L2, 'SCHEDULED').ok, true);
 });
 
@@ -129,7 +132,7 @@ test('B8: JSON 序列化重載（模擬刷新頁面）→ 狀態與鏈接完好�
     // 模擬 localStorage round-trip
     buckets = JSON.parse(JSON.stringify(buckets));
     assert.strictEqual(LS.findLesson(buckets, L2).lesson.status, 'LEAVE');
-    assert.strictEqual(LS.findLesson(buckets, L2).lesson.makeupLessonId, mu1.lessonId);
+    assert.deepStrictEqual(LS.findLesson(buckets, L2).lesson.makeupLessonIds, [mu1.lessonId]);
     assert.strictEqual(LS.findLesson(buckets, mu1.lessonId).lesson.originLessonId, L2);
     assert.strictEqual(LS.findLesson(buckets, 'S001-20260901-2130').lesson.status, 'ATTENDED');
     // 重載後鏈式操作仍正常（引用全是 ID，不會斷鏈）
@@ -252,7 +255,7 @@ test('手動: forceStatus 仍保護補堂鏈——已排補堂的請假不可直
     const res = LS.forceStatus(buckets, L2, 'LEAVE', { leaveType: 'TL' });
     assert.strictEqual(res.ok, true);
     assert.strictEqual(res.lesson.leaveType, 'TL');
-    assert.strictEqual(res.lesson.makeupLessonId, mu.lessonId);
+    assert.deepStrictEqual(res.lesson.makeupLessonIds, [mu.lessonId]);
 });
 
 test('對帳: moveLessonDateTime 同月改時間——id 不變、桶不動', () => {
@@ -279,7 +282,7 @@ test('對帳: moveLessonDateTime 跨月移桶——鏈接與查找完好，空�
     const found = LS.findLesson(buckets, mu.lessonId);
     assert.strictEqual(found.monthKey, '2026-11');
     assert.strictEqual(found.lesson.date, '2026-11-01');
-    assert.strictEqual(LS.findLesson(buckets, L2).lesson.makeupLessonId, mu.lessonId, '原課仍指向同一補堂 id');
+    assert.deepStrictEqual(LS.findLesson(buckets, L2).lesson.makeupLessonIds, [mu.lessonId], '原課仍指向同一補堂 id');
     assert.strictEqual(LS.moveLessonDateTime(buckets, 'NOPE', '2026-11-01', '10:00').code, 'NOT_FOUND');
 });
 
@@ -309,7 +312,7 @@ test('清空整月 clearMonth：整桶刪除、跨月補堂級聯、鏈式補堂
     assert.strictEqual(buckets['2026-11'], undefined, '11 月鏈式補堂應級聯刪除');
     // 8 月原課解鏈回池
     const aug = LS.findLesson(buckets, 'S002-20260804-2130');
-    assert.strictEqual(aug.lesson.makeupLessonId, null);
+    assert.deepStrictEqual(aug.lesson.makeupLessonIds, []);
     assert.strictEqual(aug.lesson.status, 'LEAVE', '請假狀態保留（回到待補池）');
     assert.strictEqual(res.unlinked.length, 1);
     assert.strictEqual(LS.pendingMakeups(buckets, '2026-12-01')[0].lesson.lessonId, 'S002-20260804-2130');
@@ -326,4 +329,107 @@ test('B-filter: confirmScheduledInRange 的 filter 述詞只確認符合者（UI
     assert.strictEqual(buckets['2026-09'][0].status, 'ATTENDED');
     const none = LS.confirmScheduledInRange(buckets, '2026-09-01', '2026-09-30', { maxDate: '2026-09-15', filter: () => false });
     assert.strictEqual(none.count, 0);
+});
+
+// ===== 分段補堂：一堂請假掛多個補堂、按分鐘記欠、課後加時跟主課 =====
+function partsBuckets() {
+    const buckets = makeBuckets();
+    LS.markStatus(buckets, L2, 'LEAVE', { leaveType: 'SL' });   // 9/8 的 45 分鐘課請假
+    return buckets;
+}
+const L3 = 'S001-20260915-2130', L4 = 'S001-20260922-2130', L5 = 'S001-20260929-2130';
+
+test('分段補堂：45 分鐘的請假排三段 15 分鐘（接在之後三堂常規課後面）→ 每段都是補堂課、記原課一整堂的長度與主課；欠的分鐘逐段減少；補夠後離開待補池', () => {
+    const buckets = partsBuckets();
+    assert.strictEqual(LS.remainingMinutes(buckets, LS.findLesson(buckets, L2).lesson), 45);
+    const a = LS.scheduleMakeup(buckets, L2, { date: '2026-09-15', time: '22:15', duration: 15, hostLessonId: L3 });
+    assert.strictEqual(a.ok, true);
+    assert.strictEqual(a.remaining, 30);
+    assert.deepStrictEqual([a.makeup.duration, a.makeup.baseDuration, a.makeup.hostLessonId, a.makeup.originLessonId, a.makeup.isMakeup], [15, 45, L3, L2, true]);
+    assert.strictEqual(S.lessonWeight(a.makeup), 1 / 3);
+    assert.strictEqual(LS.pendingMakeups(buckets, '2026-09-16')[0].remaining, 30, '補了 15 還欠 30，仍在池裡');
+    const b = LS.scheduleMakeup(buckets, L2, { date: '2026-09-22', time: '22:15', duration: 15, hostLessonId: L4 });
+    const tooMuch = LS.scheduleMakeup(buckets, L2, { date: '2026-09-29', time: '22:15', duration: 30, hostLessonId: L5 });
+    assert.strictEqual(tooMuch.code, 'EXCEEDS_REMAINING');
+    assert.strictEqual(tooMuch.remaining, 15);
+    const c = LS.scheduleMakeup(buckets, L2, { date: '2026-09-29', time: '22:15', hostLessonId: L5 });   // 不填分鐘＝把欠的補完
+    assert.strictEqual(c.makeup.duration, 15);
+    const origin = LS.findLesson(buckets, L2).lesson;
+    assert.deepStrictEqual(origin.makeupLessonIds, [a.makeup.lessonId, b.makeup.lessonId, c.makeup.lessonId]);
+    assert.strictEqual(LS.coveredMinutes(buckets, origin), 45);
+    assert.strictEqual(LS.pendingMakeups(buckets, '2026-09-16').length, 0, '補夠了就不在池裡');
+    assert.strictEqual(LS.scheduleMakeup(buckets, L2, { date: '2026-10-06', time: '22:15', duration: 15 }).code, 'DUPLICATE_MAKEUP');
+    assert.strictEqual(LS.markStatus(buckets, L2, 'SCHEDULED').code, 'HAS_MAKEUP', '有補堂就不能還原');
+    // 取消其中一段 → 那 15 分鐘回到待補池
+    assert.strictEqual(LS.cancelMakeup(buckets, b.makeup.lessonId).ok, true);
+    assert.deepStrictEqual(LS.findLesson(buckets, L2).lesson.makeupLessonIds, [a.makeup.lessonId, c.makeup.lessonId]);
+    assert.strictEqual(LS.pendingMakeups(buckets, '2026-09-16')[0].remaining, 15);
+    assert.strictEqual(LS.scheduleMakeup(buckets, L2, { date: '2026-09-22', time: '22:15', duration: 0 }).code, 'INVALID_DURATION');
+    assert.deepStrictEqual(LS.partsOf(buckets, L3).map(l => l.lessonId), [a.makeup.lessonId]);
+    assert.strictEqual(LS.remainingMinutes(buckets, a.makeup), 0, '補堂課本身沒請假就不欠');
+});
+
+test('分段補堂：加時的那一段又請假 → 欠的分鐘記在那一段上（原課不重複欠）；再排補堂仍指向最初原課', () => {
+    const buckets = partsBuckets();
+    const a = LS.scheduleMakeup(buckets, L2, { date: '2026-09-15', time: '22:15', duration: 15, hostLessonId: L3 }).makeup;
+    LS.scheduleMakeup(buckets, L2, { date: '2026-09-22', time: '22:15', duration: 30, hostLessonId: L4 });
+    LS.markStatus(buckets, a.lessonId, 'LEAVE', { leaveType: 'L' });
+    const pool = LS.pendingMakeups(buckets, '2026-09-16');
+    assert.deepStrictEqual(pool.map(x => [x.lesson.lessonId, x.remaining]), [[a.lessonId, 15]], '原課補滿了，欠的是那一段');
+    const re = LS.scheduleMakeup(buckets, a.lessonId, { date: '2026-10-06', time: '22:15', duration: 15 });
+    assert.strictEqual(re.ok, true);
+    assert.deepStrictEqual([re.makeup.originLessonId, re.makeup.baseDuration, re.makeup.duration], [L2, 45, 15]);
+    assert.strictEqual(LS.pendingMakeups(buckets, '2026-09-16').length, 0);
+});
+
+test('課後加時跟主課：主課改狀態 → 加時那段同步（已上課／請假／缺席；還原也跟）；手動直設不聯動', () => {
+    const buckets = partsBuckets();
+    const a = LS.scheduleMakeup(buckets, L2, { date: '2026-09-15', time: '22:15', duration: 15, hostLessonId: L3 }).makeup;
+    const r1 = LS.markStatus(buckets, L3, 'ATTENDED');
+    assert.deepStrictEqual(r1.parts.map(p => p.lessonId), [a.lessonId]);
+    assert.strictEqual(a.status, 'ATTENDED');
+    const r2 = LS.markStatus(buckets, L3, 'SCHEDULED');
+    assert.deepStrictEqual(r2.parts.map(p => p.status), ['SCHEDULED'], '主課還原 → 跟主課同狀態的段一併還原');
+    LS.markStatus(buckets, a.lessonId, 'NOSHOW');   // 這段自己先改了
+    assert.deepStrictEqual(LS.markStatus(buckets, L3, 'ATTENDED').parts, [], '段不是已排課就不動');
+    assert.strictEqual(a.status, 'NOSHOW');
+    LS.markStatus(buckets, L3, 'SCHEDULED');
+    assert.strictEqual(a.status, 'NOSHOW', '狀態不同的段不跟著還原');
+    LS.markStatus(buckets, a.lessonId, 'SCHEDULED');
+    const r3 = LS.markStatus(buckets, L3, 'LEAVE', { leaveType: 'TL' });
+    assert.deepStrictEqual([a.status, a.leaveType, r3.parts.length], ['LEAVE', 'TL', 1], '主課請假 → 這段也請假（那 15 分鐘再欠）');
+    assert.deepStrictEqual(LS.pendingMakeups(buckets, '2026-09-16').map(x => [x.lesson.lessonId, x.remaining]).sort(), [[L2, 30], [L3, 45], [a.lessonId, 15]].sort(), '原課還欠 30、主課整堂、那一段 15');
+    LS.markStatus(buckets, L3, 'SCHEDULED');
+    LS.markStatus(buckets, a.lessonId, 'SCHEDULED');
+    const f = LS.forceStatus(buckets, L3, 'ATTENDED');
+    assert.strictEqual(f.ok, true);
+    assert.strictEqual(a.status, 'SCHEDULED', '手動模式只改主課');
+});
+
+test('課後加時跟主課：主課改期 → 加時那段搬到新的下課時間（回傳 parts 供處理 Calendar）；段自己搬走 → 解除掛鉤', () => {
+    const buckets = partsBuckets();
+    const a = LS.scheduleMakeup(buckets, L2, { date: '2026-09-15', time: '22:15', duration: 15, hostLessonId: L3 }).makeup;
+    const b = LS.scheduleMakeup(buckets, L2, { date: '2026-09-15', time: '22:30', duration: 15, hostLessonId: L3 }).makeup;   // 同一主課後兩段（22:15、22:30）
+    LS.markStatus(buckets, b.lessonId, 'ATTENDED');
+    const mv = LS.moveLessonDateTime(buckets, L3, '2026-10-01', '19:00');
+    assert.deepStrictEqual(mv.parts.map(p => [p.lesson.lessonId, p.fromDate, p.fromTime]), [[a.lessonId, '2026-09-15', '22:15']], '只搬仍是已排課的段');
+    assert.deepStrictEqual([a.date, a.time, a.hostLessonId], ['2026-10-01', '19:45', L3]);
+    assert.strictEqual(LS.findLesson(buckets, a.lessonId).monthKey, '2026-10', '跟著跨月移桶');
+    assert.deepStrictEqual([b.date, b.time], ['2026-09-15', '22:30'], '已上課的段不動');
+    const own = LS.moveLessonDateTime(buckets, a.lessonId, '2026-10-03', '10:00');
+    assert.deepStrictEqual([own.ok, a.hostLessonId, own.parts], [true, null, []], '自己搬到別處 → 不再是課後加時');
+    assert.strictEqual(S.addMinutes('23:50', 20), '00:10');
+});
+
+test('舊格式轉換：makeupLessonId（一個）→ makeupLessonIds（多個）；沒有的補空陣列；轉過的不再動', () => {
+    const buckets = { '2026-09': [
+        { lessonId: 'A', status: 'LEAVE', duration: 45, makeupLessonId: 'B' },
+        { lessonId: 'B', status: 'SCHEDULED', isMakeup: true, duration: 45, makeupLessonId: null },
+        { lessonId: 'C', status: 'SCHEDULED', duration: 45, makeupLessonIds: ['D'] }
+    ] };
+    assert.strictEqual(LS.normalizeLessons(buckets), 2);
+    assert.deepStrictEqual(buckets['2026-09'].map(l => [('makeupLessonId' in l), l.makeupLessonIds]), [[false, ['B']], [false, []], [false, ['D']]]);
+    assert.strictEqual(LS.normalizeLessons(buckets), 0);
+    assert.deepStrictEqual(LS.makeupsOf(buckets, 'A').map(l => l.lessonId), ['B']);
+    assert.strictEqual(LS.remainingMinutes(buckets, buckets['2026-09'][0]), 0);
 });

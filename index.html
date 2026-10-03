@@ -842,7 +842,12 @@
                     <div class="space-y-1">
                         <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">補堂確認</label><button type="button" onclick="resetMsgTemplate('makeup')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
                         <textarea id="setTplMakeup" rows="2" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
-                        <p class="text-[11px] text-slate-400">佔位符同上（{date} {time}＝補堂的日期時間）</p>
+                        <p class="text-[11px] text-slate-400">佔位符同上（{date} {time}＝補堂的日期時間；另有 {endTime}＝結束時間、{minutes}＝分鐘數）</p>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">分段補堂確認（課後加時）</label><button type="button" onclick="resetMsgTemplate('makeupSplit')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
+                        <textarea id="setTplMakeupSplit" rows="3" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none font-mono"></textarea>
+                        <p class="text-[11px] text-slate-400">一堂請假分幾段補（例如三堂課後各加 15 分鐘）時發一條：{originDate} {originWeekday} {originTime}＝請假那堂　{parts}＝每段一行（日期 時間-結束（分鐘））　{totalMinutes}＝合共分鐘　{count}＝段數　{name} {id} {tutor} {program} {level}</p>
                     </div>
                     <div class="space-y-1">
                         <div class="flex items-center justify-between"><label class="text-xs font-bold text-slate-600">改期通知（單堂改期、補堂改期，或 Calendar 上改了時間並套用時建立）</label><button type="button" onclick="resetMsgTemplate('move')" class="text-[11px] text-slate-400 underline hover:text-slate-600">還原預設</button></div>
@@ -1061,7 +1066,7 @@
                 </div>
                 <div class="modal-slot-field">
                     <label class="block font-bold text-slate-600 mb-1">上課時間 (HH:MM)</label>
-                    <input type="time" id="modalTime" value="16:00" class="w-full p-2 border border-slate-300 rounded-lg">
+                    <input type="time" id="modalTime" value="16:00" step="900" title="15 分鐘一格；要更細的時間直接打字" class="w-full p-2 border border-slate-300 rounded-lg">
                 </div>
                 <div class="sm:col-span-2">
                     <label class="block font-bold text-slate-600 mb-1">所屬小組（可多選；小組本身在本頁「+ 新增小組」建立）</label>
@@ -1137,7 +1142,7 @@
                 </div>
                 <div>
                     <label class="block font-bold text-slate-600 mb-1">上課時間 (HH:MM)</label>
-                    <input type="time" id="gmTime" value="15:00" onchange="renderGroupPreview()" class="w-full p-2 border border-slate-300 rounded-lg">
+                    <input type="time" id="gmTime" value="15:00" step="900" title="15 分鐘一格；要更細的時間直接打字" onchange="renderGroupPreview()" class="w-full p-2 border border-slate-300 rounded-lg">
                 </div>
                 <div class="sm:col-span-2">
                     <label class="block font-bold text-slate-600 mb-1">成員（勾選學生；已有個別課的學生也可加入）</label>
@@ -1182,7 +1187,7 @@
             <div class="flex items-center gap-2 text-xs">
                 <label class="font-bold text-slate-600">改到：</label>
                 <input type="date" id="moveDate" class="p-2 border border-slate-300 rounded-lg bg-white">
-                <input type="time" id="moveTime" class="p-2 border border-slate-300 rounded-lg bg-white">
+                <input type="time" id="moveTime" step="900" class="p-2 border border-slate-300 rounded-lg bg-white">
             </div>
             <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button onclick="requestCloseModal('moveModal')" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
@@ -1192,6 +1197,23 @@
     </div>
 
     <!-- 請假／補堂確認訊息彈窗（小組課會列出全部成員，需逐一發送） -->
+    <!-- 課後加時：把請假的分鐘分散到之後幾堂常規課後面補回（app.js openMakeupParts） -->
+    <div id="makeupPartsModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-5 space-y-3 max-h-[85vh] overflow-y-auto overscroll-contain">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                <h3 class="text-sm font-bold text-slate-800"><i class="fa-solid fa-clock-rotate-left text-sky-500 mr-1"></i>課後加時補堂</h3>
+                <button onclick="requestCloseModal('makeupPartsModal')" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="makeupPartsInfo" class="text-xs text-slate-700"></div>
+            <div id="makeupPartsRows" class="space-y-1 text-xs"></div>
+            <div id="makeupPartsFoot" class="text-xs font-semibold text-slate-700"></div>
+            <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button onclick="requestCloseModal('makeupPartsModal')" class="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-semibold rounded-xl hover:bg-slate-200 transition">取消</button>
+                <button id="makeupPartsSubmit" onclick="submitMakeupParts()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition">確認安排</button>
+            </div>
+        </div>
+    </div>
+
     <div id="msgModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-5 space-y-3 max-h-[85vh] overflow-y-auto">
             <div class="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -1285,7 +1307,7 @@
                 </div>
                 <div>
                     <label class="block font-bold text-slate-600 mb-1">上課時間 (HH:MM)</label>
-                    <input type="time" id="qeTime" onchange="renderQuickEditPreview()" class="w-full p-2 border border-slate-300 rounded-lg">
+                    <input type="time" id="qeTime" step="900" title="15 分鐘一格；要更細的時間直接打字" onchange="renderQuickEditPreview()" class="w-full p-2 border border-slate-300 rounded-lg">
                 </div>
                 <div>
                     <label class="block font-bold text-slate-600 mb-1">課堂時長</label>

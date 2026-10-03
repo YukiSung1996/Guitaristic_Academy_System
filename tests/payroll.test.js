@@ -125,3 +125,25 @@ test('E7: monthPayroll——預期＝已確認＋待確認（請假不計）；�
     assert.deepStrictEqual([r.totals.currentSessions, r.totals.expectedSessions], [3, 6]);
     assert.deepStrictEqual(P.monthPayroll(buckets, '2026-01', {}), { tutors: [], totals: { expected: 0, current: 0, pending: 0, expectedGross: 0, currentGross: 0, expectedSessions: 0, currentSessions: 0 } }, '空月份');
 });
+
+test('E8: 分段補堂按比例——45 分鐘的課補三段 15 分鐘：已上課兩段＝⅔ 堂、課程費用＝每堂價的 ⅔；三段齊＝1 堂；節數同樣按比例；rateFn 回傳一整堂的價', () => {
+    const buckets = { '2026-09': S.generateMonthLessons(student(), '2026-09') };
+    LS.markStatus(buckets, 'S001-20260901-2130', 'LEAVE', { leaveType: 'L' });
+    ['S001-20260908-2130', 'S001-20260915-2130', 'S001-20260922-2130'].forEach((host, i) => {
+        const r = LS.scheduleMakeup(buckets, 'S001-20260901-2130', { date: '2026-09-' + (8 + i * 7), time: '22:15', duration: 15, hostLessonId: host });
+        assert.strictEqual(r.ok, true);
+    });
+    LS.markStatus(buckets, 'S001-20260908-2130', 'ATTENDED');   // 主課已上課 → 那一段跟著已上課
+    LS.markStatus(buckets, 'S001-20260915-2130', 'ATTENDED');
+    const rateFn = l => { assert.strictEqual(l.baseDuration || l.duration, 45, '查價用一整堂的長度'); return 360; };
+    const r = P.monthPayroll(buckets, '2026-09', { rateFn });
+    const t = r.tutors[0];
+    // 已確認：9/8、9/15 兩堂常規＋兩段 15 分鐘＝2⅔ 堂；待確認：9/22、9/29 常規＋一段＝2⅓ 堂；請假的 9/1 不計
+    assert.deepStrictEqual([t.current, t.pending, t.expected], [2.666667, 2.333333, 5]);
+    assert.deepStrictEqual([t.currentGross, t.expectedGross], [360 * 2 + 240, 360 * 5]);
+    assert.deepStrictEqual([t.currentSessions, t.expectedSessions], [2.666667, 5], '節數也按比例');
+    assert.deepStrictEqual([t.items.length, t.items[0].partMinutes], [1, { expected: 45, current: 30 }], '同一個報讀項目一筆；記分段補堂的分鐘數');
+    assert.ok(Math.abs(P.countPayableByStudent(buckets, '2026-09').S001 - (2 + 2 / 3)) < 1e-9);
+    assert.ok(Math.abs(P.tutorSessions(buckets, '2026-09')['Instructor A'] - (2 + 2 / 3)) < 1e-9);
+    assert.deepStrictEqual([P.formatCount(t.current), P.formatCount(t.pending), P.formatCount(t.expected)], ['2⅔', '2⅓', '5']);
+});

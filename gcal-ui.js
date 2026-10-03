@@ -802,7 +802,7 @@ function renderGcalSyncModal() {
                     return `<div class="p-2 border border-slate-200 rounded-lg text-xs text-slate-400">「${m.event.summary}」${m.date || ''}（全日事件無時間，無法收編，請在 GCal 補上時間）</div>`;
                 }
                 const pendings = GACLessonState.allLessons(lessonsByMonth)
-                    .filter(l => l.studentId === m.studentId && l.status === 'LEAVE' && !l.makeupLessonId);
+                    .filter(l => l.studentId === m.studentId && l.status === 'LEAVE' && GACLessonState.remainingMinutes(lessonsByMonth, l) > 0);
                 const opts = pendings.map(pd =>
                     `<option value="MU:${pd.lessonId}">作為補堂 ←（${pd.date} ${getLeaveText(pd.leaveType)}）</option>`).join('') +
                     '<option value="EXTRA">獨立加課（不掛任何請假）</option>';
@@ -947,6 +947,7 @@ function applyGcalSyncInner() {
             if (r.ok) {
                 if (c.event && c.event.id) { r.lesson.gcalEventId = c.event.id; gcalBaseMerge({ [c.event.id]: { at: c.date + ' ' + c.time } }); }   // 小組改時間後 key 換了，之後靠 id 認回
                 delete r.lesson.gcalMovedFrom;                                    // 以 Calendar 為準：本地改期作廢
+                notePartsMoved(r.parts);                                          // 課後加時的段跟著搬了：它們在 Calendar 的事件下次同步要改
                 GACSendlog.ensureMoveEntry(sendLog, r.lesson, from, nowIso); // 改期通知（發送中心）
                 done.push(`時間：${l.studentName} → ${c.date} ${c.time}`);
             } else errs.push(`${l.studentName}：${r.error}`);
@@ -1031,7 +1032,7 @@ function applyGcalSyncInner() {
                 lessonNum: 0, totalRegular: 0,
                 monthRef: m.date.slice(5, 7) + '/' + m.date.slice(0, 4),
                 status: 'SCHEDULED', leaveType: '',
-                isMakeup: true, originLessonId: null, makeupLessonId: null,
+                isMakeup: true, originLessonId: null, makeupLessonIds: [],
                 gcalEventId: m.event.id || null, isExtra: true
             };
             if (!lessonsByMonth[monthKey]) lessonsByMonth[monthKey] = [];

@@ -366,7 +366,7 @@ const store2 = run('GACStorage.createStore(localStorage)');
 const lessons2 = run('GACStorage.createStore(localStorage).loadLessons()');
 check('刷新後 9 月 14 堂', lessons2['2026-09'].length === 14);
 check('刷新後補堂鏈完好', lessons2['2026-10'][0].originLessonId === 'S004-20260909-2130'
-    && lessons2['2026-09'].find(l => l.lessonId === 'S004-20260909-2130').makeupLessonId === lessons2['2026-10'][0].lessonId);
+    && lessons2['2026-09'].find(l => l.lessonId === 'S004-20260909-2130').makeupLessonIds[0] === lessons2['2026-10'][0].lessonId);
 
 // 9) ICS 匯出含 UID
 console.log('[7] ICS UID');
@@ -568,7 +568,7 @@ run('studentDatabase = []; lessonsByMonth = {}; sendLog = {}; appSettings = {};'
 run('applyImportedPayload(GACStorage.parseImportPayload(__backupText))');
 check('全量還原：學生 14 人＋小組班 1 個', run('studentDatabase.length') === 14 && run('groupClasses.length') === 1);
 check('全量還原：9 月 14 堂 + 10 月 1 節補堂', run('lessonsByMonth["2026-09"].length') === 14 && run('lessonsByMonth["2026-10"].length') === 1);
-check('全量還原：補堂鏈完好', run('GACLessonState.findLesson(lessonsByMonth,"S004-20260909-2130").lesson.makeupLessonId') === 'S004-20261008-1800-MU-20260909-2130');
+check('全量還原：補堂鏈完好', run('GACLessonState.findLesson(lessonsByMonth,"S004-20260909-2130").lesson.makeupLessonIds[0]') === 'S004-20261008-1800-MU-20260909-2130');
 check('全量還原：sendlog 含手改金額 9999', run('sendLog["TUITION:S003:2026-09"].amount') === 9999);
 check('全量還原：設定還原', run('appSettings.feeNotice') === '冒煙：備註');
 // 舊版備份（學費單還是開頭／總額／結尾三段）→ 還原時合成一整段：改過的字照舊，系統以前加的空行不再加
@@ -647,7 +647,7 @@ check('狀態碼套用：SCHEDULED → LEAVE/SL ＋ 確認條目',
     run('GACLessonState.findLesson(lessonsByMonth,"S001-20260928-2130").lesson.leaveType') === 'SL'
     && !!run('sendLog["LEAVE_CONFIRM:S001-20260928-2130"]'));
 check('手動事件收編為補堂：鏈接建立、收養 gcalEventId、確認條目',
-    run('GACLessonState.findLesson(lessonsByMonth,"S004-20260916-2130").lesson.makeupLessonId') === 'S004-20261110-1900-MU-20260916-2130'
+    run('GACLessonState.findLesson(lessonsByMonth,"S004-20260916-2130").lesson.makeupLessonIds[0]') === 'S004-20261110-1900-MU-20260916-2130'
     && run('GACLessonState.findLesson(lessonsByMonth,"S004-20261110-1900-MU-20260916-2130").lesson.gcalEventId') === 'evMU1'
     && !!run('sendLog["MAKEUP_CONFIRM:S004-20261110-1900-MU-20260916-2130"]'));
 check('手動事件收編為獨立加課：-XT id、isExtra、isMakeup（生成永不清理）',
@@ -1777,11 +1777,11 @@ const pcOr = run('pairColorOf(GACLessonState.findLesson(lessonsByMonth, ' + JSON
 check('補堂與原課同一配對色（Set3 之一）', /^#[0-9A-F]{6}$/i.test(pcMu || '') && pcMu === pcOr && run('PAIR_PALETTE').includes(pcMu));
 check('月曆兩個色塊都以該色作底，圖例有說明', (getEl('masterCalendarView').innerHTML.split('background-color:' + pcMu).length - 1) >= 2
     && getEl('masterCalendarView').innerHTML.includes('補堂與其原課同色'));
-check('沒有補堂的課沒有配對色', run('pairColorOf(lessonsByMonth["2026-09"].find(l => l.status === "SCHEDULED" && !l.isMakeup && !l.makeupLessonId))') === null);
+check('沒有補堂的課沒有配對色', run('pairColorOf(lessonsByMonth["2026-09"].find(l => l.status === "SCHEDULED" && !l.isMakeup && !(l.makeupLessonIds || []).length))') === null);
 check('清單卡片：補堂與原課都帶同色小方塊', run('lessonBadges(GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(tplMu) + ').lesson, false)').includes('pair-swatch')
     && run('lessonBadges(GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(tplOrigin) + ').lesson, false)').includes('background-color:' + pcMu));
 const cyc = run('(() => { const ls = []; for (let i = 0; i < 13; i++) { const d = "2026-11-" + String(i + 1).padStart(2, "0"); ' +
-    'ls.push({ lessonId: "X" + i, studentId: "X" + i, date: d, time: "10:00", status: "LEAVE", classType: "一對一", makeupLessonId: "M" + i }); ' +
+    'ls.push({ lessonId: "X" + i, studentId: "X" + i, date: d, time: "10:00", status: "LEAVE", classType: "一對一", makeupLessonIds: ["M" + i] }); ' +
     'ls.push({ lessonId: "M" + i, studentId: "X" + i, date: "2026-12-01", time: "10:00", status: "SCHEDULED", classType: "一對一", isMakeup: true, originLessonId: "X" + i }); } ' +
     'const m = buildPairColors(ls).byOrigin; return [m.get("X0"), m.get("X11"), m.get("X12"), m.size]; })()');
 check('按原課時間先後依序取色，12 色用完循環（第 13 對回到第 1 色）', cyc[0] === run('PAIR_PALETTE[0]') && cyc[1] === run('PAIR_PALETTE[11]') && cyc[2] === run('PAIR_PALETTE[0]') && cyc[3] === 13);
@@ -1894,7 +1894,7 @@ run('submitMoveModal()');
 check('改期：時間已改、lessonId 不變、仍是已排課、不產生補堂', run('GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(mvId) + ').lesson.date') === '2026-09-24'
     && run('GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(mvId) + ').lesson.time') === '19:00'
     && run('GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(mvId) + ').lesson.status') === 'SCHEDULED'
-    && !run('GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(mvId) + ').lesson.makeupLessonId'));
+    && !run('GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(mvId) + ').lesson.makeupLessonIds.length'));
 const moveEntryObj = run('sendLog["MOVE_CONFIRM:' + mvId + '"]');
 check('建立改期通知條目（快照改期前時間、待發送）', !!moveEntryObj && moveEntryObj.status === 'TODO'
     && moveEntryObj.fromDate === mvDate && moveEntryObj.fromTime === mvTime);
@@ -2399,7 +2399,7 @@ function __statusSyncTail() {
         'return { id: id, status: "confirmed", summary: p.summary, description: p.description, location: p.location, extendedProperties: p.extendedProperties, ' +
         'htmlLink: "https://www.google.com/calendar/event?eid=EID_" + id, start: { dateTime: c.date + "T" + c.time + ":00+08:00" }, end: { dateTime: c.date + "T" + c.time + ":00+08:00" } }; })');
     const items = mkItems();   // 先照目前狀態拍（此刻全員與 Calendar 一致）
-    const regs = run('lessonsByMonth["2026-09"].filter(l => !l.isMakeup && !GACSchedule.isGroupLesson(l) && l.status !== "LEAVE" && !l.gcalMovedFrom && !l.makeupLessonId).map(l => l.lessonId)');
+    const regs = run('lessonsByMonth["2026-09"].filter(l => !l.isMakeup && !GACSchedule.isGroupLesson(l) && l.status !== "LEAVE" && !l.gcalMovedFrom && !(l.makeupLessonIds || []).length).map(l => l.lessonId)');
     const A = regs[0], B = regs[1], C = regs[2] || A;   // 沙盒裡一對一常規課只有 S001 的；唯讀那段沒有第三堂就重用 A
     check('有課可測', !!A && !!B);
     // 本地：A 改缺席（Calendar 沒碼）、B 改病假 SL（Calendar 填的是 L → 兩邊都有、不同）
@@ -2597,7 +2597,7 @@ function __muMoveTail() {
     run('gcalToken = { accessToken: "t", scope: gcalScope(), expiresAt: Date.now() + 3600000 }');
     // 到這裡 9 月的課多已批量確認出席：挑 S001 一堂一對一常規課，直接設成請假（未排補堂）當原課
     const origin = run('lessonsByMonth["2026-09"].find(l => l.studentId === "S001" && !l.isMakeup && !l.groupId && l.date === "2026-09-21").lessonId');
-    run('Object.assign(GACLessonState.findLesson(lessonsByMonth, ' + J(origin) + ').lesson, { status: "LEAVE", leaveType: "L", makeupLessonId: null })');
+    run('Object.assign(GACLessonState.findLesson(lessonsByMonth, ' + J(origin) + ').lesson, { status: "LEAVE", leaveType: "L", makeupLessonIds: [] })');
     const mu1 = run('GACLessonState.scheduleMakeup(lessonsByMonth, ' + J(origin) + ', { date: "2026-09-24", time: "10:00" }).makeup.lessonId');
     run('GACLessonState.findLesson(lessonsByMonth, ' + J(mu1) + ').lesson.gcalEventId = "evMU"');   // 當作已推送
     // Calendar：視窗內每一節都有帶標籤的事件（與本地一致），補堂那一個 id＝evMU
@@ -2609,7 +2609,7 @@ function __muMoveTail() {
     check('補堂改期彈窗提示：同步會改 Calendar 上原本那個事件', getEl('moveModalInfo').innerHTML.includes('原本那個事件改到新時間'));
     getEl('moveDate').value = '2026-09-25'; getEl('moveTime').value = '11:00';
     run('submitMoveModal()');
-    const mu2 = run('GACLessonState.findLesson(lessonsByMonth, ' + J(origin) + ').lesson.makeupLessonId');
+    const mu2 = run('GACLessonState.findLesson(lessonsByMonth, ' + J(origin) + ').lesson.makeupLessonIds[0]');
     const mf = run('GACLessonState.findLesson(lessonsByMonth, ' + J(mu2) + ').lesson.gcalMovedFrom');
     check('新補堂接手舊事件：記下舊 key／舊時段、事件 id', mu2 !== mu1 && !!mf && mf.key === mu1 && mf.date === '2026-09-24' && mf.time === '10:00' && mf.inCal === true
         && run('GACLessonState.findLesson(lessonsByMonth, ' + J(mu2) + ').lesson.gcalEventId') === 'evMU');
@@ -2653,7 +2653,7 @@ function __muMoveTail() {
         check('唯讀：改期彈窗提示去 Calendar 改原本那個事件', getEl('moveModalInfo').innerHTML.includes('請在 Calendar 把原本那個事件改到新時間'));
         getEl('moveDate').value = '2026-09-26'; getEl('moveTime').value = '14:00';
         run('submitMoveModal()');
-        const mu3 = run('GACLessonState.findLesson(lessonsByMonth, ' + J(origin) + ').lesson.makeupLessonId');
+        const mu3 = run('GACLessonState.findLesson(lessonsByMonth, ' + J(origin) + ').lesson.makeupLessonIds[0]');
         const btn = run('gcalAddButton(GACLessonState.findLesson(lessonsByMonth, ' + J(mu3) + ').lesson)');
         check('唯讀：課卡按鈕換成「改 GCal 舊事件（09-25 11:00 → 09-26 14:00）」，不再是加進 GCal', btn.includes("openGcalDay('" + mu3 + "')") && !btn.includes('openGcalTemplate')
             && btn.includes('改 GCal 舊事件（09-25 11:00 → 09-26 14:00）'));
@@ -2677,7 +2677,7 @@ function __muMoveTail() {
         const stale = p ? p.staleMoves.filter(m => m.event.id === 'tpl1') : [];
         check('唯讀同步：Calendar 仍在舊時間 → 列「請到 Calendar 改」，附事件連結', stale.length === 1 && !stale[0].duplicate
             && getEl('gcalSyncBody').innerHTML.includes('本地已改期、Calendar 上還是舊時間') && getEl('gcalSyncBody').innerHTML.includes('r/eventedit/tpl1'));
-        const mu3 = run('GACLessonState.findLesson(lessonsByMonth, ' + J(origin) + ').lesson.makeupLessonId');
+        const mu3 = run('GACLessonState.findLesson(lessonsByMonth, ' + J(origin) + ').lesson.makeupLessonIds[0]');
         check('唯讀同步：那個舊事件不當「手動新建」、新補堂不當「Calendar 沒有」、不改回本地', !!p && !p.manualNew.some(m => m.event.id === 'tpl1')
             && !p.deletions.some(d => d.cell.key === mu3) && !p.timeChanges.some(c => c.cell.key === mu3) && p.moves.length === 0 && p.toPush.length === 0);
         // 導師在 Calendar 把它拖到 9/26 14:00 → 再同步：沒有待改，記號清掉
@@ -2719,7 +2719,7 @@ function __tutorCalTail() {
     // 清掉全部事件 id／記號，當作兩本日曆都是空的 → 整月要推
     run('GACLessonState.allLessons(lessonsByMonth).forEach(l => { delete l.gcalEventId; delete l.gcalMovedFrom; delete l.gcalCalId; delete l.gcalEid; delete l.gcalAdded; delete l.gcalCode; })');
     // 一對一常規課沙盒裡只有 S001 有（前面幾段把它們標成請假／缺席，沒掛補堂 → 還原成已排課）；它的導師 T1、日曆 C1，另一本 C2
-    const regs = run('lessonsByMonth["2026-09"].filter(l => !l.isMakeup && !GACSchedule.isGroupLesson(l) && !l.makeupLessonId && !l.gcalMovedFrom && l.date !== "2026-09-29" && l.date !== "2026-09-30").map(l => l.lessonId)');
+    const regs = run('lessonsByMonth["2026-09"].filter(l => !l.isMakeup && !GACSchedule.isGroupLesson(l) && !(l.makeupLessonIds || []).length && !l.gcalMovedFrom && l.date !== "2026-09-29" && l.date !== "2026-09-30").map(l => l.lessonId)');
     const reg1 = regs[0], leave1 = regs[1];
     check('有兩堂一對一常規課可用', !!reg1 && !!leave1);
     run('[' + J(reg1) + ', ' + J(leave1) + '].forEach(id => Object.assign(GACLessonState.findLesson(lessonsByMonth, id).lesson, { status: "SCHEDULED", leaveType: "" })); renderAll()');
@@ -2827,7 +2827,7 @@ function __tutorCalTail() {
         run('GACLessonState.markStatus(lessonsByMonth, ' + J(leave1) + ', "LEAVE", { leaveType: "L" }); renderAll()');
         getEl('poolDate_' + leave1).value = '2026-09-30'; getEl('poolTime_' + leave1).value = '10:00';
         run('submitMakeup(' + J(leave1) + ', "poolDate_' + leave1 + '", "poolTime_' + leave1 + '")');
-        muId = run(L(leave1) + '.makeupLessonId');
+        muId = run(L(leave1) + '.makeupLessonIds[0]');
         const body2 = getEl('msgModalBody').innerHTML;
         check('補堂確認彈窗：「同步到 Google Calendar 嗎？」＋「推送到 GCal」鈕指向新補堂', !!muId && body2.includes('同步到 Google Calendar 嗎') && body2.includes("gcalPushLesson('" + muId + "')") && body2.includes('推送到 GCal'));
         run('closeMsgModal()');
@@ -3151,6 +3151,112 @@ console.log('[45] 舊寫法的小組轉成小組班');
     getEl('batchMonth').value = monthWas;
     run('closeMsgModal(); onBatchMonthChange()');
     check('清理完成', run(S3 + '.type') === '2人小組' && run(S3 + '.phone') !== '91234567' && sepState() === sepBefore);
+})();
+
+// 46) 分段補堂（課後加時）：一堂請假分幾段補；每段是接在常規課後面的 15 分鐘補堂課；薪酬按比例；主課改期／改狀態跟著走；一條訊息。隔離在 2027-01
+console.log('[46] 分段補堂（課後加時）');
+(() => {
+    const monthWas = getEl('batchMonth').value, hookWas = sandbox.__qsaHook, confirmWas = sandbox.confirm;
+    const M = '2027-01';
+    const L = id => 'GACLessonState.findLesson(lessonsByMonth, ' + JSON.stringify(id) + ').lesson';
+    getEl('batchMonth').value = M;
+    run('onBatchMonthChange()');
+    sandbox.__qsaHook = sel => (sel === '.batch-student-chk:checked' ? [{ value: '0' }] : []);   // S001：週一 21:30，45 分鐘
+    run('generateMasterSchedule()');
+    const origin = 'S001-20270104-2130', hosts = ['S001-20270111-2130', 'S001-20270118-2130', 'S001-20270125-2130'];
+    check('2027-01 生成 S001 四堂週一課', run('lessonsByMonth["2027-01"].length') === 4);
+    run('markLessonStatus(' + JSON.stringify(origin) + ', "LEAVE")');
+    run('renderAll()');
+    // 池子：時長下拉（15 的倍數到補完）＋「課後加時…」
+    const pool = getEl('pendingPoolList').innerHTML;
+    check('待補堂池：原課 45 分鐘、時長下拉列 15／30／45（補完）＋自訂、有「課後加時…」', pool.includes('45 分鐘</span>') && pool.includes('<option value="15">15 分鐘</option>') && pool.includes('<option value="30">30 分鐘</option>')
+        && pool.includes('<option value="45" selected>45 分鐘（補完）</option>') && pool.includes('自訂…') && pool.includes("openMakeupParts('" + origin + "')") && pool.includes('step="900"'));
+    getEl('poolDur_' + origin).value = '15';
+    check('讀時長：下拉 15 → 15；自訂 20 → 20；沒有 → 補完', run('readMakeupDuration("poolDur_' + origin + '")') === 15
+        && (() => { getEl('poolDur_' + origin).value = 'custom'; getEl('poolDur_' + origin + '_custom').value = '20'; return run('readMakeupDuration("poolDur_' + origin + '")') === 20; })()
+        && run('readMakeupDuration("nope")') === undefined);
+    // 課後加時彈窗：列出之後三堂週一課、預先勾好 3 × 15
+    run('openMakeupParts(' + JSON.stringify(origin) + ')');
+    const st = JSON.parse(run('JSON.stringify({ rows: makeupPartsState.rows.map(r => [r.host.lessonId, r.start, r.clash.length]), picked: makeupPartsState.picked, remaining: makeupPartsState.remaining })'));
+    check('彈窗：候選＝之後三堂週一課、加時由 22:15 起、導師有空；預先勾好三段各 15 分鐘', JSON.stringify(st.rows) === JSON.stringify(hosts.map(h => [h, '22:15', 0]))
+        && JSON.stringify(st.picked) === '{"0":15,"1":15,"2":15}' && st.remaining === 45
+        && getEl('makeupPartsRows').innerHTML.includes('22:15–22:30') && getEl('makeupPartsFoot').innerHTML.includes('共 45 分鐘') && getEl('makeupPartsFoot').innerHTML.includes('尚欠 0 分鐘'));
+    run('makeupPartsToggle(2, false)');
+    check('取消一段 → 尚欠 15', getEl('makeupPartsFoot').innerHTML.includes('共 30 分鐘') && getEl('makeupPartsFoot').innerHTML.includes('尚欠 15 分鐘'));
+    run('makeupPartsToggle(2, true)');
+    run('submitMakeupParts()');
+    const parts = JSON.parse(run('JSON.stringify(GACLessonState.makeupsOf(lessonsByMonth, ' + JSON.stringify(origin) + ').map(m => [m.lessonId, m.date, m.time, m.duration, m.baseDuration, m.hostLessonId, m.status]))'));
+    check('排好：三段 15 分鐘的補堂課，各接在主課後（22:15），記原課 45 分鐘與主課；原課補夠、離開待補池', parts.length === 3
+        && parts.every((p, i) => p[2] === '22:15' && p[3] === 15 && p[4] === 45 && p[5] === hosts[i] && p[6] === 'SCHEDULED' && p[1] === hosts[i].slice(5, 9) + '-' + hosts[i].slice(9, 11) + '-' + hosts[i].slice(11, 13))
+        && run('GACLessonState.remainingMinutes(lessonsByMonth, ' + L(origin) + ')') === 0
+        && !run('GACLessonState.pendingMakeups(lessonsByMonth, "2026-09-15").some(x => x.lesson.lessonId === ' + JSON.stringify(origin) + ')')
+        && getEl('makeupPartsModal').classList !== undefined);
+    // 一條訊息：掛在原課上，列齊三個時段
+    const msg = run('sendlogMsgFor(sendLog["MAKEUP_CONFIRM:' + origin + '"])');
+    check('補堂確認：一條訊息掛在原課上（不是三條），列齊三個時段、合共 45 分鐘', !!run('sendLog["MAKEUP_CONFIRM:' + origin + '"]') && !run('sendLog["MAKEUP_CONFIRM:' + parts[0][0] + '"]')
+        && msg === '已確認 2027年1月4日 (星期一) 的課分段補回，合共 45 分鐘：\n2027年1月11日 (星期一) 22:15-22:30（15 分鐘）\n2027年1月18日 (星期一) 22:15-22:30（15 分鐘）\n2027年1月25日 (星期一) 22:15-22:30（15 分鐘）'
+        && getEl('msgModalBody').innerHTML.includes('合共 45 分鐘'));
+    run('closeMsgModal()');
+    // 徽章與清單：原課寫明已排三段；段的卡寫「MU 補堂 15 分鐘」；清單裡段不縮排到原課下面
+    const originCard = run('renderLessonRow(' + L(origin) + ', false)');
+    const partCard = run('renderLessonRow(' + L(parts[0][0]) + ', false)');
+    check('原課卡：已排補堂 → 三段（日期 時間（15 分））、逐段可取消；段的卡：MU 補堂 15 分鐘', originCard.includes('已排補堂 → 3 段') && originCard.includes('01/11 22:15（15 分，課後加時）')
+        && originCard.includes("cancelMakeupUI('" + parts[1][0] + "')") && !originCard.includes('改期補堂') && partCard.includes('MU 補堂 15 分鐘'));
+    run('switchView("list"); renderMasterScheduleList()');
+    check('清單：段放在它實際的位置（主課後面），不縮排到原課下面', !getEl('masterScheduleList').innerHTML.includes('└') || run('isPartMakeup(' + L(parts[0][0]) + ')'));
+    // 薪酬按比例：主課已上課 → 段跟著已上課；每段＝1/3 堂、1/3 價
+    run('markLessonStatus(' + JSON.stringify(hosts[0]) + ', "ATTENDED"); markLessonStatus(' + JSON.stringify(hosts[1]) + ', "ATTENDED")');
+    check('主課已上課 → 接在後面的段跟著已上課', run(L(parts[0][0]) + '.status') === 'ATTENDED' && run(L(parts[1][0]) + '.status') === 'ATTENDED' && run(L(parts[2][0]) + '.status') === 'SCHEDULED');
+    const rate = run('rateForLesson(' + L(hosts[0]) + ')');
+    const pr = JSON.parse(run('JSON.stringify(GACPayroll.monthPayroll(lessonsByMonth, "2027-01", { rateFn: rateForLesson }).tutors[0])'));
+    check('薪酬：已確認 2⅔ 堂（兩堂常規＋兩段）、課程總額＝每堂價 × 2⅔；查價按原課一整堂', run('rateForLesson(' + L(parts[0][0]) + ')') === rate && pr.current === 2.666667
+        && Math.abs(pr.currentGross - rate * (2 + 2 / 3)) < 0.01 && run('GACPayroll.formatCount(' + pr.current + ')') === '2⅔' && pr.items[0].partMinutes.current === 30);
+    const rows = JSON.parse(run('JSON.stringify(GACPaysheet.lessonRows(GACPayroll.payableLessons(lessonsByMonth, "2027-01"), rateForLesson))'));
+    check('糧單：併成一列，堂數 2⅔、金額到分、備註寫分段補堂 30 分鐘（2 段）', rows.length === 1 && rows[0].count === 2.666667 && rows[0].amount === Math.round(rate * 2.666667 * 100) / 100
+        && rows[0].remark === '含分段補堂 30 分鐘（2 段）');
+    // 主課改期 → 段跟著搬到新的下課時間
+    run('openLessonMoveModal(' + JSON.stringify(hosts[2]) + ')');
+    getEl('moveDate').value = '2027-01-26'; getEl('moveTime').value = '19:00';
+    sandbox.confirm = () => true;
+    run('submitMoveModal()');
+    check('主課改期到 1/26 19:00 → 接在後面的段跟到 19:45、仍掛主課、記下 Calendar 原本的時段', run(L(parts[2][0]) + '.date') === '2027-01-26' && run(L(parts[2][0]) + '.time') === '19:45'
+        && run(L(parts[2][0]) + '.hostLessonId') === hosts[2] && !!run(L(parts[2][0]) + '.gcalMovedFrom') && run(L(parts[2][0]) + '.gcalMovedFrom.time') === '22:15');
+    run('closeMsgModal()');
+    // 主課請假 → 段也請假（那 15 分鐘再欠）；取消那段 → 原課欠 15
+    run('markLessonStatus(' + JSON.stringify(hosts[2]) + ', "LEAVE")');
+    check('主課請假 → 段也請假，池裡列出那段欠 15 分鐘', run(L(parts[2][0]) + '.status') === 'LEAVE'
+        && run('GACLessonState.pendingMakeups(lessonsByMonth, "2026-09-15").some(x => x.lesson.lessonId === ' + JSON.stringify(parts[2][0]) + ' && x.remaining === 15)'));
+    run('markLessonStatus(' + JSON.stringify(hosts[2]) + ', "SCHEDULED")');
+    check('主課還原 → 段也還原', run(L(parts[2][0]) + '.status') === 'SCHEDULED');
+    run('cancelMakeupUI(' + JSON.stringify(parts[2][0]) + ')');
+    check('取消一段 → 原課回到池裡、尚欠 15；訊息條目仍在（還有兩段）', run('GACLessonState.remainingMinutes(lessonsByMonth, ' + L(origin) + ')') === 15
+        && run('GACLessonState.pendingMakeups(lessonsByMonth, "2026-09-15").some(x => x.lesson.lessonId === ' + JSON.stringify(origin) + ' && x.remaining === 15)')
+        && !!run('sendLog["MAKEUP_CONFIRM:' + origin + '"]') && getEl('pendingPoolList').innerHTML.includes('已補 30／尚欠 <b>15</b> 分鐘'));
+    // 另約時段補剩下的 15（池子的「排補堂」）：超過尚欠擋下；剛好補完
+    getEl('poolDate_' + origin).value = '2027-01-30'; getEl('poolTime_' + origin).value = '10:00'; getEl('poolDur_' + origin).value = '30';
+    run('submitMakeup(' + JSON.stringify(origin) + ', "poolDate_' + origin + '", "poolTime_' + origin + '", "poolDur_' + origin + '")');
+    check('排 30 分鐘但只欠 15 → 擋下', sandbox.alerts.length > 0 && sandbox.alerts[sandbox.alerts.length - 1].includes('還欠 15 分鐘') && run('GACLessonState.remainingMinutes(lessonsByMonth, ' + L(origin) + ')') === 15);
+    getEl('poolDur_' + origin).value = '15';
+    run('submitMakeup(' + JSON.stringify(origin) + ', "poolDate_' + origin + '", "poolTime_' + origin + '", "poolDur_' + origin + '")');
+    const last = JSON.parse(run('JSON.stringify(GACLessonState.makeupsOf(lessonsByMonth, ' + JSON.stringify(origin) + ').map(m => [m.date, m.time, m.duration, m.hostLessonId]))'));
+    check('另約 1/30 10:00 補 15 分鐘 → 補夠；這段沒有主課；訊息仍是掛在原課的那一條', last.length === 3 && last[2][0] === '2027-01-30' && last[2][2] === 15 && last[2][3] === null
+        && run('GACLessonState.remainingMinutes(lessonsByMonth, ' + L(origin) + ')') === 0 && run('sendlogMsgFor(sendLog["MAKEUP_CONFIRM:' + origin + '"])').includes('2027年1月30日 (星期六) 10:00-10:15（15 分鐘）'));
+    run('closeMsgModal()');
+    // 還原原課 → 問一次、全部段一併取消：有段已上課 → 擋下（先還原那段）；全部還是已排課 → 一併取消
+    sandbox.confirm = () => true;
+    sandbox.alerts.length = 0;
+    run('markLessonStatus(' + JSON.stringify(origin) + ', "SCHEDULED")');
+    check('有段已上課 → 不能還原原課（提示先還原那段）', run(L(origin) + '.status') === 'LEAVE' && sandbox.alerts.length === 1 && sandbox.alerts[0].includes('ATTENDED'));
+    run('markLessonStatus(' + JSON.stringify(hosts[0]) + ', "SCHEDULED"); markLessonStatus(' + JSON.stringify(hosts[1]) + ', "SCHEDULED")');
+    run('markLessonStatus(' + JSON.stringify(origin) + ', "SCHEDULED")');
+    check('段都還原為已排課後 → 原課還原、三段一併取消、訊息條目清掉', run(L(origin) + '.status') === 'SCHEDULED' && run('GACLessonState.makeupIds(' + L(origin) + ').length') === 0
+        && !run('sendLog["MAKEUP_CONFIRM:' + origin + '"]') && run('lessonsByMonth["2027-01"].filter(l => l.isMakeup).length') === 0);
+    // 清理
+    sandbox.confirm = confirmWas; sandbox.__qsaHook = hookWas; sandbox.alerts.length = 0;
+    run('delete lessonsByMonth["2027-01"]; GACSendlog.purgeMonth(sendLog, "2027-01", []); persistLessons()');
+    getEl('batchMonth').value = monthWas;
+    run('switchView("calendar"); onBatchMonthChange()');
+    check('清理完成', !run('lessonsByMonth["2027-01"]'));
 })();
 
 // 41) 糧單下載（Excel）：隔離在 2027-02，測完清掉。PDF 要真的 canvas，這裡的 stub DOM 畫不了，改在真實瀏覽器驗

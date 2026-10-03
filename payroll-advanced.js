@@ -37,10 +37,14 @@ function advancedRate(student) {
   return Math.round(230 * duration / 45 * levelFactor);
 }
 
-// 單堂費率：按該堂課自身的 program/level/形式/時長/導師查表（小組課與個別課各自的價）
+// 單堂費率：按該堂課自身的 program/level/形式/時長/導師查表（小組課與個別課各自的價）。
+// 回傳的是「一整堂」的價：分段補堂（15 分鐘）按原課一整堂的長度 baseDuration 查，比例由 lib（lessonWeight）乘
 function rateForLesson(l) {
-  return advancedRate({ program: l.program, level: l.level, type: l.classType, duration: l.duration, tutor: l.tutor, tutorLevel: l.tutorLevel });
+  return advancedRate({ program: l.program, level: l.level, type: l.classType, duration: l.baseDuration || l.duration, tutor: l.tutor, tutorLevel: l.tutorLevel });
 }
+
+// 堂數顯示：分段補堂按比例，印成 4⅔ 這種
+const fmtN = n => GACPayroll.formatCount(n);
 
 function advancedMoney(value) {
   return `HK$ ${Number(value || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
@@ -112,7 +116,7 @@ function advancedRenderSummary() {
   const noteEl = document.getElementById('advPayPendingNote');
   if (noteEl) noteEl.innerHTML = t.expected ? pendingNote : '';
   set('advPayProgress', t.expected
-    ? `已確認 ${t.current} / 預期 ${t.expected} 堂（${pct}%）　·　導師節數 ${t.currentSessions} / ${t.expectedSessions}　·　課程總額 ${advancedMoney(t.currentGross)} / ${advancedMoney(t.expectedGross)}`
+    ? `已確認 ${fmtN(t.current)} / 預期 ${fmtN(t.expected)} 堂（${pct}%）　·　導師節數 ${fmtN(t.currentSessions)} / ${fmtN(t.expectedSessions)}　·　課程總額 ${advancedMoney(t.currentGross)} / ${advancedMoney(t.expectedGross)}`
     : '此月份沒有排定課堂——到「總課表」選月份並按「生成」。');
 }
 
@@ -140,8 +144,8 @@ function advancedRenderTutors() {
         <td class="p-2">${esc(i.studentName)} <span class="text-slate-400">(${esc(i.studentId)})</span></td>
         <td class="p-2 text-slate-600">${i.groupName ? esc(i.groupName) : '個別課'}<span class="text-slate-400"> · ${esc(i.program)} ${esc(i.level)}</span></td>
         <td class="p-2 text-right">${advancedMoney(i.rate)}</td>
-        <td class="p-2 text-center font-semibold text-emerald-700">${i.current}</td>
-        <td class="p-2 text-center ${i.pending ? 'text-amber-600 font-semibold' : 'text-slate-400'}">${i.pending}</td>
+        <td class="p-2 text-center font-semibold text-emerald-700">${fmtN(i.current)}${i.partMinutes && i.partMinutes.current ? `<span class="block text-[10px] font-normal text-slate-400" title="課後加時的分段補堂按比例計">含分段補堂 ${i.partMinutes.current} 分鐘</span>` : ''}</td>
+        <td class="p-2 text-center ${i.pending ? 'text-amber-600 font-semibold' : 'text-slate-400'}">${fmtN(i.pending)}</td>
         <td class="p-2 text-right font-semibold">${advancedMoney(i.current * i.rate)}</td>
         <td class="p-2 text-right text-slate-500">${advancedMoney(i.expected * i.rate)}</td>
       </tr>`).join('');
@@ -150,7 +154,7 @@ function advancedRenderTutors() {
         <button type="button" onclick="toggleAdvTutor('${esc(t.tutor).replace(/'/g, "\\'")}')" class="flex-1 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-left text-xs hover:bg-slate-50">
           <i class="fa-solid fa-chevron-${open ? 'down' : 'right'} text-slate-400 text-[10px]"></i>
           <b class="text-slate-800">${esc(t.tutor)}</b>
-          <span class="text-slate-500">已確認 <b class="text-emerald-700">${t.current}</b> / 預期 ${t.expected} 堂${t.pending ? `　·　<b class="text-amber-600">${t.pending} 堂待確認</b>` : ''}　·　節數 ${t.currentSessions}/${t.expectedSessions}</span>
+          <span class="text-slate-500">已確認 <b class="text-emerald-700">${fmtN(t.current)}</b> / 預期 ${fmtN(t.expected)} 堂${t.pending ? `　·　<b class="text-amber-600">${fmtN(t.pending)} 堂待確認</b>` : ''}　·　節數 ${fmtN(t.currentSessions)}/${fmtN(t.expectedSessions)}</span>
           <span class="ml-auto text-right">
             <span class="block text-slate-800 font-bold">目前應付 ${advancedMoney(advancedTutorPayout(t, 'current'))}</span>
             <span class="block text-[10px] text-slate-400">預期 ${advancedMoney(advancedTutorPayout(t, 'expected'))}${adj ? `（含調整 ${advancedMoney(adj)}）` : ''}</span>
@@ -168,7 +172,7 @@ function advancedRenderTutors() {
             </thead>
             <tbody class="divide-y divide-slate-100">${rows}</tbody>
             <tfoot class="bg-slate-50 font-bold text-slate-700">
-              <tr><td class="p-2" colspan="3">課程總額</td><td class="p-2 text-center">${t.current}</td><td class="p-2 text-center">${t.pending}</td><td class="p-2 text-right">${advancedMoney(t.currentGross)}</td><td class="p-2 text-right">${advancedMoney(t.expectedGross)}</td></tr>
+              <tr><td class="p-2" colspan="3">課程總額</td><td class="p-2 text-center">${fmtN(t.current)}</td><td class="p-2 text-center">${fmtN(t.pending)}</td><td class="p-2 text-right">${advancedMoney(t.currentGross)}</td><td class="p-2 text-right">${advancedMoney(t.expectedGross)}</td></tr>
               <tr><td class="p-2" colspan="5">導師應得（拆帳 ${share}%${adj ? `，含指名調整 ${advancedMoney(adj)}` : ''}）</td><td class="p-2 text-right">${advancedMoney(advancedTutorPayout(t, 'current'))}</td><td class="p-2 text-right">${advancedMoney(advancedTutorPayout(t, 'expected'))}</td></tr>
             </tfoot>
           </table></div>` : ''}

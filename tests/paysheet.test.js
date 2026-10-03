@@ -9,7 +9,8 @@ function lessons(id, name, n, extra) {
         studentId: id, studentName: name, program: 'Pop Guitar', level: 'Elementary 初級', duration: 45, status: 'ATTENDED', tutor: 'Instructor B'
     }, extra || {}));
 }
-const rate = l => (l.groupId ? 180 : Math.round(245 * l.duration / 45));
+// 查價契約：回傳一整堂的價（分段補堂按 baseDuration 查，比例由 lessonRows 乘）
+const rate = l => (l.groupId ? 180 : Math.round(245 * (l.baseDuration || l.duration) / 45));
 
 // 讀回 zip（只存不壓）：{ 檔名: Buffer }，順便核對每個檔的 CRC
 function unzip(bytes) {
@@ -65,6 +66,20 @@ test('lessonRows：同一位學生同價合成一列；不同價拆列並註明�
     assert.strictEqual(rows.reduce((s, r) => s + r.amount, 0), all.reduce((s, l) => s + rate(l), 0));
 });
 
+test('lessonRows：分段補堂併進同一列——堂數按比例（三段 15 分鐘＝1 堂、兩段＝⅔）、金額四捨五入到分、備註寫分鐘數', () => {
+    const PR = require('../lib/payroll.js');
+    const part = (n, mins) => lessons('S001', 'Student 001', n, { isMakeup: true, duration: mins, baseDuration: 45 });
+    const rows = P.lessonRows([].concat(lessons('S001', 'Student 001', 4), part(3, 15)), rate);
+    assert.deepStrictEqual(rows.map(r => [r.student, r.rate, r.count, r.amount, r.remark]), [['Student 001', 245, 5, 1225, '含分段補堂 45 分鐘（3 段）']], '三段 15 分鐘＝一整堂，和常規課併成一列');
+    const two = P.lessonRows([].concat(lessons('S001', 'Student 001', 4), part(2, 15)), rate)[0];
+    assert.deepStrictEqual([two.count, two.amount, PR.formatCount(two.count)], [4.666667, 1143.33, '4⅔']);
+    const sheet = P.buildSheet({ tutor: 'T', monthKey: '2026-09', rows: P.lessonRows([].concat(lessons('S001', 'Student 001', 4), part(2, 15)), rate), adjustments: [], sharePct: 50, dateStr: '2026-10-01' });
+    const c = sheet.rows[7].cells;
+    assert.deepStrictEqual([c[4].text, c[4].s, c[5].text, c[5].f], ['4⅔', 'tdFrac', '$1,143.33', 'ROUND(D8*E8,2)'], 'Excel 用分數格式、PDF 印 ⅔；金額公式四捨五入到分');
+    assert.strictEqual(c[4].v, 4.666667);
+    assert.deepStrictEqual([2.5, 0.25, 0.75, 1.1, 3].map(PR.formatCount), ['2½', '¼', '¾', '1.1', '3']);
+});
+
 test('lessonRows：小組／舊式小組／缺席的備註；同名不同人帶學號；個別課排在小組前', () => {
     const rows = P.lessonRows([].concat(
         lessons('S010', 'Amy', 2, { groupId: 'G1', groupName: 'Pop 小組 A', classType: '小組' }),
@@ -87,7 +102,7 @@ test('buildSheet：標題、導師、日期、明細、Sub Total、調整、Tota
     assert.strictEqual(t[5][6], 'Cheque #');
     assert.deepStrictEqual(t[6], ['', 'Student', 'Grade', '$/LSN.', '#/LSN', 'Amount', 'Tutor Portion', 'Remarks']);
     assert.deepStrictEqual(t[7], ['1', 'Student 001', 'Pop Guitar - Elementary 初級', '$245', '4', '$980', 'HK$ 490.00', '']);
-    assert.deepStrictEqual(sheet.rows[7].cells.map(c => c.f), [undefined, undefined, undefined, undefined, undefined, 'D8*E8', 'F8*50%', undefined]);
+    assert.deepStrictEqual(sheet.rows[7].cells.map(c => c.f), [undefined, undefined, undefined, undefined, undefined, 'ROUND(D8*E8,2)', 'F8*50%', undefined]);
     assert.deepStrictEqual(sheet.titleRows, [6, 6]);
     assert.deepStrictEqual(sheet.bodyRows, [7, 11]);   // 4 列明細＋1 列空白
     assert.ok(sheet.rows[11].cells.every(c => c.v === null), '明細後留一列空白');
@@ -138,7 +153,7 @@ test('xlsx：zip 結構與 CRC 正確；工作表、樣式、圖片、列印表�
     assert.ok(wb.includes('<definedName name="_xlnm.Print_Titles" localSheetId="0">\'Instructor B\'!$7:$7</definedName>') && wb.includes('fullCalcOnLoad="1"'));
     const sh = files['xl/worksheets/sheet1.xml'].toString('utf8');
     assert.ok(sh.includes('<is><t xml:space="preserve">Teacher\'s Tuition Fee Mark Sheet (Sept 2026)</t></is>'));
-    assert.ok(/<c r="F8" s="\d+"><f>D8\*E8<\/f><v>980<\/v><\/c>/.test(sh) && /<c r="G13" s="\d+"><f>SUM\(G8:G12\)<\/f><v>1381<\/v><\/c>/.test(sh));
+    assert.ok(/<c r="F8" s="\d+"><f>ROUND\(D8\*E8,2\)<\/f><v>980<\/v><\/c>/.test(sh) && /<c r="G13" s="\d+"><f>SUM\(G8:G12\)<\/f><v>1381<\/v><\/c>/.test(sh));
     assert.ok(/<c r="H5" s="\d+"><v>46296<\/v><\/c>/.test(sh), '日期寫成序號');
     assert.ok(sh.includes('<mergeCell ref="A4:H4"/>') && sh.includes('<mergeCell ref="E16:F16"/>') && sh.includes('<drawing r:id="rId1"/>'));
     assert.ok(sh.includes('fitToWidth="1" fitToHeight="0"') && sh.includes('showGridLines="0"'));

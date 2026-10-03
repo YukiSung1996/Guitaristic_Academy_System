@@ -13,6 +13,7 @@
             studentDatabase.forEach(s => { if (s.longLeaves) { if (!s.inactivePeriods) s.inactivePeriods = GACSchedule.normalizeInactivePeriods(s.longLeaves); delete s.longLeaves; } });
             groupClasses = gacStore.loadGroups(typeof defaultGroups !== 'undefined' ? defaultGroups : []);
             lessonsByMonth = gacStore.loadLessons();
+            GACLessonState.normalizeLessons(lessonsByMonth);   // 舊格式：一堂請假一個補堂 → 多個
             stampLessonChanges(true);
             sendLog = gacStore.loadSendlog();
             appSettings = gacStore.loadSettings();
@@ -88,6 +89,7 @@
             broadcastModal: () => closeBroadcastModal(),
             moveModal: () => closeMoveModal(),
             msgModal: () => closeMsgModal(),
+            makeupPartsModal: () => closeMakeupParts(),
             // 同步面板：執行中（進度顯示、按鈕鎖定）不讓背景／Esc 關掉；✕ 仍可用
             gcalSyncModal: () => { if (typeof gcalSyncBusy !== 'undefined' && gcalSyncBusy) return; closeGcalSyncModal(); },
             icsImportModal: () => closeIcsImportModal(),
@@ -193,7 +195,7 @@
         // ===== 每節課最後一次改動的時間（lesson.changedAt）：同步面板按它排，剛改的在最前 =====
         // 不在每個操作裡逐個記：存檔時跟上次存的比，課堂本身（日期時間、狀態、補堂鏈、導師…）有變就蓋上現在的時間；
         // GCal 的中繼資料（事件 id、碼、eid）不算改動。新生成的課＝新的一節，也蓋時間。撤銷／還原＝又一次改動，同樣蓋時間。
-        const LESSON_FP_FIELDS = ['date', 'time', 'status', 'leaveType', 'makeupLessonId', 'originLessonId', 'isMakeup', 'tutor', 'duration', 'program', 'level', 'classType', 'groupId'];
+        const LESSON_FP_FIELDS = ['date', 'time', 'status', 'leaveType', 'makeupLessonIds', 'originLessonId', 'isMakeup', 'tutor', 'duration', 'program', 'level', 'classType', 'groupId'];
         let lessonFingerprints = null;   // lessonId → 上次存檔時的指紋；null＝還沒建立（載入時建立，不蓋時間）
         function stampLessonChanges(baselineOnly) {
             const nowIso = new Date().toISOString();
@@ -244,7 +246,7 @@
             const st = GACHistory.restore(snap);
             if (st.students) studentDatabase = st.students;
             if (st.groups) groupClasses = st.groups;
-            if (st.lessons) lessonsByMonth = st.lessons;
+            if (st.lessons) { lessonsByMonth = st.lessons; GACLessonState.normalizeLessons(lessonsByMonth); }
             if (st.sendlog) sendLog = st.sendlog;
             if (st.tutors) { tutorsList = st.tutors; persistTutors(); }
             if (st.rateOverrides) { rateOverrides = st.rateOverrides; applyRateOverridesToTable(); persistRateOverrides(); }
@@ -358,6 +360,10 @@
                 if (e && e.type === 'LEAVE_CONFIRM' && e.status === 'TODO') {
                     const f = GACLessonState.findLesson(lessonsByMonth, e.lessonId);
                     if (f && f.lesson.status !== 'LEAVE') delete sendLog[k];
+                }
+                if (e && e.type === 'MAKEUP_CONFIRM' && e.status === 'TODO') {
+                    const f = GACLessonState.findLesson(lessonsByMonth, e.lessonId);
+                    if (f && !f.lesson.isMakeup && !GACLessonState.makeupIds(f.lesson).length) delete sendLog[k];   // 掛在原課上的分段補堂確認：段全取消了
                 }
             });
             persistSendlog();
@@ -1718,7 +1724,7 @@
             const nestedKeys = new Set();
             restCells.forEach(c => {
                 const f = c.lessons[0];
-                if (!f.isMakeup || !f.originLessonId) return;
+                if (!f.isMakeup || !f.originLessonId || isPartMakeup(f)) return;   // 分段補堂留在它實際的位置（主課後面）
                 const origin = cellByLessonId[f.originLessonId];
                 if (!origin || origin.key === c.key) return;
                 if (!nestedUnder.has(origin.key)) nestedUnder.set(origin.key, []);
@@ -1766,9 +1772,29 @@
             return `${c.slice(0, 4)}-${c.slice(4, 6)}-${c.slice(6, 8)} ${c.slice(9, 11)}:${c.slice(11, 13)}`;
         }
 
+        // 「已排補堂 →」後面的文字：一整堂＝日期時間；分段＝逐段列（日期 時間（分鐘））
         function makeupInfoText(lesson) {
-            const f = GACLessonState.findLesson(lessonsByMonth, lesson.makeupLessonId);
-            return f ? `${f.lesson.date} ${f.lesson.time}` : lesson.makeupLessonId;
+            const ms = GACLessonState.makeupsOf(lessonsByMonth, lesson.lessonId);
+            if (ms.length === 1 && GACSchedule.lessonWeight(ms[0]) === 1 && !ms[0].hostLessonId) return `${ms[0].date} ${ms[0].time}`;
+            return ms.map(m => `${m.date.slice(5).replace('-', '/')} ${m.time}（${m.duration} 分）`).join('、');
+        }
+
+        // 一堂請假只有「一整堂的補堂」（不是分段）→ 回傳那堂補堂；否則 null
+        function singleFullMakeupOf(lesson) {
+            const ms = GACLessonState.makeupsOf(lessonsByMonth, lesson.lessonId);
+            return ms.length === 1 && GACSchedule.lessonWeight(ms[0]) === 1 && !ms[0].hostLessonId ? ms[0] : null;
+        }
+
+        // 課後加時的一段（接在主課後面，或只補原課的一部分）
+        function isPartMakeup(lesson) {
+            return !!lesson.isMakeup && (!!lesson.hostLessonId || GACSchedule.lessonWeight(lesson) < 1);
+        }
+
+        // 補堂確認訊息掛在哪一堂上：一整堂的補堂掛自己；分段補堂掛在原課（一條訊息列齊全部時段）
+        function makeupEntryLessonId(lesson) {
+            if (!lesson.isMakeup || sendLog['MAKEUP_CONFIRM:' + lesson.lessonId]) return lesson.lessonId;
+            const o = makeupOriginOf(lesson.lessonId);
+            return o && sendLog['MAKEUP_CONFIRM:' + o.lessonId] ? o.lessonId : lesson.lessonId;
         }
 
         // 課堂卡片的三塊零件（一對一卡片與小組卡成員列共用）：狀態徽章／展開框（請假假別、補堂日期、手動模式）／操作按鈕
@@ -1777,14 +1803,16 @@
             const pc = pairColorOf(lesson);
             if (pc) badges.push(`<span class="pair-swatch" style="background-color:${pc}" title="配對色：這堂與它的${lesson.isMakeup ? '原課' : '補堂'}在月曆上同一個顏色"></span>`);
             if (isClash) badges.push(`<span class="bg-amber-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">⚠️ 撞堂重疊</span>`);
-            if (lesson.isMakeup) badges.push(`<span class="bg-emerald-600 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">MU 補堂</span>`);
+            if (lesson.isMakeup) badges.push(`<span class="bg-emerald-600 text-white font-bold px-1.5 py-0.5 rounded text-[10px]" title="${isPartMakeup(lesson) ? `分段補堂：補原課 ${lesson.baseDuration || lesson.duration} 分鐘裡的 ${lesson.duration} 分鐘${lesson.hostLessonId ? '，接在常規課後面（主課改期、改狀態時跟著走）' : ''}；薪酬按比例` : ''}">MU 補堂${isPartMakeup(lesson) ? ` ${lesson.duration} 分鐘` : ''}</span>`);
             if (lesson.status === 'ATTENDED') badges.push(`<span class="bg-emerald-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">✓ 已上課</span>`);
             if (lesson.status === 'NOSHOW') badges.push(`<span class="bg-purple-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">NS 缺席</span>`);
             if (lesson.status === 'LEAVE') {
                 badges.push(`<span class="bg-rose-500 text-white font-bold px-1.5 py-0.5 rounded text-[10px]">已請假 (${lesson.leaveType})</span>`);
-                badges.push(lesson.makeupLessonId
-                    ? `<span class="bg-emerald-100 text-emerald-800 font-semibold px-1.5 py-0.5 rounded text-[10px]">已排補堂 → ${makeupInfoText(lesson)}</span>`
-                    : `<span class="bg-amber-100 text-amber-800 font-semibold px-1.5 py-0.5 rounded text-[10px]">⏳ 待補堂</span>`);
+                const rem = GACLessonState.remainingMinutes(lessonsByMonth, lesson);
+                if (GACLessonState.makeupIds(lesson).length) {
+                    badges.push(`<span class="bg-emerald-100 text-emerald-800 font-semibold px-1.5 py-0.5 rounded text-[10px]">已排補堂 → ${singleFullMakeupOf(lesson) ? makeupInfoText(lesson) : GACLessonState.makeupIds(lesson).length + " 段"}</span>`);   // 分段的逐段列在按鈕區
+                    if (rem) badges.push(`<span class="bg-amber-100 text-amber-800 font-semibold px-1.5 py-0.5 rounded text-[10px]">⏳ 尚欠 ${rem} 分鐘</span>`);
+                } else badges.push(`<span class="bg-amber-100 text-amber-800 font-semibold px-1.5 py-0.5 rounded text-[10px]">⏳ 待補堂</span>`);
             }
             return badges.join('');
         }
@@ -1809,16 +1837,20 @@
                         </div>
                     </div>`;
             }
-            if (lesson.status === 'LEAVE' && !lesson.makeupLessonId) {
+            if (lesson.status === 'LEAVE' && GACLessonState.remainingMinutes(lessonsByMonth, lesson) > 0) {
+                const rem = GACLessonState.remainingMinutes(lessonsByMonth, lesson);
                 boxes += `
                     <div id="makeupBox_${id}" class="hidden pt-2 border-t border-slate-200 mt-2">
                         <div class="flex flex-wrap items-center gap-2">
                             <span>補堂日期:</span>
                             <input type="date" id="makeupDate_${id}" value="${lesson.date}" class="p-1 border rounded bg-white">
                             <span>時間:</span>
-                            <input type="time" id="makeupTime_${id}" value="${lesson.time}" class="p-1 border rounded bg-white">
-                            <button onclick="submitMakeup('${id}','makeupDate_${id}','makeupTime_${id}')" class="px-2 py-1 bg-emerald-600 text-white rounded font-bold">確認補堂</button>
+                            <input type="time" id="makeupTime_${id}" value="${lesson.time}" step="900" class="p-1 border rounded bg-white">
+                            <span>補:</span>
+                            ${makeupDurationSelect('makeupDur_' + id, rem)}
+                            <button onclick="submitMakeup('${id}','makeupDate_${id}','makeupTime_${id}','makeupDur_${id}')" class="px-2 py-1 bg-emerald-600 text-white rounded font-bold">確認補堂</button>
                             <button onclick="toggleLessonBox('makeup','${id}')" class="px-2 py-1 bg-slate-200 text-slate-700 rounded">取消</button>
+                            <span class="text-[10px] text-slate-400">分散到幾堂常規課後面各加 15 分鐘 → 用「課後加時…」</span>
                         </div>
                     </div>`;
             }
@@ -1862,15 +1894,21 @@
                     if (ownMove) btns.push(`<button onclick="openLessonMoveModal('${id}')" class="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1" title="雙方約好把這一堂改到別的日期／時間（課照上，不算請假）"><i class="fa-solid fa-arrows-rotate"></i> 改期</button>`);
                 }
             } else {
-                if (lesson.status === 'LEAVE' && !lesson.makeupLessonId) {
-                    btns.push(`<button onclick="toggleLessonBox('makeup','${id}')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-calendar-plus"></i> 安排補堂</button>`);
+                const rem = lesson.status === 'LEAVE' ? GACLessonState.remainingMinutes(lessonsByMonth, lesson) : 0;
+                const full = lesson.status === 'LEAVE' ? singleFullMakeupOf(lesson) : null;
+                if (lesson.status === 'LEAVE' && rem > 0) {
+                    btns.push(`<button onclick="toggleLessonBox('makeup','${id}')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold flex items-center gap-1" title="另約一個時段補（整堂或其中幾分鐘）"><i class="fa-solid fa-calendar-plus"></i> 安排補堂</button>`);
+                    btns.push(`<button onclick="openMakeupParts('${id}')" class="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-semibold flex items-center gap-1" title="分散到之後幾堂常規課後面各加 15 分鐘補回"><i class="fa-solid fa-clock-rotate-left"></i> 課後加時</button>`);
                 }
-                if (lesson.status === 'LEAVE' && lesson.makeupLessonId) {
+                if (full) {
                     // 倒回捷徑：不必切月找補堂課，在請假原課行上直接改期／取消。整組一起補的（補堂那一節不止一人）改期歸卡頭
                     if (ownMove || !sharedMakeupOf(lesson)) btns.push(`<button onclick="openMoveModal('${id}')" class="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 rounded-lg font-semibold flex items-center gap-1" title="把已排的補堂改到別的日期／時間"><i class="fa-solid fa-arrows-rotate"></i> 改期補堂</button>`);
-                    btns.push(`<button onclick="cancelMakeupUI('${lesson.makeupLessonId}')" class="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg font-semibold flex items-center gap-1" title="取消已排的補堂，此請假回到待補堂池"><i class="fa-solid fa-xmark"></i> 取消補堂</button>`);
+                    btns.push(`<button onclick="cancelMakeupUI('${full.lessonId}')" class="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg font-semibold flex items-center gap-1" title="取消已排的補堂，此請假回到待補堂池"><i class="fa-solid fa-xmark"></i> 取消補堂</button>`);
+                } else if (lesson.status === 'LEAVE' && GACLessonState.makeupIds(lesson).length) {
+                    // 分段補堂：逐段列出，每段可取消（改期在那一段自己的卡上）
+                    btns.push(`<span class="flex items-center gap-1 flex-wrap text-[10px]"><span class="text-slate-500">分段：</span>${makeupListHtml(lesson, true)}</span>`);
                 }
-                btns.push(`<button onclick="markLessonStatus('${id}','SCHEDULED')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-semibold flex items-center gap-1" title="撤銷狀態，還原為已排課${lesson.status === 'LEAVE' && lesson.makeupLessonId ? '（會詢問是否一併取消補堂）' : ''}"><i class="fa-solid fa-rotate-left"></i> 還原</button>`);
+                btns.push(`<button onclick="markLessonStatus('${id}','SCHEDULED')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-semibold flex items-center gap-1" title="撤銷狀態，還原為已排課${lesson.status === 'LEAVE' && GACLessonState.makeupIds(lesson).length ? '（會詢問是否一併取消補堂）' : ''}"><i class="fa-solid fa-rotate-left"></i> 還原</button>`);
             }
             btns.push(gcalStatusButton(lesson));
             if (lesson.status === 'LEAVE') {
@@ -1884,8 +1922,9 @@
             }
             if (lesson.isMakeup && lesson.status !== 'LEAVE') {
                 const mkType = sendLog['MOVE_CONFIRM:' + id] ? 'move' : 'makeup'; // 改期過（有改期通知條目）→ 用改期通知文案
-                btns.push(`<button onclick="copyLessonMsg('${mkType}', '${id}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> ${mkType === 'move' ? '複製改期' : '複製補堂'}</button>`);
-                btns.push(`<button onclick="openWhatsAppMessage('${id}', '${mkType}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填${mkType === 'move' ? '改期通知' : '補堂訊息'}（與發送中心同一條目：點開即標記已發）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>${lessonSendBadge(id, mkType)}`);
+                const mid = mkType === 'move' ? id : makeupEntryLessonId(lesson);   // 分段補堂：一條訊息掛在原課上
+                btns.push(`<button onclick="copyLessonMsg('${mkType}', '${mid}')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold flex items-center gap-1"><i class="fa-solid fa-copy"></i> ${mkType === 'move' ? '複製改期' : '複製補堂'}</button>`);
+                btns.push(`<button onclick="openWhatsAppMessage('${mid}', '${mkType}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold flex items-center gap-1" title="在 WhatsApp Web 預填${mkType === 'move' ? '改期通知' : '補堂訊息'}（與發送中心同一條目：點開即標記已發）"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>${lessonSendBadge(mid, mkType)}`);
             }
             return btns.join('');
         }
@@ -1939,9 +1978,9 @@
 
         // 這堂請假課的補堂是不是「整組一起補」的（補堂那一節仍是已排課、且不止一人）→ 回傳該補堂課，否則 null
         function sharedMakeupOf(leaveLesson) {
-            const f = leaveLesson.makeupLessonId ? GACLessonState.findLesson(lessonsByMonth, leaveLesson.makeupLessonId) : null;
-            if (!f || f.lesson.status !== 'SCHEDULED') return null;
-            return lessonMoveTargets(f.lesson).length > 1 ? f.lesson : null;
+            const mk = singleFullMakeupOf(leaveLesson);
+            if (!mk || mk.status !== 'SCHEDULED') return null;
+            return lessonMoveTargets(mk).length > 1 ? mk : null;
         }
 
         // 小組課卡片：一個時段一張卡，成員逐列（各自徽章／展開框／按鈕），卡頭提供整組操作（全組出席／TL 請假／改期）
@@ -2106,7 +2145,7 @@
         // 補堂／加課標籤：深底白字，不管導師是什麼顏色都看得出來
         function calMuHtml(lesson) {
             if (!lesson.isMakeup) return '';
-            return `<span class="cal-mark cal-mark-mu">${lesson.isExtra ? '加課' : 'MU'}</span> `;
+            return `<span class="cal-mark cal-mark-mu">${lesson.isExtra ? '加課' : (isPartMakeup(lesson) ? 'MU ' + lesson.duration + '分' : 'MU')}</span> `;
         }
 
         function calPillHtml(cell, isClash, todayStr, hideTime) {
@@ -2251,12 +2290,14 @@
             pushHistory(`課堂 → ${STATUS_LABEL[to] || to}：${f0 ? f0.lesson.studentName + ' ' + f0.lesson.date : lessonId}`);
             let res = GACLessonState.markStatus(lessonsByMonth, lessonId, to);
             if (!res.ok && res.code === 'HAS_MAKEUP') {
-                // 一鍵倒回：還原「已排補堂的請假」時級聯取消補堂（原本硬攔截，補堂在別的月份很難找）
-                const mk = GACLessonState.findLesson(lessonsByMonth, res.makeupLessonId);
-                const mkInfo = mk ? `${mk.lesson.date} ${mk.lesson.time}` : res.makeupLessonId;
-                if (!confirm(`此請假已排補堂（${mkInfo}）。\n要「一併取消該補堂」並還原為已排課嗎？`)) { dropLastHistory(); return; }
-                const c = GACLessonState.cancelMakeup(lessonsByMonth, res.makeupLessonId);
-                if (!c.ok) { dropLastHistory(); alert('⚠️ ' + c.error); return; }
+                // 一鍵倒回：還原「已排補堂的請假」時級聯取消補堂（原本硬攔截，補堂在別的月份很難找）；分段補堂全部一併取消
+                const ms = GACLessonState.makeupsOf(lessonsByMonth, lessonId);
+                const info = ms.map(m => `${m.date} ${m.time}${isPartMakeup(m) ? `（${m.duration} 分鐘）` : ''}`).join('、') || res.makeupLessonId;
+                if (!confirm(`此請假已排補堂（${info}）。\n要「一併取消${ms.length > 1 ? '這 ' + ms.length + ' 段補堂' : '該補堂'}」並還原為已排課嗎？`)) { dropLastHistory(); return; }
+                for (const m of ms) {
+                    const c = GACLessonState.cancelMakeup(lessonsByMonth, m.lessonId);
+                    if (!c.ok) { dropLastHistory(); alert('⚠️ ' + c.error); return; }
+                }
                 res = GACLessonState.markStatus(lessonsByMonth, lessonId, to);
             }
             if (!res.ok) { dropLastHistory(); alert('⚠️ ' + res.error); return; }
@@ -2293,11 +2334,13 @@
             openMsgModal('leave', done);
         }
 
-        // 兩步之二：安排補堂（總表行內或待補堂池皆走此函數）。
+        // 兩步之二：安排補堂（總表行內或待補堂池皆走此函數）。durElId＝補幾分鐘的下拉（沒有＝把欠的補完；還沒排過就是一整堂）。
         // 防誤觸：先彈確認框；小組防範：TL 補堂發散攔截 + 同組同待補順手同排（手動模式跳過小組邏輯）。
-        function submitMakeup(lessonId, dateElId, timeElId) {
+        // 補的只是原課的一部分 → 補堂確認掛在原課上（一條訊息列齊全部時段）；一整堂 → 掛在那堂補堂上（照舊）
+        function submitMakeup(lessonId, dateElId, timeElId, durElId) {
             const date = document.getElementById(dateElId)?.value;
             const time = document.getElementById(timeElId)?.value;
+            const duration = durElId ? readMakeupDuration(durElId) : undefined;
             if (!date || !time) {
                 alert('請選擇補堂日期與時間！');
                 return;
@@ -2305,45 +2348,49 @@
             const foundOrigin = GACLessonState.findLesson(lessonsByMonth, lessonId);
             if (!foundOrigin) { alert('⚠️ 找不到課堂 ' + lessonId); return; }
             const origin = foundOrigin.lesson;
-            if (!confirm(`確定安排補堂？\n學生：${origin.studentName} (${origin.studentId})\n原課：${origin.date} ${origin.time}\n補堂：${date} ${time}`)) return;
+            const remaining = GACLessonState.remainingMinutes(lessonsByMonth, origin);
+            if (duration && duration > remaining) { alert(`這堂請假還欠 ${remaining} 分鐘，不能排 ${duration} 分鐘。`); return; }
+            const mins = duration || remaining;
+            const partial = mins < (Number(origin.duration) || 0);
+            if (!confirm(`確定安排補堂？\n學生：${origin.studentName} (${origin.studentId})\n原課：${origin.date} ${origin.time}（${origin.duration} 分鐘）\n補堂：${date} ${time}${partial ? `，${mins} 分鐘（之後還欠 ${remaining - mins} 分鐘）` : ''}`)) return;
             if (!manualMode && origin.leaveType === 'TL') {
                 // 防範機制：同組 TL 補堂已排在不同時段 → 攔截確認（TL 小組補堂通常應同一時段）
                 const diverged = GACLessonState.groupSiblings(lessonsByMonth, lessonId)
-                    .filter(s => s.status === 'LEAVE' && s.leaveType === 'TL' && s.makeupLessonId)
-                    .map(s => ({ s, mk: GACLessonState.findLesson(lessonsByMonth, s.makeupLessonId) }))
+                    .filter(s => s.status === 'LEAVE' && s.leaveType === 'TL' && GACLessonState.makeupIds(s).length)
+                    .map(s => ({ s, mk: GACLessonState.findLesson(lessonsByMonth, GACLessonState.makeupIds(s)[0]) }))
                     .filter(x => x.mk && (x.mk.lesson.date !== date || x.mk.lesson.time !== time));
                 if (diverged.length) {
                     const lines = diverged.map(x => `${x.s.studentName} → ${x.mk.lesson.date} ${x.mk.lesson.time}`).join('\n');
                     if (!confirm(`⚠️ 小組補堂時段不一致：\n${lines}\n\n導師請假（TL）的小組補堂通常應排在同一時段。\n仍要把 ${origin.studentName} 排在 ${date} ${time} 嗎？\n（建議按「取消」，改排成同一時段）`)) return;
                 }
             }
-            pushHistory(`安排補堂：${origin.studentName} ${date} ${time}`);
-            let res = GACLessonState.scheduleMakeup(lessonsByMonth, lessonId, { date, time });
+            pushHistory(`安排補堂：${origin.studentName} ${date} ${time}${partial ? `（${mins} 分鐘）` : ''}`);
+            const slot = { date, time, duration: duration || undefined };
+            let res = GACLessonState.scheduleMakeup(lessonsByMonth, lessonId, slot);
             if (!res.ok && res.code === 'DUPLICATE_MAKEUP') {
-                // 防重複：已有補堂 → 顯示現有補堂資訊，讓用戶選擇保留或取消重排
+                // 防重複：已補夠了 → 顯示現有補堂資訊，讓用戶選擇保留或取消重排（全部仍是已排課的補堂一併取消）
                 const ex = res.existingMakeup;
-                const info = ex ? `${ex.date} ${ex.time}` : '（資料缺失）';
+                const info = makeupInfoText(origin) || (ex ? `${ex.date} ${ex.time}` : '（資料缺失）');
                 if (!confirm(`此請假已排過補堂：${info}\n\n確定要「取消原補堂並重排」到 ${date} ${time} 嗎？\n（按「取消」則保留原補堂，放棄本次操作）`)) { dropLastHistory(); return; }
                 const snap = ex ? GACGcal.moveSnapshot(ex) : null;
-                res = GACLessonState.scheduleMakeup(lessonsByMonth, lessonId, { date, time }, { replaceExisting: true });
+                res = GACLessonState.scheduleMakeup(lessonsByMonth, lessonId, slot, { replaceExisting: true });
                 if (res.ok && snap) GACGcal.noteLocalMove(res.makeup, snap);
             }
             if (!res.ok) { dropLastHistory(); alert('⚠️ ' + res.error); return; }
-            const scheduledIds = [res.makeup.lessonId];
-            GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', res.makeup, new Date().toISOString());
+            const nowIso = new Date().toISOString();
+            const entryFor = (o, mk) => GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', mk.duration < (Number(o.duration) || 0) ? o : mk, nowIso).lessonId;
+            const msgIds = [entryFor(origin, res.makeup)];
             if (!manualMode) {
-                // 小組順手同排：同組成員同在待補堂池 → 提議一併排到同一時段
+                // 小組順手同排：同組成員同在待補堂池 → 提議一併排到同一時段（同樣的分鐘數）
                 const pendingSibs = GACLessonState.groupSiblings(lessonsByMonth, lessonId)
-                    .filter(s => s.status === 'LEAVE' && !s.makeupLessonId);
+                    .filter(s => s.status === 'LEAVE' && GACLessonState.remainingMinutes(lessonsByMonth, s) > 0);
                 if (pendingSibs.length) {
                     const names = pendingSibs.map(s => `${s.studentName} (${s.studentId})`).join('、');
                     if (confirm(`同組學生 ${names} 亦在待補堂池。\n要一併排到 ${date} ${time} 嗎？\n（按「取消」則只排 ${origin.studentName}）`)) {
                         pendingSibs.forEach(s => {
-                            const r2 = GACLessonState.scheduleMakeup(lessonsByMonth, s.lessonId, { date, time });
-                            if (r2.ok) {
-                                GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', r2.makeup, new Date().toISOString());
-                                scheduledIds.push(r2.makeup.lessonId);
-                            } else alert(`⚠️ ${s.studentName}：${r2.error}`);
+                            const r2 = GACLessonState.scheduleMakeup(lessonsByMonth, s.lessonId, { date, time, duration: duration ? Math.min(duration, GACLessonState.remainingMinutes(lessonsByMonth, s)) : undefined });
+                            if (r2.ok) msgIds.push(entryFor(s, r2.makeup));
+                            else alert(`⚠️ ${s.studentName}：${r2.error}`);
                         });
                     }
                 }
@@ -2353,7 +2400,7 @@
             const note = date.slice(0, 7) !== currentMonthKey()
                 ? `補堂不在目前檢視月份（切換到 ${date.slice(0, 7)} 可見）；如需倒回，原請假行上可直接「取消補堂」。`
                 : '';
-            openMsgModal('makeup', scheduledIds, note);
+            openMsgModal('makeup', msgIds, note);
         }
 
         function cancelMakeupUI(makeupLessonId) {
@@ -2411,16 +2458,191 @@
             pushHistory(`手動改狀態：${l.studentName} ${l.date} → ${label}`);
             let res = GACLessonState.forceStatus(lessonsByMonth, lessonId, to, { leaveType });
             if (!res.ok && res.code === 'HAS_MAKEUP') {
-                const mk = GACLessonState.findLesson(lessonsByMonth, res.makeupLessonId);
-                const mkInfo = mk ? `${mk.lesson.date} ${mk.lesson.time}` : res.makeupLessonId;
-                if (!confirm(`此請假已排補堂（${mkInfo}）。\n要「一併取消該補堂」再改狀態嗎？`)) { dropLastHistory(); return; }
-                const c = GACLessonState.cancelMakeup(lessonsByMonth, res.makeupLessonId);
-                if (!c.ok) { dropLastHistory(); alert('⚠️ ' + c.error); return; }
+                // 一鍵倒回：還原「已排補堂的請假」時級聯取消補堂（原本硬攔截，補堂在別的月份很難找）；分段補堂全部一併取消
+                const ms = GACLessonState.makeupsOf(lessonsByMonth, lessonId);
+                const info = ms.map(m => `${m.date} ${m.time}${isPartMakeup(m) ? `（${m.duration} 分鐘）` : ''}`).join('、') || res.makeupLessonId;
+                if (!confirm(`此請假已排補堂（${info}）。\n要「一併取消${ms.length > 1 ? '這 ' + ms.length + ' 段補堂' : '該補堂'}」並再改狀態嗎？`)) { dropLastHistory(); return; }
+                for (const m of ms) {
+                    const c = GACLessonState.cancelMakeup(lessonsByMonth, m.lessonId);
+                    if (!c.ok) { dropLastHistory(); alert('⚠️ ' + c.error); return; }
+                }
                 res = GACLessonState.forceStatus(lessonsByMonth, lessonId, to, { leaveType });
             }
             if (!res.ok) { dropLastHistory(); alert('⚠️ ' + res.error); return; }
             persistLessons();
             renderAll();
+        }
+
+        // ===== 課後加時：分散到之後幾堂常規課後面各加 15 分鐘，把請假的分鐘補回 =====
+        // 每一段是一堂獨立的補堂課（15 分鐘，記主課 hostLessonId）：自己的出席、自己的 Calendar 事件（緊接主課之後）；
+        // 主課改狀態／改期時跟著走（lib/lessonState.js）。薪酬按比例（lessonWeight）。一次排幾段只建一條補堂確認（掛在原課上）。
+        const PART_STEP = 15;
+        let makeupPartsState = null;   // { origin, members:[原課（同組一併時含同組的）], rows:[{ host, hosts:{studentId→主課}, start, clash:[名字] }], picked:{i→分鐘} }
+
+        // 這位學生（或這個小組）之後仍是已排課的常規課，按日期時間排：候選的主課
+        function makeupHostCandidates(origin) {
+            const todayStr = localDateStr(new Date());
+            const group = GACSchedule.isGroupLesson(origin);
+            const all = GACLessonState.allLessons(lessonsByMonth).filter(l => !l.isMakeup && l.status === 'SCHEDULED' && l.date >= todayStr && l.date >= origin.date);
+            const cells = GACSchedule.groupByCell(group
+                ? all.filter(l => origin.groupId ? l.groupId === origin.groupId : GACSchedule.isSameGroupLesson(l, origin) && l.tutor === origin.tutor)
+                : all.filter(l => l.studentId === origin.studentId && !GACSchedule.isGroupLesson(l)));
+            // 同一位導師的優先（補的是他欠的時間）；沒有才列其他導師的課
+            const same = cells.filter(c => c.tutor === origin.tutor);
+            return (same.length ? same : cells).slice(0, 10);
+        }
+
+        // 主課下課後的起點：主課結束，再加上已經接在後面的其他段
+        function partStartAfter(host) {
+            let end = GACSchedule.addMinutes(host.time, host.duration);
+            GACLessonState.partsOf(lessonsByMonth, host.lessonId).forEach(p => {
+                if (p.status !== 'LEAVE' && p.date === host.date) end = GACSchedule.addMinutes(end, p.duration);
+            });
+            return end;
+        }
+
+        // 那段時間導師還有誰的課（同組、主課本身、同一位學生的不算）
+        function partClashNames(host, start, minutes, memberIds) {
+            const s = GACSchedule.timeToMinutes(start), e = s + minutes;
+            return GACLessonState.allLessons(lessonsByMonth).filter(l => {
+                if (l.date !== host.date || l.tutor !== host.tutor || l.status === 'LEAVE' || memberIds.has(l.studentId)) return false;
+                if (l.lessonId === host.lessonId || GACSchedule.cellKey(l) === GACSchedule.cellKey(host)) return false;
+                const ls = GACSchedule.timeToMinutes(l.time), le = ls + (Number(l.duration) || 45);
+                return ls < e && s < le;
+            }).map(l => `${l.studentName} ${l.time}`);
+        }
+
+        function openMakeupParts(originId) {
+            const f = GACLessonState.findLesson(lessonsByMonth, originId);
+            if (!f) return;
+            const origin = f.lesson;
+            const remaining = GACLessonState.remainingMinutes(lessonsByMonth, origin);
+            if (origin.status !== 'LEAVE' || remaining <= 0) { showToast('這堂請假已經補夠了'); return; }
+            // 同組一併：同一節也請了假、還欠分鐘的其他成員（手動模式只排這一位）
+            const sibs = manualMode ? [] : GACLessonState.groupSiblings(lessonsByMonth, originId)
+                .filter(s => s.status === 'LEAVE' && GACLessonState.remainingMinutes(lessonsByMonth, s) > 0);
+            const members = [origin].concat(sibs);
+            const memberIds = new Set(members.map(m => m.studentId));
+            const rows = makeupHostCandidates(origin).map(cell => {
+                const host = cell.lessons.find(l => l.studentId === origin.studentId) || cell.lessons[0];
+                const hosts = {};
+                cell.lessons.forEach(l => { hosts[l.studentId] = l; });
+                const start = partStartAfter(host);
+                return { host, hosts, start, clash: partClashNames(host, start, PART_STEP, memberIds) };
+            });
+            // 預先勾好：沒有撞的前幾堂，每堂 15 分鐘，剛好補夠為止
+            const picked = {};
+            let left = remaining;
+            rows.forEach((r, i) => { if (left > 0 && !r.clash.length) { picked[i] = Math.min(PART_STEP, left); left -= picked[i]; } });
+            makeupPartsState = { origin, members, rows, picked, remaining };
+            renderMakeupParts();
+            document.getElementById('makeupPartsModal').classList.remove('hidden');
+            markModalOpened('makeupPartsModal');
+        }
+
+        function renderMakeupParts() {
+            const st = makeupPartsState;
+            if (!st) return;
+            const o = st.origin;
+            const covered = (Number(o.duration) || 0) - st.remaining;
+            document.getElementById('makeupPartsInfo').innerHTML =
+                `<div><b>${escapeHtml(o.studentName)}</b>（${escapeHtml(o.studentId)}）· 原課 ${o.date}（${getWeekdayName(weekdayNumOfDate(o.date))}）${o.time}，${o.duration} 分鐘，${escapeHtml(o.leaveType)}` +
+                (st.members.length > 1 ? `<div class="text-indigo-700 mt-0.5"><i class="fa-solid fa-user-group"></i> 同組 ${st.members.map(m => escapeHtml(m.studentName)).join('、')} 也在待補，一併排（各自欠的分鐘各自算）</div>` : '') +
+                `<div class="mt-0.5">${covered ? `已補 ${covered} 分鐘 ${makeupListHtml(o, true)}，` : ''}尚欠 <b class="text-amber-700">${st.remaining}</b> 分鐘</div></div>` +
+                `<div class="mt-2 p-2 bg-sky-50 border border-sky-200 rounded-lg text-sky-900">在之後的常規課<b>下課後直接加時</b>，每格 ${PART_STEP} 分鐘；每段是一堂獨立的補堂（自己的出席記錄、Calendar 事件，跟著主課改期）。薪酬按比例計。</div>`;
+            const rowsEl = document.getElementById('makeupPartsRows');
+            if (!st.rows.length) {
+                rowsEl.innerHTML = '<div class="text-slate-500 italic p-2">之後沒有已生成、仍是已排課的常規課可以加時。先到該月按「生成」，或用「排補堂」另約時段。</div>';
+            } else {
+                rowsEl.innerHTML = st.rows.map((r, i) => {
+                    const mins = st.picked[i] || 0;
+                    const end = GACSchedule.addMinutes(r.start, mins || PART_STEP);
+                    const opts = [];
+                    for (let m = PART_STEP; m <= Math.max(PART_STEP, st.remaining); m += PART_STEP) opts.push(`<option value="${m}" ${m === (mins || PART_STEP) ? 'selected' : ''}>${m}</option>`);
+                    const who = r.host.tutor !== o.tutor ? `<span class="text-amber-700" title="不是原課的導師">（${escapeHtml(r.host.tutor)}）</span>` : '';
+                    return `<label class="flex items-center gap-2 border rounded-lg px-2.5 py-1.5 ${mins ? 'border-sky-300 bg-sky-50/60' : 'border-slate-200'} ${r.clash.length ? 'opacity-90' : ''}">
+                        <input type="checkbox" class="accent-sky-600" ${mins ? 'checked' : ''} onchange="makeupPartsToggle(${i}, this.checked)">
+                        <span class="flex-1 min-w-0">
+                            <span class="font-semibold">${r.host.date.slice(5).replace('-', '/')}（${getWeekdayName(weekdayNumOfDate(r.host.date))}）${r.host.time}–${GACSchedule.addMinutes(r.host.time, r.host.duration)}</span>${who}
+                            <span class="text-slate-500"> → 加 </span><select onchange="makeupPartsMinutes(${i}, this.value)" class="p-0.5 border rounded bg-white">${opts.join('')}</select><span class="text-slate-500"> 分鐘 → </span>
+                            <span class="font-semibold text-sky-800">${r.start}–${end}</span>
+                            ${r.clash.length ? `<span class="ml-1 text-amber-700 font-semibold" title="${escapeHtml(r.clash.join('、'))}">⚠ ${r.start} 與 ${escapeHtml(r.clash[0])} 撞</span>` : '<span class="ml-1 text-emerald-700">✓ 導師有空</span>'}
+                        </span>
+                    </label>`;
+                }).join('');
+            }
+            const total = Object.keys(st.picked).reduce((n, k) => n + st.picked[k], 0);
+            const over = total > st.remaining;
+            document.getElementById('makeupPartsFoot').innerHTML = total
+                ? `已選 ${Object.keys(st.picked).length} 段，共 ${total} 分鐘 → ${over ? `<span class="text-rose-600">超過尚欠的 ${st.remaining} 分鐘</span>` : `尚欠 ${st.remaining - total} 分鐘`}`
+                : '還沒選';
+            const btn = document.getElementById('makeupPartsSubmit');
+            if (btn) { btn.disabled = !total || over; btn.textContent = total ? `確認安排 ${Object.keys(st.picked).length} 段` : '確認安排'; }
+        }
+
+        function weekdayNumOfDate(dateStr) {
+            const p = String(dateStr).split('-').map(Number);
+            return new Date(p[0], p[1] - 1, p[2]).getDay();
+        }
+
+        function makeupPartsToggle(i, on) {
+            const st = makeupPartsState;
+            if (!st) return;
+            if (on) {
+                const total = Object.keys(st.picked).reduce((n, k) => n + st.picked[k], 0);
+                st.picked[i] = Math.max(5, Math.min(PART_STEP, st.remaining - total)) || PART_STEP;
+            } else delete st.picked[i];
+            renderMakeupParts();
+        }
+
+        function makeupPartsMinutes(i, v) {
+            const st = makeupPartsState;
+            if (!st) return;
+            st.picked[i] = parseInt(v, 10) || PART_STEP;
+            renderMakeupParts();
+        }
+
+        function closeMakeupParts() {
+            makeupPartsState = null;
+            document.getElementById('makeupPartsModal').classList.add('hidden');
+        }
+
+        function submitMakeupParts() {
+            const st = makeupPartsState;
+            if (!st) return;
+            const idx = Object.keys(st.picked).map(Number).sort((a, b) => a - b);
+            if (!idx.length) { alert('請至少勾選一堂。'); return; }
+            const total = idx.reduce((n, i) => n + st.picked[i], 0);
+            if (total > st.remaining) { alert(`超過尚欠的 ${st.remaining} 分鐘。`); return; }
+            const clashRows = idx.filter(i => st.rows[i].clash.length);
+            if (clashRows.length && !confirm('⚠️ 這幾段導師那時有別的課：\n' + clashRows.map(i => `${st.rows[i].host.date} ${st.rows[i].start}：${st.rows[i].clash.join('、')}`).join('\n') + '\n\n仍要安排嗎？')) return;
+            const o = st.origin;
+            pushHistory(`課後加時補堂：${o.studentName} ${o.date}（${idx.length} 段，共 ${total} 分鐘）`);
+            const nowIso = new Date().toISOString();
+            const done = [], errs = [], originIds = [];
+            st.members.forEach(m => {
+                let left = GACLessonState.remainingMinutes(lessonsByMonth, m);
+                let any = false;
+                idx.forEach(i => {
+                    const r = st.rows[i], host = r.hosts[m.studentId];
+                    const mins = Math.min(st.picked[i], left);
+                    if (!host || mins <= 0) return;
+                    const res = GACLessonState.scheduleMakeup(lessonsByMonth, m.lessonId, { date: host.date, time: m === o ? r.start : partStartAfter(host), duration: mins, hostLessonId: host.lessonId });
+                    if (res.ok) { done.push(res.makeup); left -= mins; any = true; }
+                    else errs.push(`${m.studentName} ${host.date}：${res.error}`);
+                });
+                if (any) {
+                    GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', m, nowIso);   // 一條訊息列齊全部時段（掛在原課上）
+                    originIds.push(m.lessonId);
+                }
+            });
+            if (!done.length) { dropLastHistory(); alert('⚠️ ' + (errs.join('\n') || '沒有排到任何一段')); return; }
+            closeMakeupParts();
+            persistLessons();
+            renderAll();
+            const months = [...new Set(done.map(p => p.date.slice(0, 7)))].filter(mk => mk !== currentMonthKey());
+            const note = (errs.length ? `⚠️ ${errs.join('；')}<br>` : '') + (months.length ? `有些段不在目前檢視月份（切換到 ${months.join('、')} 可見）。` : '');
+            openMsgModal('makeup', originIds, note);
         }
 
         // ===== 確認訊息彈窗：請假／補堂成功後自動彈出；小組課列出全部成員，逐一複製／WhatsApp =====
@@ -2438,22 +2660,22 @@
             if (note) parts.push(`<div class="p-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">${note}</div>`);
             if (lessons.length > 1) parts.push(`<div class="p-2 bg-sky-50 border border-sky-200 rounded-lg text-sky-800 font-semibold"><i class="fa-solid fa-user-group mr-1"></i>小組課：共 ${lessons.length} 位學生，請逐一發送。</div>`);
             // 改期通知收到的是這堂本身（常規課）或新補堂；補堂確認收到的可能是補堂課本身，也可能是掛著補堂的請假原課
-            const calLesson = l => type === 'move' ? l : (l.isMakeup ? l : (GACLessonState.findLesson(lessonsByMonth, l.makeupLessonId) || {}).lesson);
+            const calLessons = l => type === 'move' || l.isMakeup ? [l] : GACLessonState.makeupsOf(lessonsByMonth, l.lessonId);   // 分段補堂：原課掛著幾段
+            const calLesson = l => calLessons(l)[0];
             // 寫入模式：改期／排補堂後在這裡直接問「同步到 Google Calendar 嗎？」，按下即推這一節（不必開同步面板）；
             // 一節一個事件，小組整節一鈕。唯讀模式仍是每人卡上的「加進 GCal」／「改 GCal 舊事件」
             const pushBtns = [];
             if (!gcalReadOnly() && appSettings.gcalClientId && (type === 'move' || type === 'makeup')) {
                 const seen = {};
-                lessons.forEach(l => {
-                    const t = calLesson(l);
+                lessons.forEach(l => calLessons(l).forEach(t => {
                     if (!t || t.status !== 'SCHEDULED' || (t.gcalEventId && !t.gcalMovedFrom)) return;
                     const k = GACSchedule.cellKey(t);
                     if (seen[k]) return;
                     seen[k] = true;
                     const move = !!(t.gcalEventId && t.gcalMovedFrom);
                     const name = GACSchedule.isGroupLesson(t) ? `${t.program} 小組` : t.studentName;
-                    pushBtns.push(`<button onclick="gcalPushLesson('${t.lessonId}')" class="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold flex items-center gap-1" title="${move ? '把 Calendar 上原本那個事件改到新時間（不另建）' : '在導師的日曆建立這堂的事件（已有同一堂就不重建）'}"><i class="fa-brands fa-google"></i> ${move ? '改 GCal 事件' : '推送到 GCal'}：${escapeHtml(name)} ${t.date.slice(5)} ${t.time}</button>`);
-                });
+                    pushBtns.push(`<button onclick="gcalPushLesson('${t.lessonId}')" class="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold flex items-center gap-1" title="${move ? '把 Calendar 上原本那個事件改到新時間（不另建）' : '在導師的日曆建立這堂的事件（已有同一堂就不重建）'}"><i class="fa-brands fa-google"></i> ${move ? '改 GCal 事件' : '推送到 GCal'}：${escapeHtml(name)} ${t.date.slice(5)} ${t.time}${isPartMakeup(t) ? `（${t.duration} 分）` : ''}</button>`);
+                }));
             }
             if (pushBtns.length) parts.push(`<div class="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-900 flex items-center gap-2 flex-wrap"><span class="font-bold"><i class="fa-brands fa-google mr-1"></i>同步到 Google Calendar 嗎？</span>${pushBtns.join('')}<span class="text-[11px] text-indigo-700">按下即推送這一節（Calendar 上已有就改那個事件，不另建）</span></div>`);
             lessons.forEach(l => {
@@ -2461,10 +2683,7 @@
                 const copyFn = `copyLessonMsg('${type}', `;
                 let gcalBtn = '';
                 if (type === 'leave') gcalBtn = gcalStatusButton(l);
-                else if (gcalReadOnly()) {
-                    const t = calLesson(l);
-                    if (t) gcalBtn = gcalAddButton(t);
-                }
+                else if (gcalReadOnly()) gcalBtn = calLessons(l).map(t => gcalAddButton(t)).join('');
                 const wa = l.phone
                     ? `<button onclick="openWhatsAppMessage('${l.lessonId}', '${type}')" class="px-2.5 py-1.5 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>`
                     : `<span class="text-slate-400 italic">無電話，僅可複製</span>`;
@@ -2507,7 +2726,7 @@
 
         // 補堂課 → 掛著它的那堂請假課（補堂鏈的上一環）；獨立加課沒有
         function makeupOriginOf(makeupLessonId) {
-            return GACLessonState.allLessons(lessonsByMonth).find(l => l.makeupLessonId === makeupLessonId) || null;
+            return GACLessonState.allLessons(lessonsByMonth).find(l => GACLessonState.makeupIds(l).indexOf(makeupLessonId) !== -1) || null;
         }
 
         // 入口：課卡的「改期」、小組卡頭的「全組改期」（常規課或補堂課本身的 lessonId）
@@ -2551,9 +2770,9 @@
         // 入口：請假原課行上的「改期補堂」（不必切月找補堂課）
         function openMoveModal(originLessonId) {
             const f = GACLessonState.findLesson(lessonsByMonth, originLessonId);
-            if (!f || !f.lesson.makeupLessonId) { alert('⚠️ 此請假沒有已排的補堂'); return; }
-            if (!GACLessonState.findLesson(lessonsByMonth, f.lesson.makeupLessonId)) { alert('⚠️ 找不到補堂課 ' + f.lesson.makeupLessonId); return; }
-            openLessonMoveModal(f.lesson.makeupLessonId);
+            const mk = f ? singleFullMakeupOf(f.lesson) : null;
+            if (!mk) { alert('⚠️ 此請假沒有已排的（一整堂的）補堂；分段補堂請在那一段的卡上改期'); return; }
+            openLessonMoveModal(mk.lessonId);
         }
 
         function setMoveModalTitle(text) {
@@ -2578,25 +2797,31 @@
             const r = GACLessonState.moveLessonDateTime(lessonsByMonth, t.lessonId, date, time);
             if (!r.ok) return r;
             GACGcal.noteLocalMove(r.lesson, snap);
+            notePartsMoved(r.parts);   // 課後加時的段跟著搬了：Calendar 上那幾個事件也要改
             GACSendlog.ensureMoveEntry(sendLog, r.lesson, from, nowIso);
             return { ok: true, lessonId: r.lesson.lessonId, notice: 'move' };
         }
 
-        // 搬一堂補堂（origin＝掛著它的請假課）：取消舊補堂＋重排，lessonId 會換；舊補堂在 Calendar 的事件由新補堂接手。
-        // 舊補堂時間已通知過（補堂確認或改期通知已發）→ 這次建「改期通知」；未通知過 → 仍是新的補堂確認
-        function moveMakeupOf(origin, date, time, nowIso) {
-            const oldId = origin.makeupLessonId;
-            const oldMkF = oldId ? GACLessonState.findLesson(lessonsByMonth, oldId) : null;
-            const from = oldMkF ? { date: oldMkF.lesson.date, time: oldMkF.lesson.time } : null;
-            const told = !!oldId && ['MAKEUP_CONFIRM:', 'MOVE_CONFIRM:'].some(p => sendLog[p + oldId] && sendLog[p + oldId].status === 'SENT');
-            const snap = oldMkF ? GACGcal.moveSnapshot(oldMkF.lesson) : null;
-            const r = GACLessonState.scheduleMakeup(lessonsByMonth, origin.lessonId, { date, time }, { replaceExisting: true });
+        // 主課搬了，課後加時的段跟著搬：記下 Calendar 上原本的時段（同步時改那個事件）
+        function notePartsMoved(parts) {
+            (parts || []).forEach(x => GACGcal.noteLocalMove(x.lesson, GACGcal.moveSnapshot(Object.assign({}, x.lesson, { date: x.fromDate, time: x.fromTime }))));
+        }
+
+        // 搬一堂補堂 mk（origin＝掛著它的請假課）：取消舊補堂＋重排（同樣的分鐘數），lessonId 會換；舊補堂在 Calendar 的事件由新補堂接手。
+        // 課後加時的段自己搬走 → 不再掛在主課後面。舊補堂時間已通知過（補堂確認或改期通知已發）→ 這次建「改期通知」；
+        // 未通知過 → 仍是補堂確認（分段補堂的確認掛在原課上，已有就不另建）
+        function moveMakeupOf(origin, mk, date, time, nowIso) {
+            const oldId = mk.lessonId;
+            const from = { date: mk.date, time: mk.time };
+            const told = ['MAKEUP_CONFIRM:' + oldId, 'MOVE_CONFIRM:' + oldId, 'MAKEUP_CONFIRM:' + origin.lessonId].some(k => sendLog[k] && sendLog[k].status === 'SENT');
+            const snap = GACGcal.moveSnapshot(mk);
+            const r = GACLessonState.scheduleMakeup(lessonsByMonth, origin.lessonId, { date, time, duration: mk.duration, hostLessonId: null }, { replaceId: oldId });
             if (!r.ok) return r;
-            if (snap) GACGcal.noteLocalMove(r.makeup, snap);
+            GACGcal.noteLocalMove(r.makeup, snap);
             // 舊補堂的 TODO 確認條目會被 syncSendlog 孤兒清理，這裡為新補堂建新條目
-            const notice = told && from ? 'move' : 'makeup';
+            const notice = told ? 'move' : 'makeup';
             if (notice === 'move') GACSendlog.ensureMoveEntry(sendLog, r.makeup, from, nowIso);
-            else GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', r.makeup, nowIso);
+            else if (!sendLog['MAKEUP_CONFIRM:' + origin.lessonId]) GACSendlog.ensureLessonEntry(sendLog, 'MAKEUP_CONFIRM', r.makeup, nowIso);
             return { ok: true, lessonId: r.makeup.lessonId, notice: notice };
         }
 
@@ -2627,8 +2852,9 @@
                 origins.forEach(o => {
                     if (!o || o.leaveType !== 'TL') return;
                     GACLessonState.groupSiblings(lessonsByMonth, o.lessonId).forEach(s => {
-                        if (s.status !== 'LEAVE' || s.leaveType !== 'TL' || !s.makeupLessonId || movingIds.has(s.makeupLessonId)) return;
-                        const mk = GACLessonState.findLesson(lessonsByMonth, s.makeupLessonId);
+                        const sid = GACLessonState.makeupIds(s)[0];
+                        if (s.status !== 'LEAVE' || s.leaveType !== 'TL' || !sid || movingIds.has(sid)) return;
+                        const mk = GACLessonState.findLesson(lessonsByMonth, sid);
                         if (mk && (mk.lesson.date !== date || mk.lesson.time !== time) && !diverged.some(x => x.s === s)) diverged.push({ s, mk });
                     });
                 });
@@ -2646,7 +2872,7 @@
             let anyMove = false;
             targets.forEach((t, i) => {
                 // 補堂有上一環 → 走補堂鏈；常規課與獨立加課 → 只搬時間
-                const r = origins[i] ? moveMakeupOf(origins[i], date, time, nowIso) : moveRegularLesson(t, date, time, nowIso);
+                const r = origins[i] ? moveMakeupOf(origins[i], t, date, time, nowIso) : moveRegularLesson(t, date, time, nowIso);
                 if (r.ok) {
                     moved.push(r.lessonId);
                     if (r.notice === 'move') anyMove = true;
@@ -2751,7 +2977,40 @@
             showToast(`✅ 已批量確認 ${res.count} 堂為「已上課」`);
         }
 
-        // 待補堂池：跨月列出所有「已請假未排補堂」的課，按等待天數降序
+        // 補堂分鐘數下拉：15 的倍數到還欠的分鐘（最後一項＝補完）；「自訂…」露出數字框，可以精細改
+        function makeupDurationSelect(id, remaining) {
+            const opts = [];
+            for (let m = 15; m < remaining; m += 15) opts.push(`<option value="${m}">${m} 分鐘</option>`);
+            opts.push(`<option value="${remaining}" selected>${remaining} 分鐘（補完）</option>`);
+            opts.push('<option value="custom">自訂…</option>');
+            return `<select id="${id}" onchange="onMakeupDurationChange('${id}')" class="p-1 border rounded bg-white" title="這次補幾分鐘：15 分鐘一格；還欠 ${remaining} 分鐘">${opts.join('')}</select>` +
+                `<input type="number" id="${id}_custom" min="5" max="${remaining}" step="5" value="${remaining}" class="hidden w-16 p-1 border rounded bg-white" title="自訂分鐘數（5 的倍數）">`;
+        }
+        function onMakeupDurationChange(id) {
+            const sel = document.getElementById(id), box = document.getElementById(id + '_custom');
+            if (sel && box) box.classList.toggle('hidden', sel.value !== 'custom');
+        }
+        // 讀下拉（或自訂框）的分鐘數；讀不到＝補完（undefined）
+        function readMakeupDuration(id) {
+            const sel = document.getElementById(id);
+            if (!sel) return undefined;
+            const v = sel.value === 'custom' ? (document.getElementById(id + '_custom') || {}).value : sel.value;
+            const n = parseInt(v, 10);
+            return n > 0 ? n : undefined;
+        }
+
+        // 一堂請假已排的補堂：「9/16 22:15（15 分鐘）」逐個列出，帶狀態；給徽章與池子用
+        function makeupListHtml(lesson, withCancel) {
+            return GACLessonState.makeupsOf(lessonsByMonth, lesson.lessonId).map(m => {
+                const w = GACSchedule.lessonWeight(m);
+                const st = m.status === 'ATTENDED' ? '✓' : m.status === 'LEAVE' ? '請假' : m.status === 'NOSHOW' ? 'NS' : '';
+                const cancel = withCancel && m.status === 'SCHEDULED'
+                    ? ` <button onclick="cancelMakeupUI('${m.lessonId}')" class="text-rose-600 hover:text-rose-800" title="取消這一段補堂，分鐘數回到待補"><i class="fa-solid fa-xmark"></i></button>` : '';
+                return `<span class="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap">${m.date.slice(5).replace('-', '/')} ${m.time}${w < 1 || m.hostLessonId ? `（${m.duration} 分${m.hostLessonId ? '，課後加時' : ''}）` : ''}${st ? ' ' + st : ''}${cancel}</span>`;
+            }).join(' ');
+        }
+
+        // 待補堂池：跨月列出所有「已請假、還欠分鐘」的課，按等待天數降序。分段補了一部分的也在（寫明已補／尚欠）
         function renderPendingPool() {
             const banner = document.getElementById('pendingPoolBanner');
             if (!banner) return;
@@ -2761,25 +3020,29 @@
             if (hint) hint.textContent = pool.length ? `待補堂 ${pool.length} 筆` : '';
             banner.classList.toggle('hidden', pool.length === 0);
             const list = document.getElementById('pendingPoolList');
-            list.innerHTML = pool.map(({ lesson, waitingDays }) => {
+            list.innerHTML = pool.map(({ lesson, waitingDays, remaining }) => {
                 const id = lesson.lessonId;
                 const waitHtml = waitingDays >= 0
                     ? `<span class="${waitingDays >= 14 ? 'text-rose-600 font-bold' : 'text-amber-700 font-semibold'}">已等待 ${waitingDays} 天</span>`
                     : `<span class="text-slate-500">課日未到（${lesson.date}）</span>`;
+                const covered = (Number(lesson.duration) || 0) - remaining;
                 return `
                     <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 bg-white/80 border border-amber-200 rounded-lg p-2.5 text-xs">
                         <div class="flex items-center gap-2 flex-wrap">
                             <span class="font-bold text-slate-800">${lesson.studentName}</span>
                             <span class="text-slate-500">(${lesson.studentId})</span>
-                            <span class="text-slate-600">原課 ${lesson.date} ${lesson.time}</span>
+                            <span class="text-slate-600">原課 ${lesson.date} ${lesson.time} · ${lesson.duration} 分鐘</span>
                             <span class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded text-[10px] font-bold">${lesson.leaveType}</span>
                             ${lesson.isMakeup ? '<span class="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded text-[10px] font-bold" title="此課本身是補堂課（鏈式請假）">MU 鏈</span>' : ''}
+                            ${covered ? `<span class="text-emerald-700 font-semibold" title="已排了 ${covered} 分鐘的補堂">已補 ${covered}／尚欠 <b>${remaining}</b> 分鐘</span> ${makeupListHtml(lesson, true)}` : ''}
                             ${waitHtml}
                         </div>
                         <div class="flex items-center gap-1.5 flex-wrap">
                             <input type="date" id="poolDate_${id}" class="p-1 border rounded bg-white">
-                            <input type="time" id="poolTime_${id}" value="${lesson.time}" class="p-1 border rounded bg-white">
-                            <button onclick="submitMakeup('${id}','poolDate_${id}','poolTime_${id}')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold">排補堂</button>
+                            <input type="time" id="poolTime_${id}" value="${lesson.time}" step="900" class="p-1 border rounded bg-white">
+                            ${makeupDurationSelect('poolDur_' + id, remaining)}
+                            <button onclick="submitMakeup('${id}','poolDate_${id}','poolTime_${id}','poolDur_${id}')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold" title="另約一個時段補（整堂或其中幾分鐘）">排補堂</button>
+                            <button onclick="openMakeupParts('${id}')" class="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded font-bold" title="分散到之後幾堂常規課後面各加 15 分鐘補回"><i class="fa-solid fa-clock-rotate-left"></i> 課後加時…</button>
                             <button onclick="copyPoolGcalTitle('${id}')" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-semibold" title="自己在 Google Calendar 建補堂事件用：複製標題（與系統推送的補堂同一格式，學號開頭 → 同步時認得是這位學生；建在該導師的日曆，同步後在「手動新建」選「作為補堂 ←」）"><i class="fa-brands fa-google"></i> 複製標題</button>
                             <button onclick="copyPoolGcalDetails('${id}')" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-semibold" title="複製事件說明欄內容：補堂 · 課程、↩ 補的是哪一堂、導師、狀態：MU（已預寫）"><i class="fa-solid fa-align-left"></i> 複製內容</button>
                             ${lesson.phone ? `<button onclick="openWhatsAppMessage('${id}', 'leave')" class="px-2.5 py-1 bg-green-100 hover:bg-green-200 text-green-800 rounded font-semibold" title="WhatsApp 跟進"><i class="fa-brands fa-whatsapp"></i></button>` : ''}
@@ -3577,6 +3840,7 @@
                 studentDatabase = res.students;
                 groupClasses = res.groups || [];
                 lessonsByMonth = res.lessons;
+                GACLessonState.normalizeLessons(lessonsByMonth);
                 sendLog = res.sendlog;
                 appSettings = Object.assign({}, GACStorage.DEFAULT_SETTINGS, GACStorage.migrateSettings(res.settings));
                 if (Array.isArray(res.tutors) && res.tutors.length) { tutorsList = res.tutors; persistTutors(); } // v2 備份無名單 → 保留現有
@@ -3685,13 +3949,28 @@
         function lessonVars(lesson) {
             return {
                 date: dateLabel(lesson.date), weekday: weekdayOfDate(lesson.date), time: lesson.time || '',
+                endTime: lesson.time ? GACSchedule.addMinutes(lesson.time, Number(lesson.duration) || 45) : '', minutes: String(Number(lesson.duration) || ''),
                 name: lesson.studentName || lesson.studentId || '', id: lesson.studentId || '',
                 tutor: lesson.tutor || '', program: lesson.program || '', level: lesson.level || ''
             };
         }
 
         function leaveMsgFor(lesson) { return GACSendlog.fillTemplate(msgTpl('tplLeave'), lessonVars(lesson)); }
-        function makeupMsgFor(lesson) { return GACSendlog.fillTemplate(msgTpl('tplMakeup'), lessonVars(lesson)); }
+        // 補堂確認：一整堂 → 那堂補堂的日期時間；分段補堂（訊息掛在原課上）→ 一條訊息列齊全部時段（tplMakeupSplit）
+        function makeupMsgFor(lesson) {
+            if (!lesson.isMakeup && GACLessonState.makeupIds(lesson).length) {
+                const full = singleFullMakeupOf(lesson);
+                if (full) return GACSendlog.fillTemplate(msgTpl('tplMakeup'), lessonVars(full));
+                const parts = GACLessonState.makeupsOf(lessonsByMonth, lesson.lessonId);
+                const v = lessonVars(lesson);
+                v.originDate = v.date; v.originWeekday = v.weekday; v.originTime = v.time;
+                v.totalMinutes = String(parts.reduce((n, p) => n + (Number(p.duration) || 0), 0));
+                v.count = String(parts.length);
+                v.parts = parts.map(p => { const pv = lessonVars(p); return `${pv.date} (${pv.weekday}) ${pv.time}-${pv.endTime}（${pv.minutes} 分鐘）`; }).join('\n');
+                return GACSendlog.fillTemplate(msgTpl('tplMakeupSplit'), v);
+            }
+            return GACSendlog.fillTemplate(msgTpl('tplMakeup'), lessonVars(lesson));
+        }
 
         // 改期通知：{fromDate}/{fromWeekday}/{fromTime} 來自條目快照（改期前），{date}/{time} 讀課堂現值
         function moveMsgFor(entry, lesson) {
@@ -4895,7 +5174,7 @@
         // 訊息模板欄位：設定頁 textarea id → 設定鍵（還原預設／載入／儲存共用）
         const TPL_FIELDS = {
             tuition: ['setTplTuition', 'tplTuition'], leave: ['setTplLeave', 'tplLeave'],
-            makeup: ['setTplMakeup', 'tplMakeup'], move: ['setTplMove', 'tplMove'],
+            makeup: ['setTplMakeup', 'tplMakeup'], makeupSplit: ['setTplMakeupSplit', 'tplMakeupSplit'], move: ['setTplMove', 'tplMove'],
             remind: ['setRemindMsg', 'remindMsg'], receipt: ['setReceiptMsg', 'receiptMsg']
         };
 
